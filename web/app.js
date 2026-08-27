@@ -284,6 +284,15 @@ function drawCover(ctx, w, h, top, bottom) {
   }
 }
 
+// 사진 처리가 아직 남았으면 제목을 얹지 않는다.
+// 지워지기 전 사진에 한국어를 박아두면 지워졌는지 아닌지 알 수가 없다.
+function photoPending(card) {
+  return state.hasGemini
+      && state.photoMode !== 'off'
+      && !card.cleanImg
+      && !card.photoDone;
+}
+
 function render(card) {
   const canvas = card.canvas;
   // 글자를 지운 사진이 있으면 그걸 쓴다. 이미 깨끗하므로 잘라낼 것도 덮을 것도 없다.
@@ -305,7 +314,9 @@ function render(card) {
 
   const pad = w * 0.055;
   const boxW = w - pad * 2;
-  const lines = card.copy?.title_lines?.filter(Boolean) || [];
+  const lines = photoPending(card)
+    ? []
+    : (card.copy?.title_lines?.filter(Boolean) || []);
   const region = clean ? null : coverRegion(card);
 
   if (!lines.length) {
@@ -436,7 +447,7 @@ function mountCard(card) {
     if (!act) return;
     if (act === 'remove') removeCard(card);
     if (act === 'copy') copyBody(card);
-    if (act === 'regen') { card.cleanImg = null; card.madeBy = null; runOne(card); }
+    if (act === 'regen') { card.cleanImg = null; card.madeBy = null; card.photoDone = false; runOne(card); }
     if (act === 'download') downloadOne(card);
   });
 
@@ -542,7 +553,13 @@ async function writeCopy(card) {
 // 사진 처리. 실패해도 카피는 살아 있으므로 덮는 방식으로 이어간다.
 async function transformOne(card) {
   const mode = state.photoMode;
-  if (!state.hasGemini || mode === 'off' || card.cleanImg) return;
+  if (!state.hasGemini || mode === 'off' || card.cleanImg) {
+    if (!card.photoDone) {
+      card.photoDone = true;
+      fillCard(card);
+    }
+    return;
+  }
 
   const recreate = mode === 'recreate';
   setStatus(card, 'working', recreate ? '사진 만드는 중' : '글자 지우는 중');
@@ -561,6 +578,7 @@ async function transformOne(card) {
     setError(card,
       `${recreate ? '사진 만들기' : '글자 지우기'} 실패 — 덮어서 처리했습니다. (${err.message})`);
   }
+  card.photoDone = true;   // 이제 제목을 얹어도 된다
   fillCard(card);
 }
 
@@ -574,6 +592,7 @@ function storyOf(card) {
 async function runOne(card) {
   if (!card.img) return;
   clearError(card);
+  card.photoDone = false;
   setStatus(card, 'working', '읽는 중');
   try {
     await writeCopy(card);
@@ -590,7 +609,7 @@ async function runAll() {
 
   state.running = true;
   syncUI();
-  queue.forEach((c) => { clearError(c); setStatus(c, 'queued'); });
+  queue.forEach((c) => { clearError(c); c.photoDone = false; setStatus(c, 'queued'); });
 
   // 1단계 — 카피. 글은 여러 장을 동시에 맡겨도 잘 받아준다.
   let cursor = 0;
@@ -602,6 +621,7 @@ async function runAll() {
         try {
           await writeCopy(card);
           fillCard(card);
+          if (photoPending(card)) setStatus(card, 'queued', '사진 차례 기다리는 중');
         } catch (err) {
           setError(card, err.message);
         }
@@ -611,10 +631,8 @@ async function runAll() {
 
   // 2단계 — 글자 지우기. 이미지 생성은 분당 허용 횟수가 적어서
   // 동시에 던지면 전부 한도에 걸린다. 한 장씩 차례로 보낸다.
-  if (state.hasGemini && state.photoMode !== 'off') {
-    for (const card of queue) {
-      if (card.copy) await transformOne(card);
-    }
+  for (const card of queue) {
+    if (card.copy) await transformOne(card);   // 건너뛸 때도 상태를 정리한다
   }
 
   state.running = false;
