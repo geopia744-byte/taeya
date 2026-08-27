@@ -27,6 +27,7 @@ const state = {
   autoCrop: true,     // 인스타 UI 자동 잘라내기
   hasGemini: false,   // Gemini 키가 있는가
   photoMode: 'erase', // off | erase | recreate
+  category: 'person', // 고른 카테고리 (인물정보가 기본)
   lastSaveDir: null,
   running: false,
 };
@@ -42,7 +43,8 @@ let seq = 0;
 
 const REMEMBER = 'hooking-factory/settings';
 
-const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize', 'autoCrop'];
+const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize',
+              'autoCrop', 'category'];
 
 function loadSettings() {
   try {
@@ -785,6 +787,7 @@ function applySettings(saved) {
     box.querySelectorAll('button[data-v]').forEach((b) =>
       b.classList.toggle('on', b.dataset.v === value));
   };
+  mark('#category', state.category);
   mark('#photo-mode', state.photoMode);
   mark('#text-pos', state.textPos);
   mark('#logo-pos', state.logoPos);
@@ -878,6 +881,7 @@ function init() {
   });
 
   // 글자
+  bindSegment('#category', (v) => { state.category = v; saveSettings(); });
   bindSegment('#text-pos', (v) => { state.textPos = v; saveSettings(); renderAll(); });
   $('#text-size').addEventListener('input', (e) => {
     state.textSize = +e.target.value;
