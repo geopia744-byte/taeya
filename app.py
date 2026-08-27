@@ -25,8 +25,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-CONFIG_PATH = ROOT / "config.json"
 DEFAULT_OUTPUT = ROOT / "출력"
+
+# 설정은 프로그램 폴더가 아니라 사용자 계정 폴더에 둔다.
+# 새 버전을 새 폴더에 풀 때마다 키를 다시 넣게 되면 안 된다.
+CONFIG_PATH = Path.home() / ".hooking-factory" / "config.json"
+LEGACY_CONFIG = ROOT / "config.json"
 
 MODEL = "claude-opus-5"
 
@@ -38,16 +42,31 @@ MAX_BODY = 64 * 1024 * 1024
 # 설정
 # ─────────────────────────────────────────────────────────────
 
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def load_config() -> dict:
     if CONFIG_PATH.exists():
-        try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
+        return _read_json(CONFIG_PATH)
+    # 예전 버전은 프로그램 폴더에 뒀다. 있으면 옮겨와서 이어 쓴다.
+    if LEGACY_CONFIG.exists():
+        old = _read_json(LEGACY_CONFIG)
+        if old:
+            try:
+                save_config(old)
+                print(f"  설정을 {CONFIG_PATH} 로 옮겼습니다.")
+            except OSError:
+                pass
+        return old
     return {}
 
 
 def save_config(cfg: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(
         json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -912,6 +931,7 @@ def main() -> None:
     if not get_api_key():
         print("  ⚠ Anthropic 키가 없습니다. 화면 왼쪽 위 '설정'에서 넣어주세요.")
     print(f"  원본 글자 지우기: {'켜짐 (Gemini)' if get_gemini_key() else '꺼짐 — 글자를 덮습니다'}")
+    print(f"  설정 파일: {CONFIG_PATH}")
     print("\n  끄려면 이 창에서 Ctrl+C\n")
 
     threading.Timer(0.6, lambda: webbrowser.open(url)).start()
