@@ -369,13 +369,16 @@ function setStatus(card, status, label) {
   card.status = status;
   const overlay = card.el.querySelector('[data-role="overlay"]');
   const text = card.el.querySelector('[data-role="status"]');
-  if (status === 'done') {
+
+  // 아직 변환 전이거나 이미 끝났으면 사진을 가리지 않는다.
+  // 덮개는 실제로 기다리는 동안에만 띄운다.
+  if (status === 'done' || (status === 'idle' && !label)) {
     overlay.hidden = true;
     return;
   }
   overlay.hidden = false;
   overlay.classList.toggle('done', status === 'idle');
-  text.textContent = label || (status === 'working' ? '읽는 중' : '기다리는 중');
+  text.textContent = label || (status === 'working' ? '읽는 중' : '차례 기다리는 중');
 }
 
 function setError(card, message) {

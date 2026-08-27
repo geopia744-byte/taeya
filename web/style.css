@@ -51,7 +51,7 @@ body {
 .panel {
   background: var(--panel);
   border-right: 1px solid var(--line);
-  padding: 16px 14px 28px;
+  padding: 16px 14px 14px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -146,6 +146,15 @@ button:disabled { cursor: not-allowed; opacity: .4; }
   background: var(--accent);
   color: var(--accent-ink);
   font-weight: 700;
+}
+
+/* 실행 버튼은 늘 보여야 한다. 설정을 스크롤해 내려도 바닥에 붙어 있게 한다. */
+#run {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 10px;
+  box-shadow: 0 -14px 20px -6px var(--panel);
 }
 
 .primary:hover:not(:disabled) { background: #fff; }
