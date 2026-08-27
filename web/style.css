@@ -278,7 +278,7 @@ output {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(214px, 1fr));
   gap: 16px;
   align-items: start;
 }
@@ -294,13 +294,19 @@ output {
 
 .canvas-wrap {
   position: relative;
-  background: #000;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 5;      /* 사진 비율이 제각각이어도 카드 높이는 같게 */
+  background: #08090b;
+  overflow: hidden;
   line-height: 0;
 }
 
 .canvas-wrap canvas {
   display: block;
-  width: 100%;
+  max-width: 100%;
+  max-height: 100%;         /* 잘라내지 않고 틀 안에 맞춰 넣는다 */
+  width: auto;
   height: auto;
 }
 
