@@ -26,7 +26,7 @@ const state = {
   textSize: 7,        // 이미지 높이 대비 %
   autoCrop: true,     // 인스타 UI 자동 잘라내기
   hasGemini: false,   // Gemini 키가 있는가
-  erase: true,        // 원본 영어를 지울 것인가
+  photoMode: 'erase', // off | erase | recreate
   lastSaveDir: null,
   running: false,
 };
@@ -524,23 +524,35 @@ async function writeCopy(card) {
   });
 }
 
-// 원본 영어 지우기. 실패해도 카피는 살아 있으므로 덮는 방식으로 이어간다.
-async function eraseOne(card) {
-  if (!state.hasGemini || !state.erase || card.cleanImg) return;
-  setStatus(card, 'working', '글자 지우는 중');
+// 사진 처리. 실패해도 카피는 살아 있으므로 덮는 방식으로 이어간다.
+async function transformOne(card) {
+  const mode = state.photoMode;
+  if (!state.hasGemini || mode === 'off' || card.cleanImg) return;
+
+  const recreate = mode === 'recreate';
+  setStatus(card, 'working', recreate ? '사진 만드는 중' : '글자 지우는 중');
   try {
-    const cleaned = await api('/api/erase', {
+    const out = await api('/api/erase', {
       image_b64: croppedBase64(card),
       media_type: 'image/png',
+      mode,
+      // 새로 만들 때는 무슨 사건인지 알려줘야 장면이 이야기에 맞는다.
+      story: recreate ? storyOf(card) : '',
     });
-    card.cleanImg = await loadImage(
-      `data:${cleaned.media_type};base64,${cleaned.image_b64}`,
-    );
+    card.cleanImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
     clearError(card);
   } catch (err) {
-    setError(card, `글자 지우기 실패 — 덮어서 처리했습니다. (${err.message})`);
+    setError(card,
+      `${recreate ? '사진 만들기' : '글자 지우기'} 실패 — 덮어서 처리했습니다. (${err.message})`);
   }
   fillCard(card);
+}
+
+// 사진을 새로 만들 때 넘길 사건 설명.
+function storyOf(card) {
+  const c = card.copy || {};
+  return [c.source_text, (c.title_lines || []).join(' '), c.body]
+    .filter(Boolean).join('\n');
 }
 
 async function runOne(card) {
@@ -553,7 +565,7 @@ async function runOne(card) {
     return setError(card, err.message);
   }
   fillCard(card);
-  await eraseOne(card);
+  await transformOne(card);
 }
 
 async function runAll() {
@@ -583,9 +595,9 @@ async function runAll() {
 
   // 2단계 — 글자 지우기. 이미지 생성은 분당 허용 횟수가 적어서
   // 동시에 던지면 전부 한도에 걸린다. 한 장씩 차례로 보낸다.
-  if (state.hasGemini && state.erase) {
+  if (state.hasGemini && state.photoMode !== 'off') {
     for (const card of queue) {
-      if (card.copy) await eraseOne(card);
+      if (card.copy) await transformOne(card);
     }
   }
 
@@ -793,7 +805,16 @@ function init() {
     }
   });
 
-  $('#erase-on').addEventListener('change', (e) => { state.erase = e.target.checked; });
+  const MODE_HINT = {
+    off: '사진을 건드리지 않습니다. 영어는 덮어서 가립니다. 비용이 들지 않습니다.',
+    erase: '사진에 박힌 영어를 지우고 그 자리를 주변에 맞게 채웁니다.',
+    recreate: '인물·동물의 생김새는 그대로 두고 장면을 새로 만듭니다. '
+            + '원본 사진을 쓰지 않으므로 글자도 남지 않습니다.',
+  };
+  bindSegment('#photo-mode', (v) => {
+    state.photoMode = v;
+    $('#mode-hint').textContent = MODE_HINT[v] || '';
+  });
   $('#open-output').addEventListener('click', () => api('/api/open-output'));
 
   loadConfig();

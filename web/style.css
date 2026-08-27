@@ -222,6 +222,26 @@ button:disabled { cursor: not-allowed; opacity: .4; }
   font-size: 11px;
 }
 
+.seg.col {
+  flex-direction: column;
+}
+
+.seg.col button {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.seg.col button:last-child { border-bottom: none; }
+
+.seg button em {
+  float: right;
+  font-style: normal;
+  opacity: .55;
+  font-size: 10.5px;
+}
+
 .seg button.on { background: #2b303a; color: var(--ink); }
 
 .seg button:hover:not(.on) { color: var(--ink-dim); }

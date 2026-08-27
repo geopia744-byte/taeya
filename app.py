@@ -351,6 +351,28 @@ composition, the same framing, the same colors. Do not crop or zoom.
 Do not add any new text. Do not change anyone's face or appearance.
 """
 
+# 사진을 새로 만든다. 인물·동물의 생김새는 그대로 두고 장면만 다시 짠다.
+# 지울 글자가 없으니 지우기 실패도 없고, 원본 사진을 그대로 쓰지도 않는다.
+RECREATE_PROMPT = """\
+Create a new photograph of the same subject shown in the reference image.
+
+Identity must stay exactly the same. The same face, the same features,
+the same build and clothing style; for an animal, the same species,
+colouring and markings. Someone who knows this subject must recognise
+them instantly.
+
+Place that subject in a new cinematic scene that fits this story:
+
+{story}
+
+Fresh camera angle and background. Dramatic, filmic lighting. Photorealistic,
+shallow depth of field, high detail. Portrait orientation.
+
+No text, no captions, no letters or numbers anywhere in the image.
+Do not reproduce the reference image's framing or its background.
+"""
+
+
 _MODEL_CACHE: dict = {}
 
 
@@ -470,8 +492,19 @@ def pick_image_model(key: str) -> str:
     return chosen
 
 
-def erase_text(image_b64: str, media_type: str) -> dict:
-    """사진에 박힌 글자를 지우고 그 자리를 자연스럽게 채운 이미지를 돌려준다."""
+def build_image_prompt(mode: str, story: str) -> str:
+    """모드에 맞는 지시문을 만든다."""
+    if mode != "recreate":
+        return ERASE_PROMPT
+    clean = (story or "").strip()
+    if not clean:
+        clean = "A dramatic news moment involving this subject."
+    return RECREATE_PROMPT.format(story=clean[:600])
+
+
+def transform_image(image_b64: str, media_type: str,
+                    mode: str = "erase", story: str = "") -> dict:
+    """사진에서 글자를 지우거나(erase), 같은 인물로 장면을 새로 만든다(recreate)."""
     import urllib.error
     import urllib.request
 
@@ -484,7 +517,7 @@ def erase_text(image_b64: str, media_type: str) -> dict:
         "contents": [{
             "parts": [
                 {"inline_data": {"mime_type": media_type, "data": image_b64}},
-                {"text": ERASE_PROMPT},
+                {"text": build_image_prompt(mode, story)},
             ]
         }],
     }).encode("utf-8")
@@ -700,9 +733,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, data)
 
             if path == "/api/erase":
-                result = erase_text(
+                result = transform_image(
                     image_b64=payload["image_b64"],
                     media_type=payload.get("media_type", "image/png"),
+                    mode=payload.get("mode", "erase"),
+                    story=payload.get("story", ""),
                 )
                 return self._json(200, result)
 

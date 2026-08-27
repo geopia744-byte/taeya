@@ -69,13 +69,13 @@
   </section>
 
   <section class="group" id="erase-group" hidden>
-    <h2>원본 영어</h2>
-    <label class="check">
-      <input type="checkbox" id="erase-on" checked>
-      <span>AI로 지우기</span>
-    </label>
-    <p class="hint">사진에 박힌 영어를 지우고 그 자리를 채웁니다.
-      끄면 덮기만 하고 비용이 들지 않습니다.</p>
+    <h2>사진 처리</h2>
+    <div class="seg col" id="photo-mode">
+      <button type="button" data-v="off">그대로 두기 <em>무료</em></button>
+      <button type="button" data-v="erase" class="on">✂ 글자만 지우기</button>
+      <button type="button" data-v="recreate">✨ 사진 새로 만들기</button>
+    </div>
+    <p class="hint" id="mode-hint">사진에 박힌 영어를 지우고 그 자리를 채웁니다.</p>
   </section>
 
   <section class="group">
