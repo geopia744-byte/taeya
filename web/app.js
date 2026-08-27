@@ -24,6 +24,7 @@ const state = {
   logoSize: 22,       // 이미지 너비 대비 %
   textPos: 'bottom',
   textSize: 7,        // 이미지 높이 대비 %
+  autoCrop: true,     // 인스타 UI 자동 잘라내기
   lastSaveDir: null,
   running: false,
 };
@@ -76,60 +77,86 @@ function readAsDataURL(file) {
  * 줄이 가장 길게 이어지는 구간을 사진으로 판단한다.
  */
 function detectPhotoRegion(img) {
-  const FULL = { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
-  const H = img.naturalHeight;
   const W = img.naturalWidth;
-  if (H < 80 || W < 40) return FULL;
+  const H = img.naturalHeight;
+  const FULL = { x: 0, y: 0, w: W, h: H };
+  if (H < 80 || W < 80) return FULL;
 
-  // 가로로 줄여서 훑는다. 정확도보다 속도가 중요하다.
-  const sw = Math.min(W, 120);
+  const sw = Math.min(W, 200);
+  const sh = Math.min(H, 300);
   const cv = document.createElement('canvas');
   cv.width = sw;
-  cv.height = H;
+  cv.height = sh;
   const cx = cv.getContext('2d', { willReadFrequently: true });
-  cx.drawImage(img, 0, 0, sw, H);
+  // 점 추출로 줄인다. 평균을 내면 흰 바탕의 글자가 뭉개져 회색 덩어리가 되고,
+  // 그러면 캡션 칸을 사진으로 오해한다.
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(img, 0, 0, sw, sh);
 
   let px;
   try {
-    px = cx.getImageData(0, 0, sw, H).data;
+    px = cx.getImageData(0, 0, sw, sh).data;
   } catch {
     return FULL;  // 보안 제약 등으로 못 읽으면 원본 그대로 간다
   }
 
-  // 네 모서리에서 배경색을 추정한다.
-  const corner = (x, y) => {
-    const i = (y * sw + x) * 4;
-    return [px[i], px[i + 1], px[i + 2]];
+  // 인스타 UI 바탕은 순백 아니면 순검정이다. "모서리와 비슷한 색"으로 잡으면
+  // 밝은 사진을 배경으로 오해해 사진을 잘라먹는다. 두 색만 배경으로 본다.
+  const at = (x, y) => (y * sw + x) * 4;
+  const isWhite = (i) => px[i] > 246 && px[i + 1] > 246 && px[i + 2] > 246;
+  const isBlack = (i) => px[i] < 14 && px[i + 1] < 14 && px[i + 2] < 14;
+
+  const corners = [at(0, 0), at(sw - 1, 0), at(0, sh - 1), at(sw - 1, sh - 1)];
+  const whites = corners.filter(isWhite).length;
+  const blacks = corners.filter(isBlack).length;
+  let isBg;
+  if (whites >= 2) isBg = isWhite;
+  else if (blacks >= 2) isBg = isBlack;
+  else return FULL;  // UI 바탕이 없는 캡쳐 — 통째로 쓴다
+
+  // UI 는 언제나 가장자리에 붙어 있다. 가장자리부터 안쪽으로 깎는다.
+  // (가운데의 가장 긴 구간을 고르는 방식은 사진 한복판을 잘라낼 위험이 있다)
+  const trim = (n, isChrome) => {
+    let a = 0;
+    while (a < n && isChrome(a)) a++;
+    let b = n;
+    while (b > a && isChrome(b - 1)) b--;
+    return [a, b];
   };
-  const bg = corner(0, 0);
-  const near = (r, g, b) =>
-    Math.abs(r - bg[0]) < 18 && Math.abs(g - bg[1]) < 18 && Math.abs(b - bg[2]) < 18;
 
-  const isChrome = new Uint8Array(H);
-  for (let y = 0; y < H; y++) {
-    let same = 0;
-    for (let x = 0; x < sw; x++) {
-      const i = (y * sw + x) * 4;
-      if (near(px[i], px[i + 1], px[i + 2])) same++;
-    }
-    isChrome[y] = same / sw > 0.94 ? 1 : 0;
-  }
+  // 세로 — 위아래 UI 띠. 배경으로 거의 꽉 차 있으므로 기준을 높게.
+  const rowBgRatio = (y) => {
+    let n = 0;
+    for (let x = 0; x < sw; x++) if (isBg(at(x, y))) n++;
+    return n / sw;
+  };
+  let [y0, y1] = trim(sh, (y) => rowBgRatio(y) > 0.94);
+  if (y1 - y0 < sh * 0.4) { y0 = 0; y1 = sh; }
 
-  // 사진(비-UI)이 가장 길게 이어지는 구간
-  let best = { start: 0, len: 0 };
-  let start = -1;
-  for (let y = 0; y <= H; y++) {
-    if (y < H && !isChrome[y]) {
-      if (start < 0) start = y;
-    } else if (start >= 0) {
-      if (y - start > best.len) best = { start, len: y - start };
-      start = -1;
-    }
-  }
+  // 가로 — 옆에 붙은 캡션 칸. 흰 바탕에 글자만 있어 배경 비율이 여전히 높다.
+  const colBgRatio = (x) => {
+    let n = 0;
+    for (let y = y0; y < y1; y++) if (isBg(at(x, y))) n++;
+    return n / (y1 - y0);
+  };
+  let [x0, x1] = trim(sw, (x) => colBgRatio(x) > 0.5);
 
-  // 너무 작게 잡혔으면 잘못 본 것이다. 원본을 쓴다.
-  if (best.len < H * 0.4) return FULL;
-  return { x: 0, y: best.start, w: W, h: best.len };
+  // 캡션 칸은 한쪽에만 붙지만, 사진 자체의 흰 여백은 양옆에 고르게 있다.
+  // 양쪽이 비슷하게 잘렸다면 사진의 여백이므로 건드리지 않는다.
+  const cutL = x0;
+  const cutR = sw - x1;
+  const even = cutL > 0 && cutR > 0
+    && Math.min(cutL, cutR) / Math.max(cutL, cutR) > 0.4;
+  if (even || x1 - x0 < sw * 0.4) { x0 = 0; x1 = sw; }
+
+  const sx = W / sw;
+  const sy = H / sh;
+  return {
+    x: Math.round(x0 * sx),
+    y: Math.round(y0 * sy),
+    w: Math.max(1, Math.round((x1 - x0) * sx)),
+    h: Math.max(1, Math.round((y1 - y0) * sy)),
+  };
 }
 
 /* ── 제목 배치 ─────────────────────────────────────────────
@@ -271,6 +298,13 @@ function renderAll() {
   state.cards.forEach(render);
 }
 
+// 자동 잘라내기 스위치를 반영한다.
+function cropFor(img) {
+  return state.autoCrop
+    ? detectPhotoRegion(img)
+    : { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
+}
+
 /* ── 카드 만들기 ───────────────────────────────────────── */
 
 async function addFiles(fileList) {
@@ -294,7 +328,7 @@ async function addFiles(fileList) {
       const url = await readAsDataURL(file);
       card.dataUrl = url;
       card.img = await loadImage(url);
-      card.crop = detectPhotoRegion(card.img);
+      card.crop = cropFor(card.img);
       render(card);
       setStatus(card, 'idle');
     } catch (err) {
@@ -560,6 +594,14 @@ function init() {
   $('#logo-size').addEventListener('input', (e) => {
     state.logoSize = +e.target.value;
     $('#logo-size-out').textContent = `${e.target.value}%`;
+    renderAll();
+  });
+
+  $('#auto-crop').addEventListener('change', (e) => {
+    state.autoCrop = e.target.checked;
+    state.cards.forEach((card) => {
+      if (card.img) card.crop = cropFor(card.img);
+    });
     renderAll();
   });
 
