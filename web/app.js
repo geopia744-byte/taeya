@@ -41,6 +41,29 @@ let seq = 0;
  * 켠 뒤 '글자만 지우기'가 돌아간 일이 있었다.
  */
 
+/* ── 카테고리 ──────────────────────────────────────────
+ *
+ * 고른 항목 하나가 세 가지 일을 한다.
+ *   1) 새로 넣는 이미지가 이 항목에 담긴다
+ *   2) '이미지 변환'은 이 항목의 카드만 처리한다
+ *   3) 무대에는 이 항목의 카드만 보인다
+ *
+ * 위쪽 줄과 사이드바 줄은 같은 값을 본다. 둘을 따로 두면 어느 쪽이
+ * 진짜인지 알 수 없게 된다.
+ */
+
+const CATS = [
+  { v: 'person', name: '인물정보', c: '#b79cff' },
+  { v: 'issue',  name: '시사뉴스', c: '#6fb1ff' },
+  { v: 'nature', name: '자연뉴스', c: '#5cd98a' },
+  { v: 'star',   name: '연예뉴스', c: '#ff7fbc' },
+  { v: 'policy', name: '정책뉴스', c: '#ffc44d' },
+  { v: 'animal', name: '동물뉴스', c: '#4fd6c4' },
+  { v: 'city',   name: '도시풍경', c: '#ff9166' },
+];
+
+const catOf = (v) => CATS.find((c) => c.v === v) || CATS[0];
+
 const REMEMBER = 'hooking-factory/settings';
 
 const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize',
@@ -455,6 +478,7 @@ async function addFiles(fileList) {
       copy: null,
       status: 'idle',
       error: null,
+      category: state.category,   // 넣는 순간의 항목에 담긴다
     };
     state.cards.push(card);
     mountCard(card);
@@ -470,7 +494,7 @@ async function addFiles(fileList) {
       setError(card, err.message);
     }
   }
-  syncUI();
+  applyCategory();
 }
 
 function mountCard(card) {
@@ -491,13 +515,18 @@ function mountCard(card) {
     if (card.copy) card.copy.body = ev.target.value;
   });
 
+  const tag = node.querySelector('[data-role="cat"]');
+  const cat = catOf(card.category);
+  tag.textContent = cat.name;
+  tag.style.setProperty('--c', cat.c);
+
   $('#cards').appendChild(node);
 }
 
 function removeCard(card) {
   card.el?.remove();
   state.cards = state.cards.filter((c) => c !== card);
-  syncUI();
+  applyCategory();
 }
 
 function setStatus(card, status, label) {
@@ -642,7 +671,7 @@ async function runOne(card) {
 }
 
 async function runAll() {
-  const queue = state.cards.filter((c) => c.img && c.status !== 'working');
+  const queue = inCategory().filter((c) => c.img && c.status !== 'working');
   if (!queue.length) return;
 
   state.running = true;
@@ -765,10 +794,83 @@ const MODE_LABEL = {
   recreate: '사진 새로 만들기',
 };
 
+/* 칩 두 줄을 CATS 표에서 만든다. 목록을 HTML 에 또 적어두면
+   한쪽만 고쳤을 때 조용히 어긋난다. */
+function buildChips(id) {
+  const box = $(id);
+  box.innerHTML = '';
+  CATS.forEach((cat) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.dataset.v = cat.v;
+    b.style.setProperty('--c', cat.c);
+
+    const name = document.createElement('span');
+    name.textContent = cat.name;
+    const n = document.createElement('b');
+    n.className = 'n';
+    n.hidden = true;
+
+    b.append(name, n);
+    box.appendChild(b);
+  });
+
+  box.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-v]');
+    if (btn) pickCategory(btn.dataset.v);
+  });
+}
+
+function pickCategory(v) {
+  if (state.category === v) return;
+  state.category = v;
+  saveSettings();
+  applyCategory();
+}
+
+function inCategory() {
+  return state.cards.filter((c) => c.category === state.category);
+}
+
+// 고른 항목을 화면 전체에 반영한다. 칩 두 줄, 장수, 카드 보이기까지.
+function applyCategory() {
+  const count = {};
+  state.cards.forEach((c) => { count[c.category] = (count[c.category] || 0) + 1; });
+
+  ['#category', '#category-side'].forEach((id) => {
+    $(id).querySelectorAll('button[data-v]').forEach((b) => {
+      b.classList.toggle('on', b.dataset.v === state.category);
+      const n = b.querySelector('.n');
+      const v = count[b.dataset.v] || 0;
+      n.hidden = v === 0;
+      n.textContent = v;
+    });
+  });
+
+  state.cards.forEach((c) => {
+    if (c.el) c.el.hidden = c.category !== state.category;
+  });
+
+  syncUI();
+}
+
 function syncUI() {
-  const has = state.cards.length > 0;
-  $('#empty').hidden = has;
-  $('#run').disabled = !has || state.running;
+  const here = inCategory();
+  const cat = catOf(state.category);
+  const elsewhere = state.cards.length - here.length;
+
+  $('#empty').hidden = here.length > 0;
+  $('#run').disabled = !here.length || state.running;
+
+  // 지금 넣으면 어디로 담기는지 빈 화면에서도 알아야 한다.
+  $('#empty-sub').textContent = elsewhere
+    ? `지금 넣으면 「${cat.name}」에 담깁니다. 다른 항목에 ${elsewhere}장 있습니다.`
+    : `지금 넣으면 「${cat.name}」에 담깁니다.`;
+
+  $('#cat-note').textContent = here.length
+    ? `이 항목에 ${here.length}장. 변환은 이 항목만 처리합니다.`
+    : '변환된 이미지가 이 항목에 담깁니다.';
 
   // 무엇이 돌아갈지 버튼에 적는다. 고른 것과 도는 것이 어긋나면 안 된다.
   const what = state.hasGemini ? MODE_LABEL[state.photoMode] : null;
@@ -787,7 +889,6 @@ function applySettings(saved) {
     box.querySelectorAll('button[data-v]').forEach((b) =>
       b.classList.toggle('on', b.dataset.v === value));
   };
-  mark('#category', state.category);
   mark('#photo-mode', state.photoMode);
   mark('#text-pos', state.textPos);
   mark('#logo-pos', state.logoPos);
@@ -827,7 +928,7 @@ function init() {
     state.cards.forEach((c) => c.el?.remove());
     state.cards = [];
     state.lastSaveDir = null;
-    syncUI();
+    applyCategory();   // 칩에 붙은 장수도 같이 지워야 한다
   });
 
   // 끌어다 놓기
@@ -881,7 +982,6 @@ function init() {
   });
 
   // 글자
-  bindSegment('#category', (v) => { state.category = v; saveSettings(); });
   bindSegment('#text-pos', (v) => { state.textPos = v; saveSettings(); renderAll(); });
   $('#text-size').addEventListener('input', (e) => {
     state.textSize = +e.target.value;
@@ -937,7 +1037,10 @@ function init() {
     $(sel).addEventListener('change', saveSettings));
   $('#open-output').addEventListener('click', () => api('/api/open-output'));
 
+  buildChips('#category');
+  buildChips('#category-side');
   applySettings(loadSettings());
+  applyCategory();
   loadConfig();
   syncUI();
 }

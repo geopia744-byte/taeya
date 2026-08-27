@@ -349,6 +349,9 @@ output {
 }
 
 .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 15px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--c) 38%, transparent);
@@ -379,6 +382,50 @@ output {
 }
 
 .chip.on:hover { background: var(--c); }
+
+/* 그 항목에 몇 장 들어 있는지. 0장이면 아예 숨긴다. */
+.chip .n {
+  min-width: 15px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 26%, transparent);
+  color: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.chip.on .n {
+  background: rgba(0, 0, 0, .22);
+  color: #10131a;
+}
+
+/* 사이드바에 들어가는 작은 판. 폭이 좁아 여러 줄로 접힌다. */
+.chips-sm { gap: 5px; }
+
+.chips-sm .chip {
+  padding: 5px 10px;
+  font-size: 11.5px;
+  gap: 5px;
+}
+
+.chips-sm .chip.on { box-shadow: none; }
+
+/* 카드 왼쪽 위에 어느 항목인지 붙인다. 여러 항목을 오가며 작업할 때
+   지금 보는 게 무엇인지 카드만 봐도 알아야 한다. */
+.cat-tag {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--c, #666);
+  color: #10131a;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: .01em;
+}
 
 .empty {
   position: absolute;
