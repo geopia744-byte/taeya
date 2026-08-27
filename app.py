@@ -354,11 +354,53 @@ Do not add any new text. Do not change anyone's face or appearance.
 _MODEL_CACHE: dict = {}
 
 
+def _quota_info(body: str) -> dict:
+    """구글이 429 와 함께 보내는 한도 정보를 읽는다.
+
+    얼마나 기다리라고 알려주고(RetryInfo), 어떤 한도가 걸렸는지도 알려준다
+    (QuotaFailure). 분당 한도는 기다리면 풀리지만 하루 한도는 기다려도
+    소용없으므로, 둘을 구분해야 헛되이 기다리지 않는다.
+    """
+    out = {"retry_after": 0.0, "per_day": False}
+    # 오류 처리 중에 죽으면 진짜 원인이 사용자에게 닿지 않는다. 형태를 믿지 않는다.
+    try:
+        parsed = json.loads(body)
+        details = (parsed or {}).get("error", {}) or {}
+        details = details.get("details") or []
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return out
+    if not isinstance(details, list):
+        return out
+
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("@type", ""))
+        if kind.endswith("RetryInfo"):
+            raw = str(item.get("retryDelay", "")).rstrip("s")
+            try:
+                out["retry_after"] = float(raw)
+            except ValueError:
+                pass
+        elif kind.endswith("QuotaFailure"):
+            violations = item.get("violations") or []
+            if not isinstance(violations, list):
+                continue
+            for v in violations:
+                if not isinstance(v, dict):
+                    continue
+                blob = f"{v.get('quotaId', '')} {v.get('quotaMetric', '')}".lower()
+                if "perday" in blob.replace("_", "") or "per_day" in blob:
+                    out["per_day"] = True
+    return out
+
+
 def _gemini_message(status: int, body: str) -> str:
     """구글이 돌려준 오류를 사용자가 알아들을 수 있는 말로 바꾼다."""
     try:
-        detail = json.loads(body).get("error", {}).get("message", "")
-    except (json.JSONDecodeError, AttributeError):
+        err = (json.loads(body) or {}).get("error") or {}
+        detail = str(err.get("message", "")) if isinstance(err, dict) else ""
+    except (json.JSONDecodeError, AttributeError, TypeError):
         detail = body[:200]
     if status in (400, 401, 403):
         low = detail.lower()
@@ -370,10 +412,14 @@ def _gemini_message(status: int, body: str) -> str:
                     f"({detail[:120]})")
         return f"Gemini 가 요청을 거절했습니다. {detail[:160]}"
     if status == 429:
-        return ("Gemini 사용 한도(분당 횟수)에 걸렸습니다. "
-                "무료 한도는 매우 적으니, Google AI Studio 에서 "
-                "결제를 설정하면 한도가 올라갑니다. "
-                "지금은 잠시 뒤 '다시 뽑기'로 재시도해주세요.")
+        info = _quota_info(body)
+        if info["per_day"]:
+            return ("오늘 쓸 수 있는 Gemini 무료 횟수를 다 썼습니다. "
+                    "내일이면 풀리지만, 계속 쓰시려면 Google AI Studio 에서 "
+                    "결제를 설정해야 합니다. (월 지출 한도를 함께 걸어두세요)")
+        return ("Gemini 분당 한도에 걸렸습니다. 기다렸다 다시 시도했는데도 "
+                "계속 걸립니다. 무료 한도는 매우 적으니 Google AI Studio 에서 "
+                "결제를 설정하면 한도가 크게 올라갑니다.")
     return f"Gemini 오류 {status}: {detail[:160]}"
 
 
@@ -445,9 +491,9 @@ def erase_text(image_b64: str, media_type: str) -> dict:
 
     # 이미지 생성은 분당 허용 횟수가 적다. 429 는 기다렸다 다시 하면 대개 통과하므로
     # 사용자에게 떠넘기지 않고 여기서 참아준다.
-    delays = (20, 45, 90)
+    MAX_TRIES = 5
     data = None
-    for attempt in range(len(delays) + 1):
+    for attempt in range(MAX_TRIES):
         req = urllib.request.Request(
             f"{GEMINI_HOST}/{model}:generateContent",
             data=payload,
@@ -459,12 +505,20 @@ def erase_text(image_b64: str, media_type: str) -> dict:
             break
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace")
-            if exc.code == 429 and attempt < len(delays):
-                wait = delays[attempt]
-                print(f"  한도에 걸려 {wait}초 기다립니다… ({attempt + 1}/{len(delays)})")
-                time.sleep(wait)
-                continue
-            raise RuntimeError(_gemini_message(exc.code, body)) from None
+            if exc.code != 429:
+                raise RuntimeError(_gemini_message(exc.code, body)) from None
+
+            info = _quota_info(body)
+            # 하루 한도는 기다려도 풀리지 않는다. 헛되이 붙잡고 있지 않는다.
+            if info["per_day"] or attempt == MAX_TRIES - 1:
+                raise RuntimeError(_gemini_message(429, body)) from None
+
+            # 구글이 알려준 시간만큼 기다린다. 안 알려주면 점점 길게.
+            wait = info["retry_after"] or (15 * (attempt + 1))
+            wait = min(wait + 2, 120)
+            print(f"  분당 한도 — {wait:.0f}초 기다립니다 ({attempt + 1}/{MAX_TRIES - 1})")
+            time.sleep(wait)
+            continue
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Gemini 에 연결하지 못했습니다. ({exc.reason})") from None
 
