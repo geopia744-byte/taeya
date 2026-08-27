@@ -33,6 +33,40 @@ const state = {
 
 let seq = 0;
 
+/* ── 화면 설정 기억하기 ────────────────────────────────
+ *
+ * 껐다 켤 때마다 모드가 기본값으로 돌아가면, 골라둔 것이 조용히 풀려서
+ * 엉뚱한 처리가 돌아간다. 실제로 '사진 새로 만들기'를 골라뒀는데 다시
+ * 켠 뒤 '글자만 지우기'가 돌아간 일이 있었다.
+ */
+
+const REMEMBER = 'hooking-factory/settings';
+
+const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize', 'autoCrop'];
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(REMEMBER);
+    if (!raw) return {};
+    const saved = JSON.parse(raw) || {};
+    KEEP.forEach((k) => { if (k in saved) state[k] = saved[k]; });
+    return saved;
+  } catch {
+    return {};   // 저장소를 못 쓰는 브라우저여도 동작은 해야 한다
+  }
+}
+
+function saveSettings() {
+  try {
+    const out = {};
+    KEEP.forEach((k) => { out[k] = state[k]; });
+    out.lang = $('#lang').value;
+    out.guide = $('#guide').value;
+    out.styleSample = $('#style-sample').value;
+    localStorage.setItem(REMEMBER, JSON.stringify(out));
+  } catch { /* 못 저장해도 그냥 진행한다 */ }
+}
+
 /* ── 자잘한 도구 ───────────────────────────────────────── */
 
 function toast(msg, bad = false) {
@@ -716,12 +750,55 @@ async function downloadZip() {
 
 /* ── UI 동기화 ─────────────────────────────────────────── */
 
+const MODE_HINT = {
+  off: '사진을 건드리지 않습니다. 영어는 덮어서 가립니다. 비용이 들지 않습니다.',
+  erase: '사진에 박힌 영어를 지우고 그 자리를 주변에 맞게 채웁니다.',
+  recreate: '인물·동물의 생김새는 그대로 두고 장면을 새로 만듭니다. '
+          + '원본 사진을 쓰지 않으므로 글자도 남지 않습니다.',
+};
+
+const MODE_LABEL = {
+  off: '사진 그대로',
+  erase: '글자만 지우기',
+  recreate: '사진 새로 만들기',
+};
+
 function syncUI() {
   const has = state.cards.length > 0;
   $('#empty').hidden = has;
   $('#run').disabled = !has || state.running;
-  $('#run').textContent = state.running ? '변환 중…' : '이미지 변환';
+
+  // 무엇이 돌아갈지 버튼에 적는다. 고른 것과 도는 것이 어긋나면 안 된다.
+  const what = state.hasGemini ? MODE_LABEL[state.photoMode] : null;
+  $('#run').textContent = state.running
+    ? '변환 중…'
+    : (what ? `이미지 변환 — ${what}` : '이미지 변환');
+
   $('#export-group').hidden = doneCards().length === 0;
+}
+
+// 기억해둔 설정을 화면에 되살린다.
+function applySettings(saved) {
+  const mark = (id, value) => {
+    const box = $(id);
+    if (!box) return;
+    box.querySelectorAll('button[data-v]').forEach((b) =>
+      b.classList.toggle('on', b.dataset.v === value));
+  };
+  mark('#photo-mode', state.photoMode);
+  mark('#text-pos', state.textPos);
+  mark('#logo-pos', state.logoPos);
+
+  $('#text-size').value = state.textSize;
+  $('#text-size-out').textContent = `${state.textSize}%`;
+  $('#logo-size').value = state.logoSize;
+  $('#logo-size-out').textContent = `${state.logoSize}%`;
+  $('#auto-crop').checked = state.autoCrop;
+  $('#mode-hint').textContent = MODE_HINT[state.photoMode] || '';
+
+  if (saved.lang) $('#lang').value = saved.lang;
+  if (saved.guide) $('#guide').value = saved.guide;
+  if (saved.styleSample) $('#style-sample').value = saved.styleSample;
 }
 
 function bindSegment(id, onPick) {
@@ -783,15 +860,17 @@ function init() {
     $('#logo-opts').hidden = true;
     renderAll();
   });
-  bindSegment('#logo-pos', (v) => { state.logoPos = v; renderAll(); });
+  bindSegment('#logo-pos', (v) => { state.logoPos = v; saveSettings(); renderAll(); });
   $('#logo-size').addEventListener('input', (e) => {
     state.logoSize = +e.target.value;
     $('#logo-size-out').textContent = `${e.target.value}%`;
+    saveSettings();
     renderAll();
   });
 
   $('#auto-crop').addEventListener('change', (e) => {
     state.autoCrop = e.target.checked;
+    saveSettings();
     state.cards.forEach((card) => {
       if (card.img) card.crop = cropFor(card.img);
     });
@@ -799,10 +878,11 @@ function init() {
   });
 
   // 글자
-  bindSegment('#text-pos', (v) => { state.textPos = v; renderAll(); });
+  bindSegment('#text-pos', (v) => { state.textPos = v; saveSettings(); renderAll(); });
   $('#text-size').addEventListener('input', (e) => {
     state.textSize = +e.target.value;
     $('#text-size-out').textContent = `${e.target.value}%`;
+    saveSettings();
     renderAll();
   });
 
@@ -843,18 +923,17 @@ function init() {
     }
   });
 
-  const MODE_HINT = {
-    off: '사진을 건드리지 않습니다. 영어는 덮어서 가립니다. 비용이 들지 않습니다.',
-    erase: '사진에 박힌 영어를 지우고 그 자리를 주변에 맞게 채웁니다.',
-    recreate: '인물·동물의 생김새는 그대로 두고 장면을 새로 만듭니다. '
-            + '원본 사진을 쓰지 않으므로 글자도 남지 않습니다.',
-  };
   bindSegment('#photo-mode', (v) => {
     state.photoMode = v;
     $('#mode-hint').textContent = MODE_HINT[v] || '';
+    saveSettings();
+    syncUI();
   });
+  ['#lang', '#guide', '#style-sample'].forEach((sel) =>
+    $(sel).addEventListener('change', saveSettings));
   $('#open-output').addEventListener('click', () => api('/api/open-output'));
 
+  applySettings(loadSettings());
   loadConfig();
   syncUI();
 }
