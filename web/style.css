@@ -381,6 +381,28 @@ output {
 .card:hover .del { opacity: 1; }
 .del:hover { background: rgba(190, 60, 60, .82); color: #fff; }
 
+/* 사진을 실제로 손봤는지 한눈에 보이게 한다.
+   20장씩 돌릴 때 어느 게 지워졌고 어느 게 덮인 것인지 구분이 필요하다. */
+.badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(10, 11, 13, .78);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #cfd3da;
+  font-size: 10.5px;
+  line-height: 1.5;
+  letter-spacing: .01em;
+}
+
+.badge.clean {
+  background: rgba(28, 74, 52, .86);
+  border-color: rgba(120, 220, 170, .3);
+  color: #b8f0d4;
+}
+
 .card-body { padding: 10px 11px 12px; }
 
 .body-head {

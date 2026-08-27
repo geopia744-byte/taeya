@@ -436,7 +436,7 @@ function mountCard(card) {
     if (!act) return;
     if (act === 'remove') removeCard(card);
     if (act === 'copy') copyBody(card);
-    if (act === 'regen') { card.cleanImg = null; runOne(card); }
+    if (act === 'regen') { card.cleanImg = null; card.madeBy = null; runOne(card); }
     if (act === 'download') downloadOne(card);
   });
 
@@ -490,6 +490,21 @@ function fillCard(card) {
   card.el.querySelector('[data-role="body"]').value = copy.body || '';
   card.el.querySelector('[data-role="tags"]').textContent =
     (copy.hashtags || []).join(' ');
+
+  // 사진을 실제로 손봤는지 표시한다. 덮은 것과 지운 것은 결과물이 다르다.
+  const badge = card.el.querySelector('[data-role="badge"]');
+  if (card.cleanImg) {
+    badge.hidden = false;
+    badge.className = 'badge clean';
+    badge.textContent = card.madeBy === 'recreate' ? '✨ 새로 만든 사진' : '✂ 영어 지움';
+  } else if (state.hasGemini && state.photoMode !== 'off') {
+    badge.hidden = false;
+    badge.className = 'badge';
+    badge.textContent = '덮어서 가림';
+  } else {
+    badge.hidden = true;
+  }
+
   render(card);
   setStatus(card, 'done');
 }
@@ -540,6 +555,7 @@ async function transformOne(card) {
       story: recreate ? storyOf(card) : '',
     });
     card.cleanImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
+    card.madeBy = mode;
     clearError(card);
   } catch (err) {
     setError(card,
