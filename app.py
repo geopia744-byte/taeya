@@ -460,36 +460,69 @@ def _gemini_get(path: str, key: str) -> dict:
         raise RuntimeError(f"Gemini 에 연결하지 못했습니다. 인터넷을 확인해주세요. ({exc.reason})") from None
 
 
-def pick_image_model(key: str) -> str:
-    """이미지를 만들 수 있는 모델을 API 에 직접 물어서 고른다.
+def list_image_models(key: str) -> list:
+    """이 키로 쓸 수 있는 이미지 모델을 좋은 것부터 늘어놓는다.
 
-    구글이 모델 이름을 수시로 바꾸므로 코드에 박아두지 않는다.
-    싼 것부터 고른다 — lite 가 있으면 lite, 없으면 flash, 그다음 나머지.
+    구글이 모델 이름을 수시로 바꾸므로 코드에 박아두지 않고 물어본다.
+    lite 모델은 사진 편집을 제대로 못 하고 받은 사진을 그대로 돌려주는
+    일이 있어서 맨 뒤로 보낸다.
     """
-    if "id" in _MODEL_CACHE:
-        return _MODEL_CACHE["id"]
+    if "available" in _MODEL_CACHE:
+        return _MODEL_CACHE["available"]
 
     data = _gemini_get("models?pageSize=200", key)
     usable = [
-        m["name"] for m in data.get("models", [])
+        m["name"].split("/")[-1] for m in data.get("models", [])
         if "generateContent" in (m.get("supportedGenerationMethods") or [])
         and "image" in m["name"].lower()
         and "embedding" not in m["name"].lower()
     ]
+
+    def tier(name: str) -> int:
+        low = name.lower()
+        return 0 if "pro" in low else 2 if "lite" in low else 1
+
+    usable.sort(reverse=True)      # 새 버전 먼저
+    usable.sort(key=tier)          # 파이썬 정렬은 안정적이라 등급이 우선한다
+
+    _MODEL_CACHE["available"] = usable
+    return usable
+
+
+def pick_image_model(key: str) -> str:
+    """쓸 모델을 정한다. 사용자가 고른 것이 있으면 그것을 쓴다."""
+    picked = (load_config().get("gemini_model") or "").strip()
+    if picked:
+        return f"models/{picked.split('/')[-1]}"
+
+    if "id" in _MODEL_CACHE:
+        return _MODEL_CACHE["id"]
+
+    usable = list_image_models(key)
     if not usable:
         raise RuntimeError(
             "이 키로 쓸 수 있는 이미지 모델을 찾지 못했습니다. "
             "Google AI Studio 에서 결제가 설정돼 있는지 확인해주세요."
         )
-
-    def rank(name: str) -> tuple:
-        low = name.lower()
-        return (0 if "lite" in low else 1 if "flash" in low else 2, len(name))
-
-    chosen = sorted(usable, key=rank)[0]
+    chosen = f"models/{usable[0]}"
     _MODEL_CACHE["id"] = chosen
-    print(f"  이미지 모델: {chosen.split('/')[-1]}")
+    print(f"  이미지 모델: {usable[0]}")
+    print(f"  (고를 수 있는 모델: {', '.join(usable[:8])})")
     return chosen
+
+
+def _looks_unchanged(before_b64: str, after_b64: str) -> bool:
+    """돌려받은 사진이 보낸 것과 사실상 같은지 본다.
+
+    바이트가 같으면 확실하고, 길이가 거의 같으면 의심한다. 재압축되면
+    바이트는 달라지지만 크기는 비슷하게 남기 때문이다.
+    """
+    if before_b64 == after_b64:
+        return True
+    a, b = len(before_b64), len(after_b64)
+    if not a or not b:
+        return False
+    return abs(a - b) / max(a, b) < 0.005
 
 
 def build_image_prompt(mode: str, story: str) -> str:
@@ -569,9 +602,18 @@ def transform_image(image_b64: str, media_type: str,
     for part in candidates[0].get("content", {}).get("parts", []):
         blob = part.get("inlineData") or part.get("inline_data")
         if blob and blob.get("data"):
+            out = blob["data"]
+            # 어떤 모델은 편집을 못 하면 받은 사진을 그대로 돌려준다. 그러면
+            # "지웠다"고 표시되지만 실제로는 영어가 남아 결과물이 망가진다.
+            if _looks_unchanged(image_b64, out):
+                raise RuntimeError(
+                    f"모델({model.split('/')[-1]})이 사진을 손대지 않고 그대로 "
+                    "돌려줬습니다. 이미지 편집을 지원하는 모델이 아닐 수 있습니다."
+                )
             return {
-                "image_b64": blob["data"],
+                "image_b64": out,
                 "media_type": blob.get("mimeType") or blob.get("mime_type") or "image/png",
+                "model": model.split("/")[-1],
             }
 
     reason = candidates[0].get("finishReason", "")
@@ -682,6 +724,19 @@ class Handler(BaseHTTPRequestHandler):
                 "languages": LANGUAGES,
             })
 
+        if path == "/api/models":
+            try:
+                key = check_key(get_gemini_key(), "Gemini")
+                if not key:
+                    return self._json(200, {"models": [], "chosen": "",
+                                            "error": "Gemini 키가 없습니다."})
+                return self._json(200, {
+                    "chosen": (load_config().get("gemini_model") or ""),
+                    "models": list_image_models(key),
+                })
+            except Exception as exc:
+                return self._json(200, {"models": [], "chosen": "", "error": str(exc)})
+
         if path == "/api/open-output":
             out = get_output_dir()
             out.mkdir(parents=True, exist_ok=True)
@@ -713,6 +768,13 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         cfg.pop("gemini_key", None)
                     _MODEL_CACHE.clear()
+                if "gemini_model" in payload:
+                    m = (payload["gemini_model"] or "").strip()
+                    if m:
+                        cfg["gemini_model"] = m
+                    else:
+                        cfg.pop("gemini_model", None)
+                    _MODEL_CACHE.pop("id", None)
                 if "output_dir" in payload:
                     d = (payload["output_dir"] or "").strip()
                     if d:

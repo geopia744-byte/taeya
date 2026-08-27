@@ -802,6 +802,7 @@ function init() {
     $('#gemini-state').textContent = cfg.has_gemini
       ? '저장된 키가 있습니다. 원본 영어를 지웁니다.'
       : '없어도 됩니다. 없으면 영어를 덮기만 합니다.';
+    await fillModels(cfg.has_gemini);
     dlg.showModal();
   });
   $('#save-settings').addEventListener('click', async () => {
@@ -809,6 +810,7 @@ function init() {
       await api('/api/config', {
         api_key: $('#api-key').value,
         gemini_key: $('#gemini-key').value,
+        gemini_model: $('#gemini-model').value,
         output_dir: $('#out-dir').value,
       });
       $('#api-key').value = '';
@@ -835,6 +837,29 @@ function init() {
 
   loadConfig();
   syncUI();
+}
+
+// 쓸 수 있는 사진 모델을 불러와 고를 수 있게 한다.
+async function fillModels(hasGemini) {
+  const field = $('#model-field');
+  const sel = $('#gemini-model');
+  field.hidden = !hasGemini;
+  if (!hasGemini) return;
+
+  sel.innerHTML = '<option value="">불러오는 중…</option>';
+  try {
+    const { models = [], chosen = '', error } = await api('/api/models');
+    if (error || !models.length) {
+      sel.innerHTML = `<option value="">${error || '모델을 찾지 못했습니다'}</option>`;
+      return;
+    }
+    sel.innerHTML = ['<option value="">자동 (가장 좋은 것)</option>']
+      .concat(models.map((m) => `<option value="${m}">${m}</option>`))
+      .join('');
+    sel.value = chosen || '';
+  } catch (err) {
+    sel.innerHTML = `<option value="">${err.message}</option>`;
+  }
 }
 
 // 서버 설정을 읽어 Gemini 관련 화면을 켜고 끈다.
