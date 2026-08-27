@@ -582,10 +582,12 @@ async function transformOne(card) {
   fillCard(card);
 }
 
-// 사진을 새로 만들 때 넘길 사건 설명.
+// 사진을 새로 만들 때 넘길 장면 묘사.
+// Claude 가 설계한 scene 을 쓴다. 없으면 사건 설명으로라도 방향을 준다.
 function storyOf(card) {
   const c = card.copy || {};
-  return [c.source_text, (c.title_lines || []).join(' '), c.body]
+  if (c.scene && c.scene.trim()) return c.scene.trim();
+  return [c.source_text, (c.title_lines || []).join(' ')]
     .filter(Boolean).join('\n');
 }
 

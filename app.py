@@ -182,7 +182,20 @@ SYSTEM_PROMPT = """\
 
 4. **source_text** — 원본 이미지에서 읽어낸 문구를 그대로. (검수용)
 
-5. **text_area** — 사진에 **박혀 있는 글자**가 차지하는 세로 범위.
+5. **scene** — 사진을 새로 만들 때 쓸 **장면 묘사**를 영어로 한 문단.
+
+   원본 사진을 흉내내지 말고, **이 사건에 어울리는 다른 장면**을 새로 짜라.
+   - 장소를 바꿔라 (같은 방이 아니라 골목, 병원 복도, 들판…)
+   - 카메라 각도를 정하라 (낮은 각도, 어깨 너머, 정면 클로즈업…)
+   - 시간대와 조명을 정하라 (비 오는 밤의 네온, 새벽 역광, 형광등…)
+   - 분위기를 한 마디로 (차갑고 무겁게, 따뜻하고 아련하게…)
+
+   **인물의 생김새는 쓰지 마라.** 얼굴은 원본 사진에서 그대로 가져오므로
+   여기에 적으면 오히려 방해가 된다. 장면만 써라.
+
+   원본에 인물이 없다면(사물·풍경) 그 대상이 놓인 새로운 장면을 써라.
+
+6. **text_area** — 사진에 **박혀 있는 글자**가 차지하는 세로 범위.
    이미지 맨 위를 0.0, 맨 아래를 1.0으로 보고 `top`과 `bottom`을 낸다.
 
    이 범위는 **덮어서 가려진다.** 그 위에 한국어 제목을 얹기 때문이다.
@@ -266,6 +279,17 @@ OUTPUT_SCHEMA = {
             "items": {"type": "string"},
             "description": "'#'를 포함한 해시태그 10~15개",
         },
+        "scene": {
+            "type": "string",
+            "description": (
+                "사진을 새로 만들 때 쓸 장면 묘사. 영어로 한 문단. "
+                "원본과 '다른' 장소·각도·시간대를 정하고, 조명과 분위기를 "
+                "구체적으로 적어라. 인물의 생김새는 여기 쓰지 마라(원본에서 가져온다). "
+                "예: 'A rain-soaked city alley at night, seen from a low angle. "
+                "Neon signs reflect in puddles. The man walks toward the camera, "
+                "backlit by a streetlamp. Cold blue tones, heavy atmosphere.'"
+            ),
+        },
         "text_area": {
             "type": "object",
             "description": (
@@ -281,7 +305,8 @@ OUTPUT_SCHEMA = {
             "additionalProperties": False,
         },
     },
-    "required": ["source_text", "title_lines", "body", "hashtags", "text_area"],
+    "required": ["source_text", "title_lines", "body", "hashtags",
+                 "scene", "text_area"],
     "additionalProperties": False,
 }
 
@@ -373,22 +398,26 @@ Do not add any new text. Do not change anyone's face or appearance.
 # 사진을 새로 만든다. 인물·동물의 생김새는 그대로 두고 장면만 다시 짠다.
 # 지울 글자가 없으니 지우기 실패도 없고, 원본 사진을 그대로 쓰지도 않는다.
 RECREATE_PROMPT = """\
-Create a new photograph of the same subject shown in the reference image.
+Do NOT retouch, edit, or clean up the reference image. Produce a COMPLETELY
+NEW photograph — a different moment, shot on a different day, in a different
+place.
 
-Identity must stay exactly the same. The same face, the same features,
-the same build and clothing style; for an animal, the same species,
-colouring and markings. Someone who knows this subject must recognise
-them instantly.
+Use the reference image for ONE purpose only: to copy what the subject looks
+like. The same face and features, the same build, the same hair; for an animal,
+the same species, colouring and markings. Someone who knows this subject must
+recognise them instantly.
 
-Place that subject in a new cinematic scene that fits this story:
+Everything else must be new. New location. New camera angle. New framing.
+New lighting. Do not reuse the reference image's background, its composition,
+its crop, or any graphic element in it (insets, circles, flags, badges, logos).
 
-{story}
+The new photograph shows:
 
-Fresh camera angle and background. Dramatic, filmic lighting. Photorealistic,
-shallow depth of field, high detail. Portrait orientation.
+{scene}
 
+Photorealistic, cinematic, shallow depth of field, high detail.
+Portrait orientation.
 No text, no captions, no letters or numbers anywhere in the image.
-Do not reproduce the reference image's framing or its background.
 """
 
 
@@ -553,13 +582,18 @@ def _looks_unchanged(before_b64: str, after_b64: str) -> bool:
 
 
 def build_image_prompt(mode: str, story: str) -> str:
-    """모드에 맞는 지시문을 만든다."""
+    """모드에 맞는 지시문을 만든다.
+
+    새로 만들기에는 Claude 가 설계한 장면 묘사를 넣는다. 막연히 "새로
+    만들라"고만 하면 모델이 원본 사진에 붙잡혀 편집만 하고 만다.
+    """
     if mode != "recreate":
         return ERASE_PROMPT
-    clean = (story or "").strip()
-    if not clean:
-        clean = "A dramatic news moment involving this subject."
-    return RECREATE_PROMPT.format(story=clean[:600])
+    scene = (story or "").strip()
+    if not scene:
+        scene = ("A dramatic, cinematic moment involving this subject, "
+                 "in a location and lighting entirely different from the reference.")
+    return RECREATE_PROMPT.format(scene=scene[:800])
 
 
 def candidate_models(key: str) -> list:
