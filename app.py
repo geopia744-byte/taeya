@@ -498,8 +498,16 @@ def list_image_models(key: str) -> list:
     ]
 
     def tier(name: str) -> int:
+        """정식 출시본을 미리보기(preview)보다 먼저 쓴다.
+
+        preview 모델은 구글이 서버를 조금만 열어둬서 늘 붐빈다. 성능이
+        좋아도 매번 막히면 쓸모가 없다. lite 는 편집을 못 하므로 맨 뒤.
+        """
         low = name.lower()
-        return 0 if "pro" in low else 2 if "lite" in low else 1
+        if "lite" in low:
+            return 4
+        preview = 2 if ("preview" in low or "-exp" in low) else 0
+        return preview + (0 if "pro" in low else 1)
 
     usable.sort(reverse=True)      # 새 버전 먼저
     usable.sort(key=tier)          # 파이썬 정렬은 안정적이라 등급이 우선한다
@@ -569,8 +577,12 @@ def candidate_models(key: str) -> list:
 
 
 def _call_image_model(model: str, key: str, image_b64: str,
-                      media_type: str, prompt: str) -> dict:
-    """모델 하나에 요청한다. 잠깐 막힌 것은 여기서 참아준다."""
+                      media_type: str, prompt: str, patient: bool = False) -> dict:
+    """모델 하나에 요청한다.
+
+    patient 가 아니면 한 번만 시도하고 실패를 올린다. 붐비는 모델을 붙잡고
+    기다리느니 다른 모델로 가는 편이 훨씬 빠르기 때문이다.
+    """
     import urllib.error
     import urllib.request
 
@@ -583,7 +595,7 @@ def _call_image_model(model: str, key: str, image_b64: str,
         }],
     }).encode("utf-8")
 
-    MAX_TRIES = 4
+    MAX_TRIES = 4 if patient else 1
     data = None
     for attempt in range(MAX_TRIES):
         req = urllib.request.Request(
@@ -598,20 +610,21 @@ def _call_image_model(model: str, key: str, image_b64: str,
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace")
 
-            # 서버가 붐벼서 못 받는 상태. 잠깐 뒤면 대개 풀린다.
-            if exc.code in (500, 502, 503, 504) and attempt < MAX_TRIES - 1:
-                wait = 8 * (attempt + 1)
-                print(f"  {model} 이 붐빕니다 — {wait}초 뒤 다시 ({attempt + 1}/{MAX_TRIES - 1})")
-                time.sleep(wait)
-                continue
-
-            if exc.code == 429:
+            # 붐비는 것(503)은 기다리기보다 다른 모델로 가는 편이 빠르다.
+            # 여기서 참는 것은 분당 한도뿐이고, 그것도 기다리라고 한 만큼만이다.
+            if exc.code == 429 and patient:
                 info = _quota_info(body)
                 if not info["per_day"] and attempt < MAX_TRIES - 1:
                     wait = min((info["retry_after"] or 15 * (attempt + 1)) + 2, 120)
                     print(f"  분당 한도 — {wait:.0f}초 기다립니다 ({attempt + 1}/{MAX_TRIES - 1})")
                     time.sleep(wait)
                     continue
+
+            if exc.code in (500, 502, 503, 504) and patient and attempt < MAX_TRIES - 1:
+                wait = 8 * (attempt + 1)
+                print(f"  {model} 이 붐빕니다 — {wait}초 뒤 다시 ({attempt + 1}/{MAX_TRIES - 1})")
+                time.sleep(wait)
+                continue
 
             raise _Busy(exc.code, _gemini_message(exc.code, body)) from None
         except urllib.error.URLError as exc:
@@ -664,16 +677,28 @@ def transform_image(image_b64: str, media_type: str,
         raise RuntimeError("Gemini 키가 없습니다.")
 
     prompt = build_image_prompt(mode, story)
+    models = candidate_models(key)
     tried = []
-    for model in candidate_models(key):
+
+    # 1차 — 한 번씩 빠르게 훑는다. 붐비는 모델을 붙잡고 있지 않는다.
+    for model in models:
         try:
             return _call_image_model(model, key, image_b64, media_type, prompt)
         except _Busy as exc:
             tried.append(str(exc))
             print(f"  {model} 실패 → 다음 모델로")
-            continue
 
-    raise RuntimeError(" / ".join(tried) or "쓸 수 있는 모델이 없습니다.")
+    # 2차 — 전부 막혔다면 그제서야 기다려본다.
+    print("  모든 모델이 막혔습니다. 기다렸다 다시 시도합니다…")
+    for model in models:
+        try:
+            return _call_image_model(model, key, image_b64, media_type, prompt,
+                                     patient=True)
+        except _Busy as exc:
+            tried.append(str(exc))
+
+    seen = list(dict.fromkeys(tried))
+    raise RuntimeError(" / ".join(seen) or "쓸 수 있는 모델이 없습니다.")
 
 
 # ─────────────────────────────────────────────────────────────
