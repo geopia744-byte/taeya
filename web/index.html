@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>후킹 공장</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ctext y=%2226%22 font-size=%2226%22%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<aside class="panel">
+  <header class="panel-head">
+    <h1>후킹 공장</h1>
+    <button id="btn-settings" class="ghost" type="button">설정</button>
+  </header>
+
+  <section class="group">
+    <h2>작성 언어</h2>
+    <select id="lang">
+      <option value="ko" selected>한국어</option>
+      <option value="ja">日本語</option>
+      <option value="en">English</option>
+    </select>
+    <p class="hint">AI가 제목과 본문을 이 언어로 씁니다.</p>
+  </section>
+
+  <section class="group">
+    <h2>로고</h2>
+    <label class="filebtn">
+      <input type="file" id="logo-file" accept="image/*" hidden>
+      <span id="logo-label">로고 이미지 업로드</span>
+    </label>
+    <div id="logo-opts" hidden>
+      <div class="row">
+        <span class="row-label">위치</span>
+        <div class="seg" id="logo-pos">
+          <button type="button" data-v="left">왼쪽</button>
+          <button type="button" data-v="center" class="on">중간</button>
+          <button type="button" data-v="right">오른쪽</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="row-label">크기</span>
+        <input type="range" id="logo-size" min="8" max="60" value="22">
+        <output id="logo-size-out">22%</output>
+      </div>
+      <button type="button" class="ghost wide" id="logo-clear">로고 빼기</button>
+    </div>
+  </section>
+
+  <section class="group">
+    <h2>글자</h2>
+    <div class="row">
+      <span class="row-label">위치</span>
+      <div class="seg" id="text-pos">
+        <button type="button" data-v="top">위</button>
+        <button type="button" data-v="middle">중간</button>
+        <button type="button" data-v="bottom" class="on">아래</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="row-label">크기</span>
+      <input type="range" id="text-size" min="4" max="12" step="0.5" value="7">
+      <output id="text-size-out">7%</output>
+    </div>
+  </section>
+
+  <section class="group">
+    <h2>이미지 넣기</h2>
+    <label class="filebtn primary-ghost">
+      <input type="file" id="pick-files" accept="image/*" multiple hidden>
+      <span>파일 고르기</span>
+    </label>
+    <label class="filebtn">
+      <input type="file" id="pick-folder" webkitdirectory directory multiple hidden>
+      <span>폴더 통째로</span>
+    </label>
+    <button type="button" class="ghost wide" id="clear-all">목록 비우기</button>
+    <p class="hint">캡쳐 이미지를 화면에 끌어다 놓아도 됩니다.</p>
+  </section>
+
+  <section class="group">
+    <h2>콘셉트 · 타깃</h2>
+    <textarea id="guide" rows="3"
+      placeholder="예: 20대 타겟, 감성적인 톤, 짧고 강하게"></textarea>
+    <p class="hint">한국어로 적어도 됩니다. 어느 언어로 뽑든 적용됩니다.</p>
+  </section>
+
+  <section class="group">
+    <h2>문체 샘플 <span class="opt">선택</span></h2>
+    <textarea id="style-sample" rows="3"
+      placeholder="[제목] 이건 진짜 몰랐다&#10;[본문] 어제 알았는데요... 😳"></textarea>
+    <p class="hint">이 어조와 리듬을 따라 씁니다.</p>
+  </section>
+
+  <button type="button" id="run" class="primary" disabled>이미지 변환</button>
+
+  <section class="group export" id="export-group" hidden>
+    <h2>내보내기</h2>
+    <button type="button" class="ghost wide" id="save-pc">PC 폴더에 저장</button>
+    <button type="button" class="ghost wide" id="download-zip">전체 ZIP 받기</button>
+    <p class="hint" id="save-note"></p>
+  </section>
+</aside>
+
+<main class="stage">
+  <div id="empty" class="empty">
+    <div class="empty-art" aria-hidden="true">⌘</div>
+    <h2>캡쳐 이미지를 넣어주세요</h2>
+    <p>여기로 끌어다 놓거나, 왼쪽에서 파일을 고르세요.</p>
+    <p class="empty-sub">한 번에 20장 정도가 가장 쾌적합니다.</p>
+  </div>
+  <div id="cards" class="cards"></div>
+</main>
+
+<div id="drop-veil" class="drop-veil" hidden><span>놓으면 들어갑니다</span></div>
+
+<dialog id="settings">
+  <form method="dialog" class="dlg">
+    <h2>설정</h2>
+
+    <label class="field">
+      <span>Anthropic API 키</span>
+      <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+      <small id="key-state"></small>
+    </label>
+
+    <label class="field">
+      <span>결과물을 저장할 폴더</span>
+      <input type="text" id="out-dir" placeholder="비워두면 프로그램 폴더 안 '출력'">
+      <small>예: C:\Users\내이름\Desktop\후킹결과</small>
+    </label>
+
+    <div class="dlg-foot">
+      <button type="button" class="ghost" id="open-output">폴더 열어보기</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">닫기</button>
+      <button type="button" class="primary" id="save-settings">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<template id="card-tpl">
+  <article class="card">
+    <div class="canvas-wrap">
+      <canvas></canvas>
+      <div class="overlay" data-role="overlay">
+        <div class="spinner"></div>
+        <span data-role="status">기다리는 중</span>
+      </div>
+      <button type="button" class="del" data-act="remove" title="빼기">✕</button>
+    </div>
+    <div class="card-body">
+      <div class="body-head">
+        <span>생성된 본문</span>
+        <button type="button" class="mini" data-act="copy">복사</button>
+      </div>
+      <textarea data-role="body" rows="4" placeholder="아직 만들어지지 않았습니다"></textarea>
+      <div class="tags" data-role="tags"></div>
+      <div class="card-foot">
+        <button type="button" class="mini wide" data-act="regen">다시 뽑기</button>
+        <button type="button" class="mini wide" data-act="download">이미지 저장</button>
+      </div>
+      <p class="card-err" data-role="err" hidden></p>
+    </div>
+  </article>
+</template>
+
+<script src="/app.js"></script>
+</body>
+</html>
