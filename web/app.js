@@ -25,6 +25,8 @@ const state = {
   textPos: 'auto',    // 원본 글자가 있던 자리
   textSize: 7,        // 이미지 높이 대비 %
   autoCrop: true,     // 인스타 UI 자동 잘라내기
+  hasGemini: false,   // Gemini 키가 있는가
+  erase: true,        // 원본 영어를 지울 것인가
   lastSaveDir: null,
   running: false,
 };
@@ -283,8 +285,14 @@ function drawCover(ctx, w, h, top, bottom) {
 }
 
 function render(card) {
-  const { img, crop, canvas } = card;
+  const canvas = card.canvas;
+  // 글자를 지운 사진이 있으면 그걸 쓴다. 이미 깨끗하므로 잘라낼 것도 덮을 것도 없다.
+  const clean = card.cleanImg;
+  const img = clean || card.img;
   if (!img || !canvas) return;
+  const crop = clean
+    ? { x: 0, y: 0, w: clean.naturalWidth, h: clean.naturalHeight }
+    : card.crop;
 
   const w = crop.w;
   const h = crop.h;
@@ -298,7 +306,7 @@ function render(card) {
   const pad = w * 0.055;
   const boxW = w - pad * 2;
   const lines = card.copy?.title_lines?.filter(Boolean) || [];
-  const region = coverRegion(card);
+  const region = clean ? null : coverRegion(card);
 
   if (!lines.length) {
     if (region) drawCover(ctx, w, h, region.top * h, region.bottom * h);
@@ -331,7 +339,9 @@ function render(card) {
     y0 = Math.min(y0, region.top * h);
     y1 = Math.max(y1, region.bottom * h);
   }
-  drawCover(ctx, w, h, Math.max(0, y0), Math.min(h, y1));
+  // 글자를 지운 사진에는 넓은 덮개가 필요 없다. 한국어가 읽히게만 살짝 깐다.
+  if (clean) drawScrim(ctx, w, h, y0, y1 - y0);
+  else drawCover(ctx, w, h, Math.max(0, y0), Math.min(h, y1));
 
   ctx.font = `900 ${size}px ${FONT_STACK}`;
   ctx.textAlign = 'left';
@@ -345,6 +355,21 @@ function render(card) {
   ctx.shadowBlur = 0;
 
   if (state.logo) drawLogo(ctx, w);
+}
+
+// 지운 사진 위에 쓸 가벼운 그림자. 사진을 가리지 않으면서 글자만 읽히게 한다.
+function drawScrim(ctx, w, h, top, height) {
+  const y0 = Math.max(0, top);
+  const y1 = Math.min(h, top + height);
+  if (y1 <= y0) return;
+  const fade = Math.min(height * 0.6, h * 0.18);
+  const g = ctx.createLinearGradient(0, y0 - fade, 0, y1 + fade * 0.5);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.3, 'rgba(0,0,0,.40)');
+  g.addColorStop(0.72, 'rgba(0,0,0,.58)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, Math.max(0, y0 - fade), w, (y1 - y0) + fade * 1.5);
 }
 
 function drawLogo(ctx, w) {
@@ -411,7 +436,7 @@ function mountCard(card) {
     if (!act) return;
     if (act === 'remove') removeCard(card);
     if (act === 'copy') copyBody(card);
-    if (act === 'regen') runOne(card);
+    if (act === 'regen') { card.cleanImg = null; runOne(card); }
     if (act === 'download') downloadOne(card);
   });
 
@@ -461,6 +486,7 @@ function clearError(card) {
 
 function fillCard(card) {
   const { copy } = card;
+  if (!copy) return;
   card.el.querySelector('[data-role="body"]').value = copy.body || '';
   card.el.querySelector('[data-role="tags"]').textContent =
     (copy.hashtags || []).join(' ');
@@ -469,6 +495,18 @@ function fillCard(card) {
 }
 
 /* ── 실행 ──────────────────────────────────────────────── */
+
+// 잘라낸 사진만 뽑아낸다. 인스타 UI 는 이미 빠진 상태라 Gemini 가 사진만 본다.
+function croppedBase64(card) {
+  const c = document.createElement('canvas');
+  c.width = card.crop.w;
+  c.height = card.crop.h;
+  c.getContext('2d').drawImage(
+    card.img, card.crop.x, card.crop.y, card.crop.w, card.crop.h,
+    0, 0, card.crop.w, card.crop.h,
+  );
+  return c.toDataURL('image/png').split(',')[1];
+}
 
 function canvasBase64(card) {
   return card.canvas.toDataURL('image/png').split(',')[1];
@@ -481,18 +519,35 @@ async function runOne(card) {
 
   try {
     const [, meta, b64] = card.dataUrl.match(/^data:([^;]+);base64,(.*)$/) || [];
-    const copy = await api('/api/generate', {
+    // 카피는 원본 캡쳐 전체를 보고 쓴다. 아래 캡션 글까지 읽어야 사건이 정확해진다.
+    card.copy = await api('/api/generate', {
       image_b64: b64,
       media_type: meta || 'image/png',
       lang: $('#lang').value,
       guide: $('#guide').value,
       style_sample: $('#style-sample').value,
     });
-    card.copy = copy;
-    fillCard(card);
   } catch (err) {
-    setError(card, err.message);
+    return setError(card, err.message);
   }
+
+  // 원본 영어 지우기. 실패해도 카피는 살아 있으므로 덮는 방식으로 이어간다.
+  if (state.hasGemini && state.erase && !card.cleanImg) {
+    setStatus(card, 'working', '글자 지우는 중');
+    try {
+      const cleaned = await api('/api/erase', {
+        image_b64: croppedBase64(card),
+        media_type: 'image/png',
+      });
+      card.cleanImg = await loadImage(
+        `data:${cleaned.media_type};base64,${cleaned.image_b64}`,
+      );
+    } catch (err) {
+      setError(card, `글자 지우기 실패 — 덮어서 처리했습니다. (${err.message})`);
+    }
+  }
+
+  fillCard(card);
 }
 
 async function runAll() {
@@ -692,24 +747,44 @@ function init() {
     $('#key-state').textContent = cfg.has_key
       ? (cfg.key_from_env ? '환경변수에서 읽고 있습니다' : '저장된 키가 있습니다')
       : '아직 없습니다. 넣어야 동작합니다.';
+    $('#gemini-state').textContent = cfg.has_gemini
+      ? '저장된 키가 있습니다. 원본 영어를 지웁니다.'
+      : '없어도 됩니다. 없으면 영어를 덮기만 합니다.';
     dlg.showModal();
   });
   $('#save-settings').addEventListener('click', async () => {
     try {
       await api('/api/config', {
         api_key: $('#api-key').value,
+        gemini_key: $('#gemini-key').value,
         output_dir: $('#out-dir').value,
       });
       $('#api-key').value = '';
+      $('#gemini-key').value = '';
+      await loadConfig();
       toast('저장했습니다');
       dlg.close();
     } catch (err) {
       toast(err.message, true);
     }
   });
+
+  $('#erase-on').addEventListener('change', (e) => { state.erase = e.target.checked; });
   $('#open-output').addEventListener('click', () => api('/api/open-output'));
 
+  loadConfig();
   syncUI();
+}
+
+// 서버 설정을 읽어 Gemini 관련 화면을 켜고 끈다.
+async function loadConfig() {
+  try {
+    const cfg = await api('/api/config');
+    state.hasGemini = !!cfg.has_gemini;
+  } catch {
+    state.hasGemini = false;
+  }
+  $('#erase-group').hidden = !state.hasGemini;
 }
 
 init();

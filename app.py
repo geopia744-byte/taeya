@@ -58,6 +58,23 @@ def get_api_key() -> str:
     return load_config().get("api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
 
 
+def get_gemini_key() -> str:
+    """설정 파일 우선, 없으면 환경변수."""
+    return load_config().get("gemini_key") or os.environ.get("GEMINI_API_KEY", "")
+
+
+def check_key(key: str, name: str) -> str:
+    """키는 HTTP 헤더에 그대로 실린다. 영숫자가 아니면 알아보기 힘든 오류가
+    나므로 여기서 걸러 사용자가 이해할 수 있는 말로 알려준다."""
+    key = key.strip()
+    if not key.isascii():
+        raise RuntimeError(
+            f"{name} 키에 한글이나 특수문자가 섞여 있습니다. "
+            "따옴표나 공백이 같이 복사되지 않았는지 확인해주세요."
+        )
+    return key
+
+
 def get_output_dir() -> Path:
     raw = load_config().get("output_dir")
     return Path(raw).expanduser() if raw else DEFAULT_OUTPUT
@@ -239,10 +256,10 @@ def generate_copy(image_b64: str, media_type: str, lang: str,
     """이미지 한 장 → 제목·본문·해시태그."""
     import anthropic
 
-    api_key = get_api_key()
+    api_key = check_key(get_api_key(), "Anthropic")
     if not api_key:
         raise RuntimeError(
-            "API 키가 설정되지 않았습니다. 화면 우측 상단 '설정'에서 넣어주세요."
+            "Anthropic 키가 설정되지 않았습니다. 화면 왼쪽 위 '설정'에서 넣어주세요."
         )
 
     client = anthropic.Anthropic(api_key=api_key, timeout=180.0)
@@ -298,6 +315,151 @@ def generate_copy(image_b64: str, media_type: str, lang: str,
         "output_tokens": response.usage.output_tokens,
     }
     return data
+
+
+# ─────────────────────────────────────────────────────────────
+# 원본 글자 지우기 (Gemini)
+# ─────────────────────────────────────────────────────────────
+
+GEMINI_HOST = "https://generativelanguage.googleapis.com/v1beta"
+
+# 워터마크·로고 제거는 요청하지 않는다. 출처 표시를 지우는 요청으로 분류되어
+# 정책상 차단되고, 그러면 한 장도 처리하지 못한다.
+ERASE_PROMPT = """\
+Remove all the text and captions burned into this image completely.
+Reconstruct what was hidden behind the text naturally, matching the
+surrounding scene, lighting, texture and grain.
+
+Keep everything else exactly the same - the same people, the same
+composition, the same framing, the same colors. Do not crop or zoom.
+Do not add any new text. Do not change anyone's face or appearance.
+"""
+
+_MODEL_CACHE: dict = {}
+
+
+def _gemini_message(status: int, body: str) -> str:
+    """구글이 돌려준 오류를 사용자가 알아들을 수 있는 말로 바꾼다."""
+    try:
+        detail = json.loads(body).get("error", {}).get("message", "")
+    except (json.JSONDecodeError, AttributeError):
+        detail = body[:200]
+    if status in (400, 401, 403):
+        low = detail.lower()
+        if "api key" in low or "api_key" in low or "unauthenticated" in low:
+            return ("Gemini 키가 올바르지 않습니다. "
+                    "Google AI Studio 에서 키를 다시 확인해주세요.")
+        if "billing" in low or "quota" in low:
+            return ("Gemini 사용 한도에 걸렸거나 결제가 설정되지 않았습니다. "
+                    f"({detail[:120]})")
+        return f"Gemini 가 요청을 거절했습니다. {detail[:160]}"
+    if status == 429:
+        return "요청이 너무 잦습니다. 잠시 뒤 다시 시도해주세요."
+    return f"Gemini 오류 {status}: {detail[:160]}"
+
+
+def _gemini_get(path: str, key: str) -> dict:
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(f"{GEMINI_HOST}/{path}", headers={"x-goog-api-key": key})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            _gemini_message(exc.code, exc.read().decode("utf-8", "replace"))
+        ) from None
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Gemini 에 연결하지 못했습니다. 인터넷을 확인해주세요. ({exc.reason})") from None
+
+
+def pick_image_model(key: str) -> str:
+    """이미지를 만들 수 있는 모델을 API 에 직접 물어서 고른다.
+
+    구글이 모델 이름을 수시로 바꾸므로 코드에 박아두지 않는다.
+    싼 것부터 고른다 — lite 가 있으면 lite, 없으면 flash, 그다음 나머지.
+    """
+    if "id" in _MODEL_CACHE:
+        return _MODEL_CACHE["id"]
+
+    data = _gemini_get("models?pageSize=200", key)
+    usable = [
+        m["name"] for m in data.get("models", [])
+        if "generateContent" in (m.get("supportedGenerationMethods") or [])
+        and "image" in m["name"].lower()
+        and "embedding" not in m["name"].lower()
+    ]
+    if not usable:
+        raise RuntimeError(
+            "이 키로 쓸 수 있는 이미지 모델을 찾지 못했습니다. "
+            "Google AI Studio 에서 결제가 설정돼 있는지 확인해주세요."
+        )
+
+    def rank(name: str) -> tuple:
+        low = name.lower()
+        return (0 if "lite" in low else 1 if "flash" in low else 2, len(name))
+
+    chosen = sorted(usable, key=rank)[0]
+    _MODEL_CACHE["id"] = chosen
+    print(f"  이미지 모델: {chosen.split('/')[-1]}")
+    return chosen
+
+
+def erase_text(image_b64: str, media_type: str) -> dict:
+    """사진에 박힌 글자를 지우고 그 자리를 자연스럽게 채운 이미지를 돌려준다."""
+    import urllib.error
+    import urllib.request
+
+    key = check_key(get_gemini_key(), "Gemini")
+    if not key:
+        raise RuntimeError("Gemini 키가 없습니다.")
+
+    model = pick_image_model(key)
+    payload = json.dumps({
+        "contents": [{
+            "parts": [
+                {"inline_data": {"mime_type": media_type, "data": image_b64}},
+                {"text": ERASE_PROMPT},
+            ]
+        }],
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{GEMINI_HOST}/{model}:generateContent",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-goog-api-key": key},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            _gemini_message(exc.code, exc.read().decode("utf-8", "replace"))
+        ) from None
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Gemini 에 연결하지 못했습니다. ({exc.reason})") from None
+
+    candidates = data.get("candidates") or []
+    if not candidates:
+        blocked = (data.get("promptFeedback") or {}).get("blockReason")
+        raise RuntimeError(
+            f"이 사진은 처리가 거절되었습니다 ({blocked})." if blocked
+            else "Gemini 응답이 비어 있습니다."
+        )
+
+    for part in candidates[0].get("content", {}).get("parts", []):
+        blob = part.get("inlineData") or part.get("inline_data")
+        if blob and blob.get("data"):
+            return {
+                "image_b64": blob["data"],
+                "media_type": blob.get("mimeType") or blob.get("mime_type") or "image/png",
+            }
+
+    reason = candidates[0].get("finishReason", "")
+    raise RuntimeError(
+        f"이미지가 돌아오지 않았습니다{f' ({reason})' if reason else ''}. "
+        "다른 사진으로 시도해보세요."
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -396,6 +558,7 @@ class Handler(BaseHTTPRequestHandler):
                 "has_key": bool(get_api_key()),
                 "key_from_env": not cfg.get("api_key")
                                 and bool(os.environ.get("ANTHROPIC_API_KEY")),
+                "has_gemini": bool(get_gemini_key()),
                 "output_dir": str(get_output_dir()),
                 "languages": LANGUAGES,
             })
@@ -424,6 +587,13 @@ class Handler(BaseHTTPRequestHandler):
                         cfg["api_key"] = key
                     else:
                         cfg.pop("api_key", None)
+                if "gemini_key" in payload:
+                    key = (payload["gemini_key"] or "").strip()
+                    if key:
+                        cfg["gemini_key"] = key
+                    else:
+                        cfg.pop("gemini_key", None)
+                    _MODEL_CACHE.clear()
                 if "output_dir" in payload:
                     d = (payload["output_dir"] or "").strip()
                     if d:
@@ -442,6 +612,13 @@ class Handler(BaseHTTPRequestHandler):
                     style_sample=payload.get("style_sample", ""),
                 )
                 return self._json(200, data)
+
+            if path == "/api/erase":
+                result = erase_text(
+                    image_b64=payload["image_b64"],
+                    media_type=payload.get("media_type", "image/png"),
+                )
+                return self._json(200, result)
 
             if path == "/api/save":
                 result = save_batch(payload.get("items", []),
@@ -516,7 +693,8 @@ def main() -> None:
     print(f"\n  후킹 공장이 열렸습니다.\n\n    {url}\n")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
-        print("  ⚠ API 키가 아직 없습니다. 화면 우측 상단 '설정'에서 넣어주세요.")
+        print("  ⚠ Anthropic 키가 없습니다. 화면 왼쪽 위 '설정'에서 넣어주세요.")
+    print(f"  원본 글자 지우기: {'켜짐 (Gemini)' if get_gemini_key() else '꺼짐 — 글자를 덮습니다'}")
     print("\n  끄려면 이 창에서 Ctrl+C\n")
 
     threading.Timer(0.6, lambda: webbrowser.open(url)).start()
