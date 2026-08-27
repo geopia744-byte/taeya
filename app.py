@@ -145,6 +145,18 @@ SYSTEM_PROMPT = """\
 
 4. **source_text** — 원본 이미지에서 읽어낸 문구를 그대로. (검수용)
 
+5. **text_area** — 사진에 **박혀 있는 글자**가 차지하는 세로 범위.
+   이미지 맨 위를 0.0, 맨 아래를 1.0으로 보고 `top`과 `bottom`을 낸다.
+
+   이 범위는 **덮어서 가려진다.** 그 위에 한국어 제목을 얹기 때문이다.
+   그러니 **넉넉하게 잡아라** — 조금 남으면 영어가 비쳐서 결과물을 망친다.
+   글자의 실제 위아래 끝보다 0.02~0.04 정도씩 더 여유를 둬라.
+
+   - 사진 아래쪽에 두 줄이 박혀 있다 → 대략 `{top: 0.72, bottom: 1.0}`
+   - 가운데를 크게 가로지른다 → 대략 `{top: 0.38, bottom: 0.72}`
+   - 인스타 UI 안의 캡션 글은 여기 포함하지 마라. **사진 위에 얹힌 글자만** 센다.
+   - 박힌 글자가 아예 없다 → `{top: 0, bottom: 0}`
+
 ## 원본에서 읽을 것
 
 이미지에는 인스타 UI(하트, 댓글 수, 계정명, 캡션)가 같이 찍혀 있을 수 있다.
@@ -202,8 +214,22 @@ OUTPUT_SCHEMA = {
             "items": {"type": "string"},
             "description": "'#'를 포함한 해시태그 10~15개",
         },
+        "text_area": {
+            "type": "object",
+            "description": (
+                "원본 사진에 박혀 있는 글자가 차지하는 세로 범위. "
+                "이미지 전체 높이를 0.0(맨 위)~1.0(맨 아래)으로 봤을 때의 값. "
+                "이 범위를 덮어서 원문을 가리므로 넉넉하게 잡아라."
+            ),
+            "properties": {
+                "top": {"type": "number"},
+                "bottom": {"type": "number"},
+            },
+            "required": ["top", "bottom"],
+            "additionalProperties": False,
+        },
     },
-    "required": ["source_text", "title_lines", "body", "hashtags"],
+    "required": ["source_text", "title_lines", "body", "hashtags", "text_area"],
     "additionalProperties": False,
 }
 

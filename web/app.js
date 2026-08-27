@@ -22,7 +22,7 @@ const state = {
   logo: null,         // Image
   logoPos: 'center',
   logoSize: 22,       // 이미지 너비 대비 %
-  textPos: 'bottom',
+  textPos: 'auto',    // 원본 글자가 있던 자리
   textSize: 7,        // 이미지 높이 대비 %
   autoCrop: true,     // 인스타 UI 자동 잘라내기
   lastSaveDir: null,
@@ -220,7 +220,67 @@ function fitTitle(ctx, lines, boxW, boxH, startSize) {
   return { size, wrapped: wrapByWords(ctx, clean, boxW) };
 }
 
-/* ── 카드 한 장 그리기 ─────────────────────────────────── */
+/* ── 카드 한 장 그리기 ─────────────────────────────── */
+
+// AI 가 알려준 원본 글자 영역(전체 이미지 기준 0~1)을 잘라낸 화면 기준으로 옮긴다.
+function coverRegion(card) {
+  const a = card.copy?.text_area;
+  if (!a || !(a.bottom > a.top)) return null;
+  const H = card.img.naturalHeight;
+  const top = (a.top * H - card.crop.y) / card.crop.h;
+  const bottom = (a.bottom * H - card.crop.y) / card.crop.h;
+  const t = Math.max(0, Math.min(1, top));
+  const b = Math.max(0, Math.min(1, bottom));
+  return b - t < 0.02 ? null : { top: t, bottom: b };
+}
+
+// 원본 영어를 완전히 가린다.
+// 반투명으로 덮으면 흰 글자가 비쳐 결과물을 망치므로 완전 불투명으로 칠한다.
+// 새까만 띠는 붙여넣은 티가 나므로, 덮을 자리의 평균색을 뽑아 아주 어둡게
+// 만든 색을 쓴다. 따뜻한 사진은 따뜻하게, 차가운 사진은 차갑게 가라앉는다.
+function drawCover(ctx, w, h, top, bottom) {
+  const y0 = Math.max(0, top);
+  const y1 = Math.min(h, bottom);
+  if (y1 <= y0) return;
+
+  let r = 11, g = 12, b = 15;
+  try {
+    const band = ctx.getImageData(0, y0, w, Math.max(1, Math.round(y1 - y0))).data;
+    let sr = 0, sg = 0, sb = 0, n = 0;
+    for (let i = 0; i < band.length; i += 4 * 37) {   // 듬성듬성 훑는다
+      sr += band[i]; sg += band[i + 1]; sb += band[i + 2]; n++;
+    }
+    if (n) {
+      const dim = 0.17;
+      r = Math.round((sr / n) * dim);
+      g = Math.round((sg / n) * dim);
+      b = Math.round((sb / n) * dim);
+    }
+  } catch { /* 못 읽으면 기본 어두운 색을 쓴다 */ }
+
+  const ink = `${r},${g},${b}`;
+  const feather = Math.min((y1 - y0) * 0.34, h * 0.07);
+
+  ctx.fillStyle = `rgb(${ink})`;
+  ctx.fillRect(0, y0, w, y1 - y0);
+
+  if (y0 > 0) {
+    const t = Math.max(0, y0 - feather);
+    const grad = ctx.createLinearGradient(0, t, 0, y0);
+    grad.addColorStop(0, `rgba(${ink},0)`);
+    grad.addColorStop(1, `rgba(${ink},1)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, t, w, y0 - t);
+  }
+  if (y1 < h) {
+    const bt = Math.min(h, y1 + feather);
+    const grad = ctx.createLinearGradient(0, y1, 0, bt);
+    grad.addColorStop(0, `rgba(${ink},1)`);
+    grad.addColorStop(1, `rgba(${ink},0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y1, w, bt - y1);
+  }
+}
 
 function render(card) {
   const { img, crop, canvas } = card;
@@ -237,61 +297,64 @@ function render(card) {
 
   const pad = w * 0.055;
   const boxW = w - pad * 2;
-
-  // 제목
   const lines = card.copy?.title_lines?.filter(Boolean) || [];
-  if (lines.length) {
-    const base = h * (state.textSize / 100);
-    const { size, wrapped } = fitTitle(ctx, lines, boxW, h * 0.44, base);
-    const lineH = size * LINE_HEIGHT;
-    const blockH = wrapped.length * lineH;
+  const region = coverRegion(card);
 
-    let top;
-    if (state.textPos === 'top') top = pad + size * 0.9;
-    else if (state.textPos === 'middle') top = (h - blockH) / 2 + size * 0.82;
-    else top = h - pad - blockH + size * 0.82;
-
-    // 글자가 앉을 자리에만 어둠을 깔아 어떤 사진에서도 읽히게 한다.
-    drawScrim(ctx, w, h, top - size, blockH + size * 1.5);
-
-    ctx.font = `900 ${size}px ${FONT_STACK}`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.shadowColor = 'rgba(0,0,0,.62)';
-    ctx.shadowBlur = size * 0.3;
-    ctx.shadowOffsetY = size * 0.05;
-    ctx.fillStyle = '#fff';
-    wrapped.forEach((line, i) => ctx.fillText(line, pad, top + i * lineH));
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
+  if (!lines.length) {
+    if (region) drawCover(ctx, w, h, region.top * h, region.bottom * h);
+    if (state.logo) drawLogo(ctx, w);
+    return;
   }
 
-  // 로고
-  if (state.logo) {
-    const lw = w * (state.logoSize / 100);
-    const lh = lw * (state.logo.naturalHeight / state.logo.naturalWidth);
-    const margin = w * 0.04;
-    const x = state.logoPos === 'left' ? margin
-            : state.logoPos === 'right' ? w - margin - lw
-            : (w - lw) / 2;
-    ctx.drawImage(state.logo, x, margin, lw, lh);
+  // 글자를 먼저 배치해 봐야 덮개를 얼마나 크게 칠지 정할 수 있다.
+  const base = h * (state.textSize / 100);
+  const { size, wrapped } = fitTitle(ctx, lines, boxW, h * 0.44, base);
+  const lineH = size * LINE_HEIGHT;
+  const blockH = wrapped.length * lineH;
+
+  // 글자 위치. '자동'이면 원본 영어가 있던 자리에 그대로 앉힌다.
+  let blockTop;
+  if (state.textPos === 'top') blockTop = pad;
+  else if (state.textPos === 'middle') blockTop = (h - blockH) / 2;
+  else if (state.textPos === 'bottom') blockTop = h - pad - blockH;
+  else blockTop = region
+    ? ((region.top + region.bottom) / 2) * h - blockH / 2
+    : h - pad - blockH;
+  blockTop = Math.max(pad * 0.4, Math.min(h - blockH - pad * 0.4, blockTop));
+
+  // 덮개는 원본 글자 영역과 한국어 글자 영역을 모두 감싸야 한다.
+  // 둘 중 하나만 덮으면 영어가 삐져나오거나 한국어가 사진에 묻힌다.
+  const margin = size * 0.55;
+  let y0 = blockTop - margin;
+  let y1 = blockTop + blockH + margin;
+  if (region) {
+    y0 = Math.min(y0, region.top * h);
+    y1 = Math.max(y1, region.bottom * h);
   }
+  drawCover(ctx, w, h, Math.max(0, y0), Math.min(h, y1));
+
+  ctx.font = `900 ${size}px ${FONT_STACK}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0,0,0,.55)';
+  ctx.shadowBlur = size * 0.28;
+  ctx.fillStyle = '#fff';
+  const first = blockTop + size * 0.82;
+  wrapped.forEach((line, k) => ctx.fillText(line, pad, first + k * lineH));
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+
+  if (state.logo) drawLogo(ctx, w);
 }
 
-function drawScrim(ctx, w, h, top, height) {
-  const y0 = Math.max(0, top);
-  const y1 = Math.min(h, top + height);
-  if (y1 <= y0) return;
-  // 위아래로 부드럽게 사라지는 띠. 사각형 자국이 남지 않게 한다.
-  const fade = Math.min(height * 0.55, h * 0.2);
-  const g = ctx.createLinearGradient(0, y0 - fade, 0, y1 + fade * 0.4);
-  g.addColorStop(0, 'rgba(0,0,0,0)');
-  g.addColorStop(0.32, 'rgba(0,0,0,.42)');
-  g.addColorStop(0.72, 'rgba(0,0,0,.62)');
-  g.addColorStop(1, 'rgba(0,0,0,.15)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, Math.max(0, y0 - fade), w, (y1 - y0) + fade * 1.4);
+function drawLogo(ctx, w) {
+  const lw = w * (state.logoSize / 100);
+  const lh = lw * (state.logo.naturalHeight / state.logo.naturalWidth);
+  const margin = w * 0.04;
+  const x = state.logoPos === 'left' ? margin
+          : state.logoPos === 'right' ? w - margin - lw
+          : (w - lw) / 2;
+  ctx.drawImage(state.logo, x, margin, lw, lh);
 }
 
 function renderAll() {
