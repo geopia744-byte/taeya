@@ -535,33 +535,40 @@ def build_image_prompt(mode: str, story: str) -> str:
     return RECREATE_PROMPT.format(story=clean[:600])
 
 
-def transform_image(image_b64: str, media_type: str,
-                    mode: str = "erase", story: str = "") -> dict:
-    """사진에서 글자를 지우거나(erase), 같은 인물로 장면을 새로 만든다(recreate)."""
+def candidate_models(key: str) -> list:
+    """시도할 모델을 순서대로. 사용자가 고른 것이 있으면 그것만 쓴다."""
+    picked = (load_config().get("gemini_model") or "").strip()
+    if picked:
+        return [picked.split("/")[-1]]
+    usable = list_image_models(key)
+    if not usable:
+        raise RuntimeError(
+            "이 키로 쓸 수 있는 이미지 모델을 찾지 못했습니다. "
+            "Google AI Studio 에서 결제가 설정돼 있는지 확인해주세요."
+        )
+    return usable[:3]
+
+
+def _call_image_model(model: str, key: str, image_b64: str,
+                      media_type: str, prompt: str) -> dict:
+    """모델 하나에 요청한다. 잠깐 막힌 것은 여기서 참아준다."""
     import urllib.error
     import urllib.request
 
-    key = check_key(get_gemini_key(), "Gemini")
-    if not key:
-        raise RuntimeError("Gemini 키가 없습니다.")
-
-    model = pick_image_model(key)
     payload = json.dumps({
         "contents": [{
             "parts": [
                 {"inline_data": {"mime_type": media_type, "data": image_b64}},
-                {"text": build_image_prompt(mode, story)},
+                {"text": prompt},
             ]
         }],
     }).encode("utf-8")
 
-    # 이미지 생성은 분당 허용 횟수가 적다. 429 는 기다렸다 다시 하면 대개 통과하므로
-    # 사용자에게 떠넘기지 않고 여기서 참아준다.
-    MAX_TRIES = 5
+    MAX_TRIES = 4
     data = None
     for attempt in range(MAX_TRIES):
         req = urllib.request.Request(
-            f"{GEMINI_HOST}/{model}:generateContent",
+            f"{GEMINI_HOST}/models/{model}:generateContent",
             data=payload,
             headers={"Content-Type": "application/json", "x-goog-api-key": key},
         )
@@ -571,25 +578,28 @@ def transform_image(image_b64: str, media_type: str,
             break
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace")
-            if exc.code != 429:
-                raise RuntimeError(_gemini_message(exc.code, body)) from None
 
-            info = _quota_info(body)
-            # 하루 한도는 기다려도 풀리지 않는다. 헛되이 붙잡고 있지 않는다.
-            if info["per_day"] or attempt == MAX_TRIES - 1:
-                raise RuntimeError(_gemini_message(429, body)) from None
+            # 서버가 붐벼서 못 받는 상태. 잠깐 뒤면 대개 풀린다.
+            if exc.code in (500, 502, 503, 504) and attempt < MAX_TRIES - 1:
+                wait = 8 * (attempt + 1)
+                print(f"  {model} 이 붐빕니다 — {wait}초 뒤 다시 ({attempt + 1}/{MAX_TRIES - 1})")
+                time.sleep(wait)
+                continue
 
-            # 구글이 알려준 시간만큼 기다린다. 안 알려주면 점점 길게.
-            wait = info["retry_after"] or (15 * (attempt + 1))
-            wait = min(wait + 2, 120)
-            print(f"  분당 한도 — {wait:.0f}초 기다립니다 ({attempt + 1}/{MAX_TRIES - 1})")
-            time.sleep(wait)
-            continue
+            if exc.code == 429:
+                info = _quota_info(body)
+                if not info["per_day"] and attempt < MAX_TRIES - 1:
+                    wait = min((info["retry_after"] or 15 * (attempt + 1)) + 2, 120)
+                    print(f"  분당 한도 — {wait:.0f}초 기다립니다 ({attempt + 1}/{MAX_TRIES - 1})")
+                    time.sleep(wait)
+                    continue
+
+            raise _Busy(exc.code, _gemini_message(exc.code, body)) from None
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Gemini 에 연결하지 못했습니다. ({exc.reason})") from None
 
     if data is None:
-        raise RuntimeError("Gemini 응답을 받지 못했습니다.")
+        raise _Busy(503, f"{model} 이 계속 붐빕니다.")
 
     candidates = data.get("candidates") or []
     if not candidates:
@@ -606,21 +616,45 @@ def transform_image(image_b64: str, media_type: str,
             # 어떤 모델은 편집을 못 하면 받은 사진을 그대로 돌려준다. 그러면
             # "지웠다"고 표시되지만 실제로는 영어가 남아 결과물이 망가진다.
             if _looks_unchanged(image_b64, out):
-                raise RuntimeError(
-                    f"모델({model.split('/')[-1]})이 사진을 손대지 않고 그대로 "
-                    "돌려줬습니다. 이미지 편집을 지원하는 모델이 아닐 수 있습니다."
-                )
-            return {
-                "image_b64": out,
-                "media_type": blob.get("mimeType") or blob.get("mime_type") or "image/png",
-                "model": model.split("/")[-1],
-            }
+                raise _Busy(0, f"{model} 이 사진을 손대지 않고 그대로 돌려줬습니다.")
+            return {"image_b64": out, "model": model,
+                    "media_type": blob.get("mimeType") or blob.get("mime_type") or "image/png"}
 
     reason = candidates[0].get("finishReason", "")
-    raise RuntimeError(
-        f"이미지가 돌아오지 않았습니다{f' ({reason})' if reason else ''}. "
-        "다른 사진으로 시도해보세요."
-    )
+    raise _Busy(0, f"{model} 이 이미지를 돌려주지 않았습니다"
+                   f"{f' ({reason})' if reason else ''}.")
+
+
+class _Busy(Exception):
+    """다른 모델로 넘어가 볼 만한 실패."""
+
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def transform_image(image_b64: str, media_type: str,
+                    mode: str = "erase", story: str = "") -> dict:
+    """사진에서 글자를 지우거나(erase), 같은 인물로 장면을 새로 만든다(recreate).
+
+    한 모델이 붐비거나 한도에 걸리거나 편집을 못 하면 다음 모델로 넘어간다.
+    한 곳이 막혔다고 손을 놓으면 사용자가 할 수 있는 일이 없다.
+    """
+    key = check_key(get_gemini_key(), "Gemini")
+    if not key:
+        raise RuntimeError("Gemini 키가 없습니다.")
+
+    prompt = build_image_prompt(mode, story)
+    tried = []
+    for model in candidate_models(key):
+        try:
+            return _call_image_model(model, key, image_b64, media_type, prompt)
+        except _Busy as exc:
+            tried.append(str(exc))
+            print(f"  {model} 실패 → 다음 모델로")
+            continue
+
+    raise RuntimeError(" / ".join(tried) or "쓸 수 있는 모델이 없습니다.")
 
 
 # ─────────────────────────────────────────────────────────────
