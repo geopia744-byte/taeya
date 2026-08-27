@@ -1,39 +1,53 @@
 @echo off
-chcp 65001 > nul
-title í›„í‚¹ ê³µìž¥
+title ÈÄÅ· °øÀå
 cd /d "%~dp0"
 
 echo.
-echo   ===================================
-echo      í›„í‚¹ ê³µìž¥
-echo   ===================================
+echo   ==============================
+echo      ÈÄ Å·  °ø Àå
+echo   ==============================
 echo.
 
+set PY=python
 python --version >nul 2>&1
-if errorlevel 1 (
-    echo   [!] íŒŒì´ì¬ì´ ì„¤ì¹˜ë˜ì–´ ìžˆì§€ ì•ŠìŠµë‹ˆë‹¤.
-    echo.
-    echo   1. https://www.python.org/downloads/  ì— ë“¤ì–´ê°€ì„œ
-    echo   2. ë…¸ëž€ìƒ‰ Download ë²„íŠ¼ì„ ëˆŒëŸ¬ ì„¤ì¹˜í•˜ì„¸ìš”.
-    echo   3. ì„¤ì¹˜ í™”ë©´ ë§¨ ì•„ëž˜ "Add python.exe to PATH" ë¥¼ ê¼­ ì²´í¬í•˜ì„¸ìš”!
-    echo   4. ì„¤ì¹˜ê°€ ëë‚˜ë©´ ì´ íŒŒì¼ì„ ë‹¤ì‹œ ë”ë¸”í´ë¦­í•˜ì„¸ìš”.
-    echo.
-    pause
-    exit /b 1
-)
+if not errorlevel 1 goto HAVEPY
+set PY=py
+py --version >nul 2>&1
+if not errorlevel 1 goto HAVEPY
+goto NOPYTHON
 
-echo   ì¤€ë¹„ ì¤‘ìž…ë‹ˆë‹¤. ìž ì‹œë§Œ ê¸°ë‹¤ë ¤ ì£¼ì„¸ìš”...
-python -m pip install --quiet --disable-pip-version-check anthropic
-if errorlevel 1 (
-    echo.
-    echo   [!] ì¤€ë¹„ ì¤‘ ë¬¸ì œê°€ ìƒê²¼ìŠµë‹ˆë‹¤. ì¸í„°ë„· ì—°ê²°ì„ í™•ì¸í•´ ì£¼ì„¸ìš”.
-    echo.
-    pause
-    exit /b 1
-)
+:HAVEPY
+echo   ÁØºñ ÁßÀÔ´Ï´Ù. Àá½Ã¸¸ ±â´Ù·Á ÁÖ¼¼¿ä...
+%PY% -m pip install --quiet --disable-pip-version-check anthropic
+if errorlevel 1 goto NOINSTALL
 
 echo.
-python app.py
+%PY% app.py
 echo.
-echo   í”„ë¡œê·¸ëž¨ì´ ì¢…ë£Œë˜ì—ˆìŠµë‹ˆë‹¤.
+echo   ÇÁ·Î±×·¥ÀÌ Á¾·áµÇ¾ú½À´Ï´Ù.
 pause
+exit /b 0
+
+:NOPYTHON
+echo   [!] ÆÄÀÌ½ãÀÌ ¼³Ä¡µÇ¾î ÀÖÁö ¾Ê½À´Ï´Ù.
+echo.
+echo   1. ¾Æ·¡ ÁÖ¼Ò¿¡¼­ ÆÄÀÌ½ãÀ» ¹Þ¾Æ ¼³Ä¡ÇÏ¼¼¿ä.
+echo.
+echo        https://www.python.org/downloads/
+echo.
+echo   2. ¼³Ä¡ È­¸é ¸Ç ¾Æ·¡¿¡ ÀÖ´Â
+echo        Add python.exe to PATH
+echo      ¸¦ ²À Ã¼Å©ÇÏ¼¼¿ä. ÀÌ°É »©¸ÔÀ¸¸é ¶Ç ÀÌ È­¸éÀÌ ³ª¿É´Ï´Ù.
+echo.
+echo   3. ¼³Ä¡°¡ ³¡³ª¸é ÀÌ ÆÄÀÏÀ» ´Ù½Ã ´õºíÅ¬¸¯ÇÏ¼¼¿ä.
+echo.
+pause
+exit /b 1
+
+:NOINSTALL
+echo.
+echo   [!] ÁØºñ Áß ¹®Á¦°¡ »ý°å½À´Ï´Ù.
+echo       ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÑ µÚ ´Ù½Ã ÇØº¸¼¼¿ä.
+echo.
+pause
+exit /b 1
