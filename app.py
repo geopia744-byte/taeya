@@ -1,5 +1,5 @@
 """
-후킹 공장 — 로컬 서버
+이미지 AI 자동화 — 로컬 서버
 
 해외 인스타 캡쳐를 넣으면 한/일/영 후킹 제목·캡션·해시태그를 만들어
 브라우저에서 이미지에 합성하고, PC 폴더에 저장한다.
@@ -985,7 +985,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  후킹 공장이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화가 열렸습니다.\n\n    {url}\n")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
         print("  ⚠ Anthropic 키가 없습니다. 화면 왼쪽 위 '설정'에서 넣어주세요.")

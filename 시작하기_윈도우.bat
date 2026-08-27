@@ -1,10 +1,10 @@
 @echo off
-title 후킹 공장
+title 이미지 AI 자동화
 cd /d "%~dp0"
 
 echo.
 echo   ==============================
-echo      후 킹  공 장
+echo      이 미 지  A I  자 동 화
 echo   ==============================
 echo.
 

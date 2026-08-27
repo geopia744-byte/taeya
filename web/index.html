@@ -3,15 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>후킹 공장</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ctext y=%2226%22 font-size=%2226%22%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<title>이미지 AI 자동화</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%229%22 fill=%22%237C5CFF%22/%3E%3Cpath d=%22M7.5 21.5 13 14l4.2 5.4 2.6-3.2 4.7 5.3z%22 fill=%22%23fff%22/%3E%3Ccircle cx=%2211.4%22 cy=%2210.6%22 r=%222.1%22 fill=%22%23fff%22/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
 <aside class="panel">
   <header class="panel-head">
-    <h1>후킹 공장</h1>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30">
+          <defs>
+            <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#7C5CFF"/>
+              <stop offset="1" stop-color="#22A8F0"/>
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="32" height="32" rx="9" fill="url(#bg)"/>
+          <path d="M7.5 21.5 13 14l4.2 5.4 2.6-3.2 4.7 5.3z" fill="#fff" opacity=".95"/>
+          <circle cx="11.4" cy="10.6" r="2.1" fill="#fff" opacity=".95"/>
+          <path d="M23.4 7.2l.85 2.15 2.15.85-2.15.85-.85 2.15-.85-2.15-2.15-.85 2.15-.85z" fill="#fff"/>
+        </svg>
+      </span>
+      <span class="brand-name">
+        <b>이미지 AI</b>
+        <em>자동화</em>
+      </span>
+    </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
   </header>
 
@@ -159,7 +178,7 @@
     <label class="field">
       <span>결과물을 저장할 폴더</span>
       <input type="text" id="out-dir" placeholder="비워두면 프로그램 폴더 안 '출력'">
-      <small>예: C:\Users\내이름\Desktop\후킹결과</small>
+      <small>예: C:\Users\내이름\Desktop\이미지결과</small>
     </label>
 
     <div class="dlg-foot">

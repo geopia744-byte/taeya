@@ -1,4 +1,4 @@
-/* 후킹 공장 — 화면 로직
+/* 이미지 AI 자동화 — 화면 로직
  *
  * 이미지 합성은 전부 여기(Canvas)에서 한다. 서버는 카피 생성과 파일 저장만 맡는다.
  * 그래야 글자 위치·크기를 바꿀 때마다 서버를 거치지 않고 즉시 다시 그릴 수 있다.
@@ -743,7 +743,7 @@ async function downloadZip() {
   const blob = await res.blob();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = '후킹공장.zip';
+  a.download = '이미지AI자동화.zip';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
