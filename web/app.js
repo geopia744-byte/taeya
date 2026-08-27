@@ -512,42 +512,48 @@ function canvasBase64(card) {
   return card.canvas.toDataURL('image/png').split(',')[1];
 }
 
+// 카피 쓰기. 원본 캡쳐 전체를 보고 쓴다 — 아래 캡션 글까지 읽어야 사건이 정확해진다.
+async function writeCopy(card) {
+  const [, meta, b64] = card.dataUrl.match(/^data:([^;]+);base64,(.*)$/) || [];
+  card.copy = await api('/api/generate', {
+    image_b64: b64,
+    media_type: meta || 'image/png',
+    lang: $('#lang').value,
+    guide: $('#guide').value,
+    style_sample: $('#style-sample').value,
+  });
+}
+
+// 원본 영어 지우기. 실패해도 카피는 살아 있으므로 덮는 방식으로 이어간다.
+async function eraseOne(card) {
+  if (!state.hasGemini || !state.erase || card.cleanImg) return;
+  setStatus(card, 'working', '글자 지우는 중');
+  try {
+    const cleaned = await api('/api/erase', {
+      image_b64: croppedBase64(card),
+      media_type: 'image/png',
+    });
+    card.cleanImg = await loadImage(
+      `data:${cleaned.media_type};base64,${cleaned.image_b64}`,
+    );
+    clearError(card);
+  } catch (err) {
+    setError(card, `글자 지우기 실패 — 덮어서 처리했습니다. (${err.message})`);
+  }
+  fillCard(card);
+}
+
 async function runOne(card) {
   if (!card.img) return;
   clearError(card);
   setStatus(card, 'working', '읽는 중');
-
   try {
-    const [, meta, b64] = card.dataUrl.match(/^data:([^;]+);base64,(.*)$/) || [];
-    // 카피는 원본 캡쳐 전체를 보고 쓴다. 아래 캡션 글까지 읽어야 사건이 정확해진다.
-    card.copy = await api('/api/generate', {
-      image_b64: b64,
-      media_type: meta || 'image/png',
-      lang: $('#lang').value,
-      guide: $('#guide').value,
-      style_sample: $('#style-sample').value,
-    });
+    await writeCopy(card);
   } catch (err) {
     return setError(card, err.message);
   }
-
-  // 원본 영어 지우기. 실패해도 카피는 살아 있으므로 덮는 방식으로 이어간다.
-  if (state.hasGemini && state.erase && !card.cleanImg) {
-    setStatus(card, 'working', '글자 지우는 중');
-    try {
-      const cleaned = await api('/api/erase', {
-        image_b64: croppedBase64(card),
-        media_type: 'image/png',
-      });
-      card.cleanImg = await loadImage(
-        `data:${cleaned.media_type};base64,${cleaned.image_b64}`,
-      );
-    } catch (err) {
-      setError(card, `글자 지우기 실패 — 덮어서 처리했습니다. (${err.message})`);
-    }
-  }
-
   fillCard(card);
+  await eraseOne(card);
 }
 
 async function runAll() {
@@ -556,23 +562,41 @@ async function runAll() {
 
   state.running = true;
   syncUI();
-  queue.forEach((c) => setStatus(c, 'queued'));
+  queue.forEach((c) => { clearError(c); setStatus(c, 'queued'); });
 
+  // 1단계 — 카피. 글은 여러 장을 동시에 맡겨도 잘 받아준다.
   let cursor = 0;
-  const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) },
-    async () => {
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
       while (cursor < queue.length) {
-        await runOne(queue[cursor++]);
+        const card = queue[cursor++];
+        setStatus(card, 'working', '읽는 중');
+        try {
+          await writeCopy(card);
+          fillCard(card);
+        } catch (err) {
+          setError(card, err.message);
+        }
       }
-    });
-  await Promise.all(workers);
+    }),
+  );
+
+  // 2단계 — 글자 지우기. 이미지 생성은 분당 허용 횟수가 적어서
+  // 동시에 던지면 전부 한도에 걸린다. 한 장씩 차례로 보낸다.
+  if (state.hasGemini && state.erase) {
+    for (const card of queue) {
+      if (card.copy) await eraseOne(card);
+    }
+  }
 
   state.running = false;
   syncUI();
 
   const failed = state.cards.filter((c) => c.status === 'error').length;
-  toast(failed ? `${queue.length - failed}장 완료, ${failed}장 실패` : '전부 완료됐습니다',
-        failed > 0);
+  toast(
+    failed ? `${queue.length - failed}장 완료, ${failed}장은 덮어서 처리` : '전부 완료됐습니다',
+    failed > 0,
+  );
 }
 
 /* ── 내보내기 ──────────────────────────────────────────── */

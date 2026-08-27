@@ -354,7 +354,10 @@ def _gemini_message(status: int, body: str) -> str:
                     f"({detail[:120]})")
         return f"Gemini 가 요청을 거절했습니다. {detail[:160]}"
     if status == 429:
-        return "요청이 너무 잦습니다. 잠시 뒤 다시 시도해주세요."
+        return ("Gemini 사용 한도(분당 횟수)에 걸렸습니다. "
+                "무료 한도는 매우 적으니, Google AI Studio 에서 "
+                "결제를 설정하면 한도가 올라갑니다. "
+                "지금은 잠시 뒤 '다시 뽑기'로 재시도해주세요.")
     return f"Gemini 오류 {status}: {detail[:160]}"
 
 
@@ -424,20 +427,33 @@ def erase_text(image_b64: str, media_type: str) -> dict:
         }],
     }).encode("utf-8")
 
-    req = urllib.request.Request(
-        f"{GEMINI_HOST}/{model}:generateContent",
-        data=payload,
-        headers={"Content-Type": "application/json", "x-goog-api-key": key},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(
-            _gemini_message(exc.code, exc.read().decode("utf-8", "replace"))
-        ) from None
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Gemini 에 연결하지 못했습니다. ({exc.reason})") from None
+    # 이미지 생성은 분당 허용 횟수가 적다. 429 는 기다렸다 다시 하면 대개 통과하므로
+    # 사용자에게 떠넘기지 않고 여기서 참아준다.
+    delays = (20, 45, 90)
+    data = None
+    for attempt in range(len(delays) + 1):
+        req = urllib.request.Request(
+            f"{GEMINI_HOST}/{model}:generateContent",
+            data=payload,
+            headers={"Content-Type": "application/json", "x-goog-api-key": key},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")
+            if exc.code == 429 and attempt < len(delays):
+                wait = delays[attempt]
+                print(f"  한도에 걸려 {wait}초 기다립니다… ({attempt + 1}/{len(delays)})")
+                time.sleep(wait)
+                continue
+            raise RuntimeError(_gemini_message(exc.code, body)) from None
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Gemini 에 연결하지 못했습니다. ({exc.reason})") from None
+
+    if data is None:
+        raise RuntimeError("Gemini 응답을 받지 못했습니다.")
 
     candidates = data.get("candidates") or []
     if not candidates:
