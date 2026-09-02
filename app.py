@@ -744,6 +744,21 @@ def _wait_turn() -> None:
         _pace["last"] = time.time()
 
 
+# 분당 한도는 모델마다 따로 걸린다. 방금 걸린 모델을 다음 사진에서도
+# 맨 앞에 두면 매번 한 번씩 헛되이 태운다. 잠시 뒤로 미뤄둔다.
+_cooldown: dict = {}
+
+
+def _cool_down(model: str, seconds: float) -> None:
+    _cooldown[model] = time.time() + min(max(seconds or 60.0, 30.0), 300.0)
+
+
+def _order_models(models: list) -> list:
+    now = time.time()
+    # 쉬고 있는 모델을 뒤로. 같은 무리 안에서는 원래 순서를 지킨다.
+    return sorted(models, key=lambda m: _cooldown.get(m, 0.0) > now)
+
+
 def _note_rate_limit(retry_after: float) -> None:
     with _pace_lock:
         _pace["gap"] = min(max(_pace["gap"], retry_after or 8.0, 8.0), 30.0)
@@ -987,10 +1002,12 @@ def _call_image_model(model: str, key: str, image_b64: str,
 
             # 붐비는 것(503)은 기다리기보다 다른 모델로 가는 편이 빠르다.
             # 여기서 참는 것은 분당 한도뿐이고, 그것도 기다리라고 한 만큼만이다.
+            hint = 0.0
             if exc.code == 429:
                 info = _quota_info(body)
                 if not info["per_day"]:
-                    _note_rate_limit(info["retry_after"])
+                    hint = info["retry_after"]
+                    _note_rate_limit(hint)
             if exc.code == 429 and patient:
                 info = _quota_info(body)
                 if not info["per_day"] and attempt < MAX_TRIES - 1:
@@ -1005,7 +1022,7 @@ def _call_image_model(model: str, key: str, image_b64: str,
                 time.sleep(wait)
                 continue
 
-            raise _Busy(exc.code, _gemini_message(exc.code, body)) from None
+            raise _Busy(exc.code, _gemini_message(exc.code, body), hint) from None
         except TimeoutError:
             # 소켓 자체가 응답을 못 받아 끊긴 경우(HTTPError 도 URLError 도 아님).
             # 여기서 못 잡으면 180초를 그냥 흘려보낸 뒤 사용자에게 알 수 없는
@@ -1050,9 +1067,10 @@ def _call_image_model(model: str, key: str, image_b64: str,
 class _Busy(Exception):
     """다른 모델로 넘어가 볼 만한 실패."""
 
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, retry_after: float = 0.0):
         super().__init__(message)
         self.code = code
+        self.retry_after = retry_after      # 구글이 알려준 대기 시간(초)
 
 
 def transform_image(image_b64: str, media_type: str,
@@ -1070,40 +1088,51 @@ def transform_image(image_b64: str, media_type: str,
 
     prompt = build_image_prompt(mode, story)
     aspect = target_ratio if mode == "expand" else ""
-    models = candidate_models(key)
+    # 방금 분당 한도에 걸린 모델은 뒤로 미뤄 둔다. 매번 같은 모델로 시작하면
+    # 그 한 번이 늘 헛되이 나간다.
+    models = _order_models(candidate_models(key))
     tried = []
-    rate_limited = False
 
-    # 1차 — 한 번씩 빠르게 훑는다. 붐비는 모델을 붙잡고 있지 않는다.
+    def once(model):
+        return _call_image_model(model, key, image_b64, media_type, prompt,
+                                 aspect_ratio=aspect)
+
+    # 1차 — 한 번씩 빠르게 훑는다.
     #
-    # 다만 분당 한도(429)는 예외다. 이 한도는 키(프로젝트) 단위라 모델을
-    # 바꿔도 똑같이 걸린다. 그런데도 다음 모델로 넘어가면, 실패할 걸 알면서
-    # 요청을 두 번 더 써서 한도를 세 배로 태운다. 그러면 기다린 뒤에도
-    # 한도가 안 풀려 결국 전부 실패한다. 그러니 여기서 멈추고 기다린다.
+    # 분당 한도는 모델마다 따로 걸린다. 그러니 한 모델이 한도에 걸렸다고
+    # 멈추면 안 된다 — 옆 모델에는 아직 남아 있을 수 있고, 그게 기다리는
+    # 것보다 훨씬 빠르다. 걸린 모델은 다음 사진에서 뒤로 미룬다.
+    wait_hint = 0.0
+    only_rate_limit = True
     for model in models:
         try:
-            return _call_image_model(model, key, image_b64, media_type, prompt,
-                                     aspect_ratio=aspect)
+            return once(model)
         except _Busy as exc:
             tried.append(str(exc))
             if exc.code == 429:
-                print(f"  {model} 분당 한도 — 모델을 바꾸지 않고 여기서 기다립니다")
-                try:
-                    return _call_image_model(model, key, image_b64, media_type,
-                                             prompt, patient=True, aspect_ratio=aspect)
-                except _Busy as exc2:
-                    tried.append(str(exc2))
-                    rate_limited = True
-                    break     # 더 두드리면 한도만 깊어진다
-            print(f"  {model} 실패 → 다음 모델로")
+                wait_hint = max(wait_hint, exc.retry_after)
+                _cool_down(model, exc.retry_after)
+                print(f"  {model} 분당 한도 → 다음 모델로")
+            else:
+                only_rate_limit = False
+                print(f"  {model} 실패 → 다음 모델로")
 
-    # 2차 — 전부 막혔다면 그제서야 기다려본다.
-    # 분당 한도로 이미 기다려본 경우는 건너뛴다. 남은 모델을 더 두드려봐야
-    # 같은 한도에 같이 걸리고, 다음 사진 차례까지 한도만 더 깊어진다.
-    if rate_limited:
+    if only_rate_limit:
+        # 전부 분당 한도. 모델을 더 두드려봐야 같은 벽이다. 구글이 알려준
+        # 만큼 딱 한 번 쉬고 한 바퀴만 더 돈다. 예전처럼 모델마다 네 번씩
+        # 기다리면 사진 한 장에 100초를 버리고도 결국 실패한다.
+        wait = min((wait_hint or 20.0) + 3.0, 70.0)
+        print(f"  모든 모델이 분당 한도입니다 — {wait:.0f}초 쉬고 한 바퀴만 더")
+        time.sleep(wait)
+        for model in models:
+            try:
+                return once(model)
+            except _Busy as exc:
+                tried.append(str(exc))
         seen = list(dict.fromkeys(tried))
         raise RuntimeError(" / ".join(seen))
 
+    # 2차 — 한도가 아니라 붐빔(503) 등이면 기다려가며 다시 시도한다.
     print("  모든 모델이 막혔습니다. 기다렸다 다시 시도합니다…")
     for model in models:
         try:
