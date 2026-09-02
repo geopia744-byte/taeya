@@ -870,6 +870,34 @@ output {
   color: #191200;
 }
 
+/* 일본어로 다시 쓰기. 사진은 그대로 두고 글만 바꾸므로 ☆·✕ 와 나란히 둔다. */
+.ja {
+  position: absolute;
+  top: 10px;
+  right: 98px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(10, 24, 46, .78);
+  border: 2px solid rgba(120, 180, 255, .55);
+  border-radius: 10px;
+  color: #9fc7ff;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+
+.ja:hover:not(:disabled) { background: rgba(60, 120, 220, .55); color: #fff; }
+.ja:disabled { opacity: .45; cursor: progress; }
+
+/* 이미 일본어로 바꾼 카드 */
+.ja.on {
+  background: #3b7bdd;
+  border-color: #3b7bdd;
+  color: #fff;
+}
+
 /* 생성 날짜/시간. "생성된 본문" 옆에 흐리게 표시. */
 .made-at {
   flex: 1;

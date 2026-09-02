@@ -1109,6 +1109,7 @@ function mountCard(card) {
     if (act === 'edit-title') openEditor(card);
     if (act === 'edit-body') openBodyEditor(card);
     if (act === 'archive') moveToArchive(card);
+    if (act === 'ja') retitleIn(card, 'ja', btn);
     if (act === 'cat-tag') toggleCatPicker(card);
     if (act === 'pick-cat') setCardCategory(card, btn.dataset.v);
     if (act === 'car-prev') cycleCardImage(card, -1);
@@ -1303,6 +1304,55 @@ async function createThreadCards(items) {
   schedulePersist();
   const n = items.length;
   toast(n > 1 ? `스레드에서 ${n}건 가져왔어요` : '스레드에서 가져왔어요');
+}
+
+/* ── 다른 언어로 제목 다시 달기 ────────────────────────
+ *
+ * 이미 완성된 카드의 사진은 그대로 두고 글만 다시 쓴다.
+ * 사진을 건드리지 않으므로 제미니는 부르지 않는다 — Claude 한 번이면
+ * 끝이고, 지운 사진·바꾼 배경도 그대로 살아 있다.
+ */
+async function retitleIn(card, lang, btn) {
+  if (!card.dataUrl) return toast('원본 사진이 없어 다시 쓸 수 없습니다', true);
+  if (card.retitling) return;
+
+  card.retitling = true;
+  if (btn) btn.disabled = true;
+  const keepStatus = card.status;
+  setStatus(card, 'working', lang === 'ja' ? '일본어로 쓰는 중' : '다시 쓰는 중');
+
+  try {
+    const [, meta, b64] = card.dataUrl.match(/^data:([^;]+);base64,(.*)$/) || [];
+    const copy = await api('/api/generate', {
+      image_b64: b64,
+      media_type: meta || 'image/png',
+      lang,
+      guide: $('#guide').value,
+      style_sample: $('#style-sample').value,
+      category: card.category || '',
+      variant: 0,
+    });
+
+    // 사진에 관한 값은 예전 것을 지킨다. 사진을 다시 만들지 않았기 때문이다.
+    // (text_area 를 새 값으로 덮으면 이미 지운 사진 위에 엉뚱한 덮개가 생긴다)
+    if (card.copy && card.copy.text_area) copy.text_area = card.copy.text_area;
+
+    card.copy = copy;
+    card.lang = lang;
+    card.origTitle = [...(copy.title_lines || [])];
+    card.posHead = null;      // 손으로 옮겨둔 자리는 글이 바뀌면 안 맞는다
+    card.posBody = null;
+    fillCard(card);
+    setStatus(card, keepStatus === 'done' ? 'done' : 'idle');
+    if (btn) btn.classList.add('on');
+    toast('일본어로 다시 썼습니다');
+  } catch (err) {
+    setStatus(card, keepStatus === 'done' ? 'done' : 'idle');
+    toast(`다시 쓰기 실패 — ${err.message}`, true);
+  } finally {
+    card.retitling = false;
+    if (btn) btn.disabled = false;
+  }
 }
 
 /* ── 서버 수집함 확인(폴링) ──────────────────────────────── */
