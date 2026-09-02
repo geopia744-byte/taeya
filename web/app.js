@@ -1835,32 +1835,6 @@ function compositeSubjectOntoBackground(bgImg, subjectCanvas, maskCanvas, w, h) 
  * 모자라는 자리는 같은 사진을 크게 늘려 흐리게 깐다. 검은 여백보다
  * 자연스럽고, 사진을 잘라내지 않으므로 인물이 잘릴 일도 없다.
  */
-function exportCanvas(card) {
-  const src = card.canvas;
-  const spec = SAVE_SIZES[state.saveSize];
-  if (!spec || !src.width) return src;
-
-  const { w: W, h: H } = spec;
-  const out = document.createElement('canvas');
-  out.width = W;
-  out.height = H;
-  const cx = out.getContext('2d');
-
-  const cover = Math.max(W / src.width, H / src.height);
-  cx.filter = 'blur(30px)';
-  cx.drawImage(src, (W - src.width * cover) / 2, (H - src.height * cover) / 2,
-               src.width * cover, src.height * cover);
-  cx.filter = 'none';
-  cx.fillStyle = 'rgba(0,0,0,.3)';
-  cx.fillRect(0, 0, W, H);
-
-  const fit = Math.min(W / src.width, H / src.height);
-  const dw = src.width * fit;
-  const dh = src.height * fit;
-  cx.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
-  return out;
-}
-
 // 사진을 자르지 않고 안 맞는 비율만큼 살짝 넘치게 채운다(여백/블러 없음).
 // AI 확장이 꺼져 있을 때, 그리고 AI가 돌려준 사진을 정확한 저장 크기로
 // 마지막에 맞출 때 둘 다 이 함수를 쓴다.
@@ -1872,8 +1846,24 @@ function fitCoverCanvas(src, W, H) {
   const cover = Math.max(W / src.width, H / src.height);
   const dw = src.width * cover;
   const dh = src.height * cover;
-  cx.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
+
+  // 세로가 잘려야 할 때(예: 4:5 사진 → 1:1 저장)는 아래를 지키고 위를
+  // 자른다. 제목은 아래쪽에 얹혀 있어서, 가운데를 기준으로 자르면
+  // 글자가 반쯤 잘려나간다. 위쪽은 대개 하늘·배경이라 잃어도 덜 아프다.
+  const dy = dh > H ? H - dh : (H - dh) / 2;
+
+  cx.drawImage(src, (W - dw) / 2, dy, dw, dh);
   return out;
+}
+
+// AI 확장을 안 쓸 때의 저장. 여백을 남기지 않고 저장 크기를 꽉 채운다.
+// (예전에는 남는 자리에 흐린 배경을 깔았는데, 1:1 로 저장하면 사진이
+//  위쪽에 조그맣게 박히고 아래가 텅 비어 나왔다.)
+function plainExportCanvas(card) {
+  const src = card.canvas;
+  const spec = SAVE_SIZES[state.saveSize];
+  if (!spec || !src.width) return src;
+  return fitCoverCanvas(src, spec.w, spec.h);
 }
 
 // 원본 비율이 저장 크기랑 이미 거의 맞으면(1% 이내) 굳이 Gemini를
@@ -1917,10 +1907,6 @@ async function expandCanvasWithAI(card) {
   // Gemini가 비율은 맞춰줘도 정확한 픽셀까지는 보장하지 않으므로,
   // 마지막에 한 번 더 정확한 저장 크기로 맞춰 그린다(거의 안 잘림).
   return fitCoverCanvas(img, spec.w, spec.h);
-}
-
-function canvasBase64(card) {
-  return exportCanvas(card).toDataURL('image/png').split(',')[1];
 }
 
 // 파일명으로 못 쓰는 문자를 걷어낸다 (서버 safe_name과 같은 목적).
@@ -2495,11 +2481,11 @@ async function doSave() {
         canvas = await expandCanvasWithAI(card);
       } catch (err) {
         console.warn('[AI 확장 실패, 기존 방식으로 대체]', err);
-        toast(`AI 확장에 실패해서 기존 방식으로 저장했어요 (${err.message})`, true);
-        canvas = exportCanvas(card);
+        toast(`AI 확장에 실패해서 여백 없이 잘라 저장했어요 (${err.message})`, true);
+        canvas = plainExportCanvas(card);
       }
     } else {
-      canvas = exportCanvas(card);
+      canvas = plainExportCanvas(card);
     }
 
     const title = (card.copy.title_lines || []).join(' ').trim();

@@ -1379,6 +1379,9 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         cfg.pop("gemini_key", None)
                     _MODEL_CACHE.clear()
+                    # 새 키는 한도가 새로 시작한다. 예전 키에서 막혔다고
+                    # 뒤로 미뤄둔 모델을 그대로 두면 새 키에서도 건너뛴다.
+                    _cooldown.clear()
                 if "gemini_model" in payload:
                     m = (payload["gemini_model"] or "").strip()
                     if m:
