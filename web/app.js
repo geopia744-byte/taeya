@@ -1544,6 +1544,16 @@ function setError(card, message) {
 }
 
 // 실패로 처리할 것까지는 아니지만 알려야 할 때. status 는 건드리지 않는다.
+// 실패 이유를 사진 위에 한 줄로. 한도는 기다리면 풀리고, 나머지는 아니다.
+// 이 둘을 구분해 말해주지 않으면 사용자가 계속 다시 눌러서 한도만 더 태운다.
+function warnFor(what, message) {
+  const m = String(message || '');
+  if (m.includes('분당')) return `⏳ ${what} — 제미니 분당 한도. 1~2분 뒤 [다시 뽑기]`;
+  if (m.includes('오늘') || m.includes('하루')) return `🚫 ${what} — 오늘 제미니 한도 소진`;
+  if (m.includes('결제') || m.includes('billing')) return `💳 ${what} — 제미니 결제 설정 필요`;
+  return `⚠ ${what} 실패 · 덮어서 가림`;
+}
+
 function setWarn(card, message) {
   const el = card.el?.querySelector('[data-role="warn"]');
   if (!el) return;
@@ -2006,14 +2016,14 @@ async function transformOne(card) {
         console.warn('[사진처리] 2단계 실패 — 글자 지운 사진으로 마무리합니다.', err);
         card.cleanImg = await loadImage(erasedCv.toDataURL('image/png'));
         card.madeBy = 'erase';
-        setWarn(card, '⚠ 배경 교체 실패 · 글자만 지웠습니다');
+        setWarn(card, warnFor('배경 교체', err.message));
         setNote(card, `글자는 지웠지만 배경 새로 만들기는 실패했습니다. `
                     + `[다시 뽑기]를 누르면 다시 시도합니다. (${err.message})`);
       }
     }
   } catch (err) {
     console.error('[사진처리] 실패', err);
-    setWarn(card, `⚠ ${recreate ? '사진 만들기' : '글자 지우기'} 실패 · 덮어서 가림`);
+    setWarn(card, warnFor(recreate ? '사진 만들기' : '글자 지우기', err.message));
     setError(card,
       `${recreate ? '사진 만들기' : '글자 지우기'} 실패 — 덮어서 처리했습니다. (${err.message})`);
   }
