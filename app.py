@@ -956,7 +956,7 @@ def candidate_models(key: str) -> list:
 
 def _call_image_model(model: str, key: str, image_b64: str,
                       media_type: str, prompt: str, patient: bool = False,
-                      aspect_ratio: str = "") -> dict:
+                      aspect_ratio: str = "", quick: bool = False) -> dict:
     """모델 하나에 요청한다.
 
     patient 가 아니면 한 번만 시도하고 실패를 올린다. 붐비는 모델을 붙잡고
@@ -987,7 +987,8 @@ def _call_image_model(model: str, key: str, image_b64: str,
     MAX_TRIES = 4 if patient else 1
     data = None
     for attempt in range(MAX_TRIES):
-        _wait_turn()
+        if not quick:            # 저장은 사람이 앞에서 기다린다. 쉬지 않는다.
+            _wait_turn()
         req = urllib.request.Request(
             f"{GEMINI_HOST}/models/{model}:generateContent",
             data=payload,
@@ -1093,9 +1094,14 @@ def transform_image(image_b64: str, media_type: str,
     models = _order_models(candidate_models(key))
     tried = []
 
+    # 저장(expand)은 사용자가 화면 앞에서 기다리는 동작이다. 여기서 쉬거나
+    # 다시 시도하면 저장이 멈춘 것처럼 보인다. 한 바퀴 돌아 안 되면 바로
+    # 포기하고, 화면 쪽에서 여백을 넣어 즉시 저장한다.
+    quick = mode == "expand"
+
     def once(model):
         return _call_image_model(model, key, image_b64, media_type, prompt,
-                                 aspect_ratio=aspect)
+                                 aspect_ratio=aspect, quick=quick)
 
     # 1차 — 한 번씩 빠르게 훑는다.
     #
@@ -1116,6 +1122,10 @@ def transform_image(image_b64: str, media_type: str,
             else:
                 only_rate_limit = False
                 print(f"  {model} 실패 → 다음 모델로")
+
+    if quick:
+        seen = list(dict.fromkeys(tried))
+        raise RuntimeError(" / ".join(seen) or "쓸 수 있는 모델이 없습니다.")
 
     if only_rate_limit:
         # 전부 분당 한도. 모델을 더 두드려봐야 같은 벽이다. 구글이 알려준

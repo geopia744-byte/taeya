@@ -44,7 +44,9 @@ const state = {
   bodyWeight: 900,
 
   saveSize: 'orig',    // orig | ig(4:5) | tt(9:16)
-  aiExpand: true,      // 저장 크기에 안 맞을 때, 여백 대신 Gemini로 확장할지
+  // 저장할 때마다 제미니를 한 번 더 부른다(돈이 나가고, 한도에 걸리면
+  // 저장이 1~2분씩 멈춘다). 저장은 즉시 끝나야 하는 동작이라 기본은 끔.
+  aiExpand: false,
 };
 
 // 저장 크기. 인스타 피드는 4:5, 스레드는 정사각형, 틱톡 사진은 9:16 이 기본이다.
@@ -464,6 +466,14 @@ function loadSettings() {
     if (!raw) return {};
     const saved = JSON.parse(raw) || {};
     KEEP.forEach((k) => { if (k in saved) state[k] = saved[k]; });
+
+    // 예전 판은 이 옵션이 켜진 채로 저장돼 있다. 켜져 있는 줄 모르고 쓰다가
+    // 저장이 2분씩 걸린 일이 있어, 기존 사용자도 한 번은 꺼진 상태에서
+    // 시작하게 한다. 그 뒤로 켜면 그대로 기억한다.
+    if (!saved.expandReset) {
+      state.aiExpand = false;
+      saved.expandReset = true;
+    }
     return saved;
   } catch {
     return {};   // 저장소를 못 쓰는 브라우저여도 동작은 해야 한다
@@ -477,6 +487,7 @@ function saveSettings() {
     out.lang = $('#lang').value;
     out.guide = $('#guide').value;
     out.styleSample = $('#style-sample').value;
+    out.expandReset = true;   // 위의 한 번짜리 초기화를 되풀이하지 않는다
     localStorage.setItem(REMEMBER, JSON.stringify(out));
   } catch { /* 못 저장해도 그냥 진행한다 */ }
 }
