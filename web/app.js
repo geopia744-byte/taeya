@@ -2034,6 +2034,13 @@ async function transformOne(card) {
         maskCv = null;
       }
 
+      // 1단계를 도는 동안 ✕ 로 지워졌을 수 있다. 2단계는 요청이 한 번 더
+      // 나가므로, 여기서 확인하지 않으면 없어진 카드 때문에 돈이 나간다.
+      if (!state.cards.includes(card)) {
+        console.log('[사진처리] 카드가 지워져 2단계를 건너뜁니다');
+        return;
+      }
+
       console.log('[사진처리] 2단계 — 배경 교체 시작');
       try {
       const out = await api('/api/erase', {
