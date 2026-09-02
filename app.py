@@ -663,48 +663,37 @@ Do not add any new text. Do not change anyone's face or appearance.
 # (예전엔 아예 "새로운 사진"을 통째로 다시 찍으라고 시켰더니 사람 자체가
 #  달라지는 문제가 있어서, 지금은 배경 교체로 방향을 바꿨다.)
 RECREATE_PROMPT = """\
-TASK TYPE: Photo editing (inpainting / outpainting), NOT new image
-generation. Treat the person (or animal) in the reference photo as a fixed,
-immovable foreground layer to be copied over unchanged - like a cutout
-pasted onto a new backdrop, not redrawn.
+Replace the entire background of this photo with a completely new setting.
 
-Do not redraw, restyle, reinterpret, or regenerate the subject in any way.
-Their face, facial features, skin tone, hairstyle, exact expression,
-clothing, body pose, body proportions, scale, and exact pixel position in
-the frame must all stay identical to the reference photo. If someone who
-knows this person looked at the result, they must instantly recognize it as
-the very same person in the very same pose - not a similar-looking person,
-not a re-enactment, not a new photoshoot.
-
-Only the pixels behind the subject (the background/environment) should be
-erased and generatively filled in with the new setting described below.
-Blend the new background naturally with the subject's existing edges,
-lighting direction and shadows so there is no cutout or collage look.
-
-The new background must be ONE single, continuous, consistent environment
-that fills the entire area behind and around the subject, from edge to edge
-of the image. Never split the image into two different-looking areas or mix
-two different locations/rooms/settings in the same photo (for example, do
-not show one setting near the subject and a different, unrelated setting
-elsewhere in the frame). It must look like one real, physically coherent
-room or place, photographed in a single shot.
-
-Render the new background in clear, sharp focus with rich, visible detail -
-do NOT apply heavy blur, bokeh, or soft-focus/out-of-focus effects to it,
-even if the original photo's background was blurred. A crisp, detailed
-backdrop reads much better for a news thumbnail than a foggy one. Only the
-thin strip of pixels immediately touching the subject's silhouette may be
-softened slightly, purely to blend the edge seamlessly.
-
-New background to generate:
+THE NEW BACKGROUND TO PAINT:
 
 {scene}
 
-Do not change the camera framing, zoom, angle, or crop from the original
-photo. Do not add, move, or remove any part of the subject.
-Photorealistic, natural lighting consistent with the subject. Portrait
-orientation. No text, no captions, no letters or numbers anywhere in the
-image.
+That is the main task. Everything behind and around the subject must become
+that new place. The old background must be gone completely - not dimmed, not
+blurred, not partially kept. If the result still shows the original
+surroundings, the task has failed.
+
+KEEP THE SUBJECT EXACTLY AS IT IS:
+The person (or animal) in the foreground is a fixed cutout pasted onto the new
+backdrop. Their face, facial features, skin tone, hair, expression, clothing,
+body pose, proportions, scale and position in the frame must stay identical to
+the input. Do not redraw, restyle or reinterpret them. Someone who knows this
+person must instantly recognise the very same person in the very same pose.
+
+HOW THE RESULT MUST LOOK:
+- One single, continuous, physically coherent place, edge to edge. Never mix
+  two different rooms or locations in the same image.
+- Sharp and richly detailed, in clear focus. Do NOT apply blur, bokeh or soft
+  focus, even if the original background was blurred. Only the thin strip of
+  pixels touching the subject's outline may be softened, purely to blend the
+  edge so there is no cutout or collage look.
+- Lighting direction and colour temperature must match the subject, so it does
+  not look pasted on.
+- Keep the original camera framing, zoom, angle and crop. Do not move, resize,
+  add to or remove any part of the subject.
+- No other people anywhere in the new background.
+- No text, captions, letters, numbers, logos or watermarks anywhere.
 """
 
 # 저장 크기(4:5 / 1:1 / 9:16)에 맞춰 여백 없이 확장한다. 사진을 자르거나

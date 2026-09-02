@@ -1543,6 +1543,13 @@ function setError(card, message) {
   setStatus(card, 'idle', '실패');
 }
 
+// 실패로 처리할 것까지는 아니지만 알려야 할 때. status 는 건드리지 않는다.
+function setNote(card, message) {
+  const err = card.el.querySelector('[data-role="err"]');
+  err.textContent = message;
+  err.hidden = false;
+}
+
 function clearError(card) {
   card.error = null;
   const err = card.el.querySelector('[data-role="err"]');
@@ -1923,6 +1930,7 @@ async function transformOne(card) {
       // 모델이 배경 교체까지는 손을 못 대는 경우가 많아서 나눴다.
       console.log('[사진처리] 1단계 — 글자 지우기 시작');
       let erasedCv = cropCv;
+      let erasedOk = false;
       try {
         const eraseOut = await api('/api/erase', {
           image_b64: cropCv.toDataURL('image/png').split(',')[1],
@@ -1936,6 +1944,7 @@ async function transformOne(card) {
         c.height = cropCv.height;
         c.getContext('2d').drawImage(erasedImg, 0, 0, cropCv.width, cropCv.height);
         erasedCv = c;
+        erasedOk = true;
         console.log('[사진처리] 1단계 완료 — 글자 지워진 사진 확보');
       } catch (err) {
         console.warn('[사진처리] 1단계(글자 지우기) 실패 — 원본으로 2단계 진행합니다.', err);
@@ -1958,6 +1967,7 @@ async function transformOne(card) {
       }
 
       console.log('[사진처리] 2단계 — 배경 교체 시작');
+      try {
       const out = await api('/api/erase', {
         image_b64: erasedCv.toDataURL('image/png').split(',')[1],
         media_type: 'image/png',
@@ -1980,6 +1990,16 @@ async function transformOne(card) {
       card.cleanImg = finalImg;
       card.madeBy = mode;
       clearError(card);
+      } catch (err) {
+        // 배경 교체가 실패했다고 1단계에서 지운 사진까지 버리면 안 된다.
+        // 버리면 이미 낸 돈도 날리고, 결과물은 검은 띠로 덮여 더 나빠진다.
+        if (!erasedOk) throw err;
+        console.warn('[사진처리] 2단계 실패 — 글자 지운 사진으로 마무리합니다.', err);
+        card.cleanImg = await loadImage(erasedCv.toDataURL('image/png'));
+        card.madeBy = 'erase';
+        setNote(card, `글자는 지웠지만 배경 새로 만들기는 실패했습니다. `
+                    + `[다시 뽑기]를 누르면 다시 시도합니다. (${err.message})`);
+      }
     }
   } catch (err) {
     console.error('[사진처리] 실패', err);
