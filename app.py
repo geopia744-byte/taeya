@@ -1366,19 +1366,19 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/config":
                 cfg = load_config()
-                if "api_key" in payload:
-                    key = (payload["api_key"] or "").strip()
-                    if key:
-                        cfg["api_key"] = key
-                    else:
-                        cfg.pop("api_key", None)
-                if "gemini_key" in payload:
-                    key = (payload["gemini_key"] or "").strip()
-                    if key:
-                        cfg["gemini_key"] = key
-                    else:
-                        cfg.pop("gemini_key", None)
+                # 빈 칸은 '지워라'가 아니라 '그대로 둬라'로 읽는다.
+                #
+                # 설정창을 열면 키 칸은 늘 비어 보인다(저장된 키를 화면으로
+                # 돌려주지 않기 때문이다). 그 상태에서 한쪽 키만 넣고 저장하면
+                # 빈 칸이 그대로 올라와 다른 키가 지워졌다. 하나를 고치면
+                # 다른 하나가 깨지는 일이 여기서 났다.
+                # 키를 정말 지우려면 설정 파일에서 그 줄을 지우면 된다.
+                if (payload.get("api_key") or "").strip():
+                    cfg["api_key"] = payload["api_key"].strip()
+                if (payload.get("gemini_key") or "").strip():
+                    cfg["gemini_key"] = payload["gemini_key"].strip()
                     _MODEL_CACHE.clear()
+                    _cooldown.clear()
                     # 새 키는 한도가 새로 시작한다. 예전 키에서 막혔다고
                     # 뒤로 미뤄둔 모델을 그대로 두면 새 키에서도 건너뛴다.
                     _cooldown.clear()
