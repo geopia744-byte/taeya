@@ -17,6 +17,8 @@ import socket
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 import zipfile
 from datetime import datetime
@@ -36,6 +38,167 @@ MODEL = "claude-opus-5"
 
 # 요청 본문 상한 (이미지 여러 장이 base64로 들어오므로 넉넉히)
 MAX_BODY = 64 * 1024 * 1024
+
+# 북마크릿이 이 포트 범위를 순서대로 두드려서 지금 켜진 서버를 찾는다.
+# find_port() 가 8790 부터 40개를 시도하는 것과 반드시 같은 범위여야 한다.
+BOOKMARKLET_PORT_START = 8790
+BOOKMARKLET_PORT_RANGE = 40
+
+# 북마크릿 설치 페이지(/bookmarklet.html)는 파일로 미리 만들어두지 않고
+# 요청이 올 때마다 이 템플릿에 "지금 실제로 켜진 포트"를 끼워서 즉석으로
+# 만들어 낸다 — 그래야 8790이 아닌 다른 포트에서 켜졌을 때도(드물게 다른
+# 프로그램이 8790을 이미 쓰고 있던 경우) 북마크릿이 엉뚱한 포트를 찾는
+# 일이 없다. web/bookmarklet.src.js 는 __PORT__ 자리표시자를 담은
+# "읽는 원본"이고, 실제로 브라우저에 나가는 건 이 함수가 그 자리를
+# 채워 넣은 결과물이다.
+BOOKMARKLET_INSTALL_TEMPLATE = """<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스레드 수집기 설치 — 이미지 AI 자동화</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; padding: 40px 20px 80px;
+    background: #0b0c0f; color: #e7e9ee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+    line-height: 1.65;
+  }}
+  .wrap {{ max-width: 560px; margin: 0 auto; }}
+  h1 {{ font-size: 22px; margin: 0 0 6px; }}
+  .sub {{ color: #9aa0ab; font-size: 14px; margin-bottom: 32px; }}
+  .bm-box {{
+    display: flex; align-items: center; justify-content: center;
+    padding: 28px 16px; margin-bottom: 28px;
+    background: #131519; border: 1px dashed #3a3f47; border-radius: 14px;
+  }}
+  .bm-link {{
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 26px; border-radius: 999px; text-decoration: none;
+    background: linear-gradient(135deg, #7C5CFF, #22A8F0);
+    color: #fff; font-weight: 800; font-size: 15px;
+    box-shadow: 0 8px 22px rgba(124, 92, 255, .35);
+    cursor: grab; user-select: none;
+  }}
+  ol {{ padding-left: 20px; }}
+  li {{ margin-bottom: 10px; }}
+  .note {{
+    margin-top: 28px; padding: 14px 16px; border-radius: 10px;
+    background: rgba(111, 227, 161, .1); border: 1px solid rgba(111, 227, 161, .3);
+    font-size: 13.5px; color: #b9f0d1;
+  }}
+  code {{ background: #1a1d23; padding: 1px 6px; border-radius: 5px; font-size: 13px; }}
+  .step-title {{ font-weight: 700; color: #fff; }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧵 스레드 수집기 설치</h1>
+  <p class="sub">아래 버튼을 <b>즐겨찾기(북마크) 바</b>로 끌어다 놓으면 설치 끝이에요.</p>
+
+  <div class="bm-box">
+    <a class="bm-link" id="bm-link" href="#" draggable="true">🧲 스레드 수집기</a>
+  </div>
+
+  <ol>
+    <li><span class="step-title">즐겨찾기 바가 안 보이면</span> — 브라우저 설정에서 "북마크 바 표시"를 먼저 켜주세요 (크롬: <code>Ctrl/Cmd + Shift + B</code>).</li>
+    <li><span class="step-title">위 버튼을 즐겨찾기 바로 드래그</span>해서 놓아주세요. (버튼을 눌러도 아무 일 안 나요 — 반드시 "끌어다" 놓아야 설치돼요.)</li>
+    <li><span class="step-title">이미지 AI 자동화 프로그램을 켜두세요.</span> (<code>python app.py</code>) 대시보드가 브라우저에 열려 있어야 카드가 들어옵니다.</li>
+    <li><span class="step-title">스레드(threads.net)에서 원하는 글을 화면 가운데 오게 둔 다음</span>, 방금 만든 <b>🧲 스레드 수집기</b> 북마크를 누르세요.</li>
+    <li>새로 뜬 작은 창에서 <span class="step-title">카테고리를 고르면</span> 대시보드의 그 항목 칸에 새 카드로 들어갑니다.</li>
+  </ol>
+
+  <div class="note">
+    ✅ 이 버튼은 지금 켜진 프로그램 주소(포트 {port})를 이미 그대로
+    담고 있어요. 다른 설정을 더 바꾸실 필요 없이 바로 쓰시면 돼요.
+  </div>
+</div>
+<script>
+  document.getElementById('bm-link').href = 'javascript:' + encodeURIComponent({payload});
+</script>
+</body>
+</html>
+"""
+
+# ─────────────────────────────────────────────────────────────
+# 스레드 수집함 (북마크릿 → 대시보드)
+#
+# 북마크릿이 사진 URL·본문·카테고리를 이리로 던지면(POST), 서버는
+# 그 사진들을 직접 내려받아(base64) 메모리 큐에 잠깐 들고 있는다.
+# 대시보드가 몇 초마다 이 큐를 확인(GET)해서 카드로 만들고 나면 큐는 비운다.
+# 디스크에는 아무것도 쓰지 않는다 — 카드가 된 다음부터는 브라우저의
+# IndexedDB 저장이 그대로 이어받는다.
+# ─────────────────────────────────────────────────────────────
+
+_thread_inbox = []
+_thread_inbox_lock = threading.Lock()
+_thread_seq = 0
+
+IMAGE_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def fetch_image_as_data_url(url: str) -> "str | None":
+    """사진 URL을 서버가 직접 내려받아 data URL로 바꾼다.
+
+    브라우저(북마크릿)가 직접 fetch 하면 CDN이 CORS를 안 열어줘서 막히는
+    경우가 많다. 서버는 그냥 파이썬 코드라 그런 제약이 없다."""
+    try:
+        req = urllib.request.Request(url, headers=IMAGE_FETCH_HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read(12 * 1024 * 1024)  # 사진 한 장당 12MB 상한
+            ctype = resp.headers.get_content_type() or "image/jpeg"
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return None
+    if not raw:
+        return None
+    b64 = base64.b64encode(raw).decode("ascii")
+    return f"data:{ctype};base64,{b64}"
+
+
+def thread_capture(payload: dict) -> dict:
+    global _thread_seq
+    text = (payload.get("text") or "").strip()[:4000]
+    category = (payload.get("category") or "general").strip()
+    source_url = (payload.get("sourceUrl") or "").strip()
+    urls = [u for u in (payload.get("urls") or []) if isinstance(u, str)][:10]
+
+    images = []
+    for u in urls:
+        data_url = fetch_image_as_data_url(u)
+        if data_url:
+            images.append(data_url)
+
+    if not images and not text:
+        raise RuntimeError("가져올 사진도 글도 없습니다.")
+
+    with _thread_inbox_lock:
+        _thread_seq += 1
+        item = {
+            "id": _thread_seq,
+            "category": category,
+            "text": text,
+            "images": images,
+            "sourceUrl": source_url,
+            "capturedAt": datetime.now().isoformat(),
+        }
+        _thread_inbox.append(item)
+
+    return {"ok": True, "id": item["id"], "imageCount": len(images),
+            "failedCount": len(urls) - len(images)}
+
+
+def thread_inbox_take() -> list:
+    """쌓인 걸 전부 꺼내면서 큐는 비운다(가져간 것부터 지운다)."""
+    with _thread_inbox_lock:
+        items, _thread_inbox[:] = list(_thread_inbox), []
+    return items
 
 
 # ─────────────────────────────────────────────────────────────
@@ -132,6 +295,68 @@ LANG_STYLE = {
     ),
 }
 
+# 카테고리마다 사람을 멈추게 하는 지점이 다르다. 여덟 개를 같은 문법으로
+# 쓰면 전부 같은 톤이 된다. hook 은 문구를, scene 은 새로 그릴 배경을 잡는다.
+CATEGORY_STYLE = {
+    "person": {
+        "name": "인물정보",
+        "hook": "직함·이름을 앞세우지 마라. 아는 사람만 멈춘다. 그 사람에게 "
+                "닥친 상황을 먼저 던지고 정체는 뒤로 미뤄라.",
+        "scene": "그 사람의 처지를 말해주는 실내 공간. 집무실, 법정 복도, "
+                 "기자회견장, 텅 빈 대기실처럼 '누구인지'가 배경으로 드러나는 곳.",
+    },
+    "issue": {
+        "name": "시사뉴스",
+        "hook": "사건의 결말을 감춰라. 무거운 사건은 무겁게. 자극적인 단어보다 "
+                "'말하지 않은 한 줄'이 강하다.",
+        "scene": "사건이 벌어질 법한 실제 장소. 경찰 저지선 너머의 거리, "
+                 "병원 복도, 법원 앞 계단, 비 내리는 주차장.",
+    },
+    "nature": {
+        "name": "자연뉴스",
+        "hook": "규모와 시간의 낯섦으로 끌어라. 몇 년, 몇 킬로미터, 몇 도 — "
+                "사람이 가늠 못 하는 숫자가 후킹이 된다.",
+        "scene": "그 현상이 실제로 일어나는 광활한 야외. 빙하, 사막, 폭풍 "
+                 "치는 해안, 안개 낀 침엽수림. 사람이 만든 물건은 넣지 마라.",
+    },
+    "star": {
+        "name": "연예뉴스",
+        "hook": "관계와 반전으로 끌어라. 누가 누구에게 무엇을 했는지, "
+                "그 마지막 조각만 가려라.",
+        "scene": "무대 뒤 복도, 레드카펫 옆, 조명 꺼진 스튜디오, 대기실 거울 앞. "
+                 "화려하되 인물보다 튀지 않게.",
+    },
+    "policy": {
+        "name": "정책뉴스",
+        "hook": "'나에게 얼마'로 번역해라. 제도 이름이 아니라 내 지갑에 "
+                "무슨 일이 생기는지가 후킹이다.",
+        "scene": "관공서 민원실, 은행 창구, 서류가 쌓인 책상, 지하철 역사 "
+                 "안내판 앞. 일상적이고 공적인 공간.",
+    },
+    "animal": {
+        "name": "동물뉴스",
+        "hook": "동물의 행동을 사람의 마음으로 옮겨라. 의도와 감정을 읽어주면 "
+                "사람이 멈춘다. 다만 지어내지는 마라.",
+        "scene": "그 동물의 실제 서식지. 초원, 숲속 물가, 눈 덮인 산비탈, "
+                 "얕은 바다. 동물원 우리나 사람 구조물은 피하라.",
+    },
+    "city": {
+        "name": "도시풍경",
+        "hook": "익숙한 도시의 낯선 순간을 잡아라. 매일 보는 곳이 "
+                "달라 보이는 지점이 후킹이다.",
+        "scene": "실제 도시의 거리와 스카이라인. 젖은 아스팔트에 비친 네온, "
+                 "새벽 대교, 골목 계단, 고층 유리벽. 시간대를 분명히 정하라.",
+    },
+    "general": {
+        "name": "기타일반",
+        "hook": "일상 속 반전으로 끌어라. 평범해 보이는 것이 평범하지 "
+                "않았다는 구조가 잘 먹힌다.",
+        "scene": "사건에 어울리는 평범한 생활공간. 주방, 편의점, 버스 정류장, "
+                 "동네 골목.",
+    },
+}
+
+
 SYSTEM_PROMPT = """\
 너는 소셜미디어 바이럴 콘텐츠 전문 카피라이터다. 번역가가 아니다.
 
@@ -182,18 +407,29 @@ SYSTEM_PROMPT = """\
 
 4. **source_text** — 원본 이미지에서 읽어낸 문구를 그대로. (검수용)
 
-5. **scene** — 사진을 새로 만들 때 쓸 **장면 묘사**를 영어로 한 문단.
+5. **scene** — 인물 **뒤에 새로 그릴 배경**을 영어로 한 문단.
 
-   원본 사진을 흉내내지 말고, **이 사건에 어울리는 다른 장면**을 새로 짜라.
-   - 장소를 바꿔라 (같은 방이 아니라 골목, 병원 복도, 들판…)
-   - 카메라 각도를 정하라 (낮은 각도, 어깨 너머, 정면 클로즈업…)
-   - 시간대와 조명을 정하라 (비 오는 밤의 네온, 새벽 역광, 형광등…)
-   - 분위기를 한 마디로 (차갑고 무겁게, 따뜻하고 아련하게…)
+   ⚠️ 이건 "사진을 새로 찍는" 것이 아니라 **배경 교체**다. 인물(또는 동물)은
+   원본에서 오려내어 그대로 얹는다. 그러니 인물에 관한 것은 한 글자도 쓰지 마라.
 
-   **인물의 생김새는 쓰지 마라.** 얼굴은 원본 사진에서 그대로 가져오므로
-   여기에 적으면 오히려 방해가 된다. 장면만 써라.
+   **쓸 것 — 배경만:**
+   - 어떤 장소인가. **하나의 공간**이어야 한다. 두 장소를 섞지 마라.
+   - 시간대와 조명 (비 오는 밤의 네온, 새벽 역광, 형광등…)
+   - 그 공간에 실제로 있을 사물 (젖은 아스팔트, 낡은 철문, 마른 풀…)
+   - 색조와 분위기 (차갑고 푸르게, 따뜻한 황혼빛으로…)
 
-   원본에 인물이 없다면(사물·풍경) 그 대상이 놓인 새로운 장면을 써라.
+   **절대 쓰지 말 것:**
+   - 카메라 각도·구도·프레이밍·클로즈업·줌
+     → 원본의 구도를 그대로 유지하므로, 여기 적으면 지시가 서로 부딪혀
+       결과가 망가진다.
+   - 인물의 얼굴·옷·자세·동작·표정 → 전부 원본에서 가져온다.
+   - 배경에 있는 **다른 사람** → 인물이 둘로 보인다.
+   - 글자·간판 문구·로고.
+
+   **선명하게 써라.** blurred, bokeh, out of focus 같은 말을 넣으면
+   썸네일에서 밋밋해진다. 또렷하고 디테일이 보이는 배경이 훨씬 잘 읽힌다.
+
+   원본이 사물·풍경이라면, 그 대상이 놓일 새로운 주변 환경을 써라.
 
 6. **text_area** — 사진에 **박혀 있는 글자**가 차지하는 세로 범위.
    이미지 맨 위를 0.0, 맨 아래를 1.0으로 보고 `top`과 `bottom`을 낸다.
@@ -238,12 +474,23 @@ SYSTEM_PROMPT = """\
 """
 
 
-def build_user_prompt(lang: str, guide: str, style_sample: str) -> str:
+def build_user_prompt(lang: str, guide: str, style_sample: str,
+                      category: str = "", variant: int = 0) -> str:
     lang_name = LANGUAGES.get(lang, "한국어")
     parts = [
         f"## 작성 언어\n\n**{lang_name}**로 써라. title_lines, body, hashtags 전부.",
         f"## {lang_name} 후킹 문법\n\n{LANG_STYLE.get(lang, LANG_STYLE['ko'])}",
     ]
+
+    cat = CATEGORY_STYLE.get(category)
+    if cat:
+        parts.append(
+            f"## 이 게시물의 분류 — {cat['name']}\n\n"
+            f"**문구를 뽑는 관점**\n{cat['hook']}\n\n"
+            f"**scene 에 그릴 배경의 방향**\n{cat['scene']}\n\n"
+            "분류에 억지로 끼워 맞추지는 마라. 사진이 이 분류와 안 맞으면 "
+            "사진에 보이는 것을 따르되, 어조만 이 방향으로 잡아라."
+        )
     if guide.strip():
         parts.append(
             "## 이번 콘텐츠의 콘셉트·타깃\n\n"
@@ -257,6 +504,15 @@ def build_user_prompt(lang: str, guide: str, style_sample: str) -> str:
             f"{style_sample.strip()}\n\n"
             "이 샘플의 *어조와 리듬*을 따라라. 내용을 베끼라는 것이 아니다."
         )
+    if variant > 0:
+        # '다시 뽑기'를 눌렀다는 뜻이다. 같은 답을 또 주면 누른 보람이 없다.
+        parts.append(
+            "## 다시 뽑는 중이다\n\n"
+            "앞서 뽑은 것이 마음에 들지 않아 다시 요청한 것이다.\n"
+            "- 제목은 **다른 각도**에서 접근하라. 같은 문장 구조를 반복하지 마라.\n"
+            "- scene 은 **다른 장소**를 골라라. 앞서와 같은 종류의 공간을 또 쓰지 마라."
+        )
+
     parts.append("위 이미지를 보고 작업하라.")
     return "\n\n---\n\n".join(parts)
 
@@ -282,12 +538,14 @@ OUTPUT_SCHEMA = {
         "scene": {
             "type": "string",
             "description": (
-                "사진을 새로 만들 때 쓸 장면 묘사. 영어로 한 문단. "
-                "원본과 '다른' 장소·각도·시간대를 정하고, 조명과 분위기를 "
-                "구체적으로 적어라. 인물의 생김새는 여기 쓰지 마라(원본에서 가져온다). "
-                "예: 'A rain-soaked city alley at night, seen from a low angle. "
-                "Neon signs reflect in puddles. The man walks toward the camera, "
-                "backlit by a streetlamp. Cold blue tones, heavy atmosphere.'"
+                "인물 뒤에 새로 그릴 배경 묘사. 영어로 한 문단. "
+                "하나의 장소, 시간대, 조명, 그 공간에 있을 사물, 색조를 쓴다. "
+                "카메라 각도·구도·인물·다른 사람·글자는 쓰지 마라. "
+                "흐릿함(blur, bokeh)을 주문하지 마라. "
+                "예: 'A rain-soaked city alley at night. Neon signs reflect in "
+                "deep puddles on cracked asphalt. Wet brick walls, a rusted fire "
+                "escape, steam rising from a vent. Cold blue tones, sharp detail "
+                "throughout.'"
             ),
         },
         "text_area": {
@@ -312,7 +570,8 @@ OUTPUT_SCHEMA = {
 
 
 def generate_copy(image_b64: str, media_type: str, lang: str,
-                  guide: str, style_sample: str) -> dict:
+                  guide: str, style_sample: str,
+                  category: str = "", variant: int = 0) -> dict:
     """이미지 한 장 → 제목·본문·해시태그."""
     import anthropic
 
@@ -339,7 +598,9 @@ def generate_copy(image_b64: str, media_type: str, lang: str,
                         "data": image_b64,
                     },
                 },
-                {"type": "text", "text": build_user_prompt(lang, guide, style_sample)},
+                {"type": "text",
+                 "text": build_user_prompt(lang, guide, style_sample,
+                                           category, variant)},
             ],
         }],
         output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
@@ -395,30 +656,77 @@ composition, the same framing, the same colors. Do not crop or zoom.
 Do not add any new text. Do not change anyone's face or appearance.
 """
 
-# 사진을 새로 만든다. 인물·동물의 생김새는 그대로 두고 장면만 다시 짠다.
-# 지울 글자가 없으니 지우기 실패도 없고, 원본 사진을 그대로 쓰지도 않는다.
+# 사진을 새로 만든다. 인물·동물과 자세·구도는 그대로 두고 "배경만" 새로
+# 그린다 — 제미니 쪽 용어로는 "피사체 보존 배경 교체
+# (Subject-Preserving Background Replacement)" / "생성형 채우기 기반
+# 배경 교체(Generative Fill Background Replacement)"에 해당한다.
+# (예전엔 아예 "새로운 사진"을 통째로 다시 찍으라고 시켰더니 사람 자체가
+#  달라지는 문제가 있어서, 지금은 배경 교체로 방향을 바꿨다.)
 RECREATE_PROMPT = """\
-Do NOT retouch, edit, or clean up the reference image. Produce a COMPLETELY
-NEW photograph — a different moment, shot on a different day, in a different
-place.
+TASK TYPE: Photo editing (inpainting / outpainting), NOT new image
+generation. Treat the person (or animal) in the reference photo as a fixed,
+immovable foreground layer to be copied over unchanged - like a cutout
+pasted onto a new backdrop, not redrawn.
 
-Use the reference image for ONE purpose only: to copy what the subject looks
-like. The same face and features, the same build, the same hair; for an animal,
-the same species, colouring and markings. Someone who knows this subject must
-recognise them instantly.
+Do not redraw, restyle, reinterpret, or regenerate the subject in any way.
+Their face, facial features, skin tone, hairstyle, exact expression,
+clothing, body pose, body proportions, scale, and exact pixel position in
+the frame must all stay identical to the reference photo. If someone who
+knows this person looked at the result, they must instantly recognize it as
+the very same person in the very same pose - not a similar-looking person,
+not a re-enactment, not a new photoshoot.
 
-Everything else must be new. New location. New camera angle. New framing.
-New lighting. Do not reuse the reference image's background, its composition,
-its crop, or any graphic element in it (insets, circles, flags, badges, logos).
+Only the pixels behind the subject (the background/environment) should be
+erased and generatively filled in with the new setting described below.
+Blend the new background naturally with the subject's existing edges,
+lighting direction and shadows so there is no cutout or collage look.
 
-The new photograph shows:
+The new background must be ONE single, continuous, consistent environment
+that fills the entire area behind and around the subject, from edge to edge
+of the image. Never split the image into two different-looking areas or mix
+two different locations/rooms/settings in the same photo (for example, do
+not show one setting near the subject and a different, unrelated setting
+elsewhere in the frame). It must look like one real, physically coherent
+room or place, photographed in a single shot.
+
+Render the new background in clear, sharp focus with rich, visible detail -
+do NOT apply heavy blur, bokeh, or soft-focus/out-of-focus effects to it,
+even if the original photo's background was blurred. A crisp, detailed
+backdrop reads much better for a news thumbnail than a foggy one. Only the
+thin strip of pixels immediately touching the subject's silhouette may be
+softened slightly, purely to blend the edge seamlessly.
+
+New background to generate:
 
 {scene}
 
-Photorealistic, cinematic, shallow depth of field, high detail.
-Portrait orientation.
-No text, no captions, no letters or numbers anywhere in the image.
+Do not change the camera framing, zoom, angle, or crop from the original
+photo. Do not add, move, or remove any part of the subject.
+Photorealistic, natural lighting consistent with the subject. Portrait
+orientation. No text, no captions, no letters or numbers anywhere in the
+image.
 """
+
+# 저장 크기(4:5 / 1:1 / 9:16)에 맞춰 여백 없이 확장한다. 사진을 자르거나
+# 늘리지 않고, 부족한 자리만 원본과 이어지게 새로 그려 채운다.
+EXPAND_PROMPT = """\
+Outpaint this image to completely fill a new canvas.
+
+Keep the entire original image exactly as it is - same subject, same people,
+same framing, same colors, same lighting, same composition, same text if any
+is visible. Do not crop, zoom, stretch, retouch, or alter the original pixels
+in any way. Do not move or resize it.
+
+Only generate new photorealistic content in the newly added space around the
+original image's edges, naturally continuing the same scene - matching
+lighting, perspective, texture, color grading and grain. Do not add any new
+text, captions, letters, numbers, logos, watermarks, or new people/animals in
+the newly generated area.
+"""
+
+# 저장 크기 → Gemini 가 이해하는 종횡비 문자열. generationConfig.imageConfig
+# 로 그대로 넘긴다 (nano-banana 계열이 지원하는 값 중에서 고른 것들).
+SAVE_ASPECTS = {"ig": "4:5", "th": "1:1", "tt": "9:16"}
 
 
 _MODEL_CACHE: dict = {}
@@ -504,6 +812,8 @@ def _gemini_get(path: str, key: str) -> dict:
         raise RuntimeError(
             _gemini_message(exc.code, exc.read().decode("utf-8", "replace"))
         ) from None
+    except TimeoutError:
+        raise RuntimeError("Gemini 서버 응답이 너무 늦습니다 (30초 초과). 잠시 후 다시 시도해주세요.") from None
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Gemini 에 연결하지 못했습니다. 인터넷을 확인해주세요. ({exc.reason})") from None
 
@@ -587,12 +897,14 @@ def build_image_prompt(mode: str, story: str) -> str:
     새로 만들기에는 Claude 가 설계한 장면 묘사를 넣는다. 막연히 "새로
     만들라"고만 하면 모델이 원본 사진에 붙잡혀 편집만 하고 만다.
     """
+    if mode == "expand":
+        return EXPAND_PROMPT
     if mode != "recreate":
         return ERASE_PROMPT
     scene = (story or "").strip()
     if not scene:
-        scene = ("A dramatic, cinematic moment involving this subject, "
-                 "in a location and lighting entirely different from the reference.")
+        scene = ("A new, contextually fitting background setting behind the "
+                 "subject, different from the reference image's background.")
     return RECREATE_PROMPT.format(scene=scene[:800])
 
 
@@ -611,23 +923,34 @@ def candidate_models(key: str) -> list:
 
 
 def _call_image_model(model: str, key: str, image_b64: str,
-                      media_type: str, prompt: str, patient: bool = False) -> dict:
+                      media_type: str, prompt: str, patient: bool = False,
+                      aspect_ratio: str = "") -> dict:
     """모델 하나에 요청한다.
 
     patient 가 아니면 한 번만 시도하고 실패를 올린다. 붐비는 모델을 붙잡고
     기다리느니 다른 모델로 가는 편이 훨씬 빠르기 때문이다.
+
+    aspect_ratio 를 주면(예: "4:5") 저장 크기 확장(expand) 때만 쓰이고,
+    구글이 그 비율에 맞춰 캔버스를 잡아준다 — 그래도 정확한 픽셀까지는
+    보장 안 하므로, 받은 뒤 화면에서 다시 그 비율의 정확한 크기로
+    맞춰 그린다.
     """
     import urllib.error
     import urllib.request
 
-    payload = json.dumps({
+    body: dict = {
         "contents": [{
             "parts": [
                 {"inline_data": {"mime_type": media_type, "data": image_b64}},
                 {"text": prompt},
             ]
         }],
-    }).encode("utf-8")
+    }
+    if aspect_ratio:
+        body["generationConfig"] = {
+            "imageConfig": {"aspectRatio": aspect_ratio},
+        }
+    payload = json.dumps(body).encode("utf-8")
 
     MAX_TRIES = 4 if patient else 1
     data = None
@@ -661,6 +984,17 @@ def _call_image_model(model: str, key: str, image_b64: str,
                 continue
 
             raise _Busy(exc.code, _gemini_message(exc.code, body)) from None
+        except TimeoutError:
+            # 소켓 자체가 응답을 못 받아 끊긴 경우(HTTPError 도 URLError 도 아님).
+            # 여기서 못 잡으면 180초를 그냥 흘려보낸 뒤 사용자에게 알 수 없는
+            # 오류로만 보인다 — 다른 모델로 넘어가거나(비-patient), 잠깐
+            # 쉬었다 같은 모델을 다시 불러본다(patient).
+            if patient and attempt < MAX_TRIES - 1:
+                wait = 5 * (attempt + 1)
+                print(f"  {model} 응답 시간 초과 — {wait}초 뒤 다시 ({attempt + 1}/{MAX_TRIES - 1})")
+                time.sleep(wait)
+                continue
+            raise _Busy(0, f"{model} 이 응답 시간을 초과했습니다 (180초).") from None
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Gemini 에 연결하지 못했습니다. ({exc.reason})") from None
 
@@ -700,8 +1034,10 @@ class _Busy(Exception):
 
 
 def transform_image(image_b64: str, media_type: str,
-                    mode: str = "erase", story: str = "") -> dict:
-    """사진에서 글자를 지우거나(erase), 같은 인물로 장면을 새로 만든다(recreate).
+                    mode: str = "erase", story: str = "",
+                    target_ratio: str = "") -> dict:
+    """사진에서 글자를 지우거나(erase), 같은 인물로 장면을 새로 만들거나
+    (recreate), 저장 크기에 맞게 여백 없이 확장한다(expand).
 
     한 모델이 붐비거나 한도에 걸리거나 편집을 못 하면 다음 모델로 넘어간다.
     한 곳이 막혔다고 손을 놓으면 사용자가 할 수 있는 일이 없다.
@@ -711,13 +1047,15 @@ def transform_image(image_b64: str, media_type: str,
         raise RuntimeError("Gemini 키가 없습니다.")
 
     prompt = build_image_prompt(mode, story)
+    aspect = target_ratio if mode == "expand" else ""
     models = candidate_models(key)
     tried = []
 
     # 1차 — 한 번씩 빠르게 훑는다. 붐비는 모델을 붙잡고 있지 않는다.
     for model in models:
         try:
-            return _call_image_model(model, key, image_b64, media_type, prompt)
+            return _call_image_model(model, key, image_b64, media_type, prompt,
+                                     aspect_ratio=aspect)
         except _Busy as exc:
             tried.append(str(exc))
             print(f"  {model} 실패 → 다음 모델로")
@@ -727,7 +1065,7 @@ def transform_image(image_b64: str, media_type: str,
     for model in models:
         try:
             return _call_image_model(model, key, image_b64, media_type, prompt,
-                                     patient=True)
+                                     patient=True, aspect_ratio=aspect)
         except _Busy as exc:
             tried.append(str(exc))
 
@@ -749,26 +1087,44 @@ def safe_name(name: str, fallback: str = "무제") -> str:
     return (cleaned or fallback)[:60]
 
 
-def save_batch(items: list, folder_label: str = "") -> dict:
-    """완성된 카드들을 '출력/날짜_시각/' 아래에 이미지+텍스트 쌍으로 저장."""
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+def save_batch(items: list, folder_label: str = "", flat: bool = False) -> dict:
+    """완성된 카드를 저장한다.
+
+    flat=False : '출력/날짜_시각_이름/' 아래에 이미지+캡션 쌍으로 (여러 장 한꺼번에)
+    flat=True  : '출력/이름/' 아래에 이미지만 (한 장씩 카테고리 폴더에 쌓기)
+    """
     label = safe_name(folder_label, "") if folder_label else ""
-    out = get_output_dir() / (f"{stamp}_{label}" if label else stamp)
+
+    if flat and label:
+        out = get_output_dir() / label
+    else:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        out = get_output_dir() / (f"{stamp}_{label}" if label else stamp)
     out.mkdir(parents=True, exist_ok=True)
 
     saved = []
     for i, item in enumerate(items, start=1):
         title = " ".join(item.get("title_lines") or []) or "무제"
-        stem = f"{i:02d}_{safe_name(title)}"
+
+        if flat:
+            # 한 장씩 쌓이므로, 같은 제목이 있으면 덮어쓰지 않고 번호를 붙인다.
+            stem = safe_name(title)
+            base, n = stem, 2
+            while (out / f"{stem}.png").exists():
+                stem = f"{base} ({n})"
+                n += 1
+        else:
+            stem = f"{i:02d}_{safe_name(title)}"
 
         png = base64.b64decode(item["image_b64"])
         (out / f"{stem}.png").write_bytes(png)
 
-        body = (item.get("body") or "").rstrip()
-        tags = " ".join(item.get("hashtags") or [])
-        (out / f"{stem}.txt").write_text(
-            f"{body}\n\n{tags}\n" if tags else f"{body}\n", encoding="utf-8"
-        )
+        if not flat:
+            body = (item.get("body") or "").rstrip()
+            tags = " ".join(item.get("hashtags") or [])
+            (out / f"{stem}.txt").write_text(
+                f"{body}\n\n{tags}\n" if tags else f"{body}\n", encoding="utf-8"
+            )
         saved.append(f"{stem}.png")
 
     return {"dir": str(out), "count": len(saved), "files": saved}
@@ -788,6 +1144,13 @@ def zip_dir(target: Path) -> bytes:
 # HTTP
 # ─────────────────────────────────────────────────────────────
 
+# 북마크릿은 threads.net(외부 페이지)에서 우리 로컬 서버로 요청을 보낸다.
+# 브라우저 CORS 규칙상 이 몇 개 주소만 다른 출처(cross-origin)에서 오는
+# 요청을 허락해준다. 나머지 기존 주소들(/api/config 등)은 대시보드
+# 자기 자신만 부르므로 그대로 둔다 — 건드리지 않는다.
+_CORS_PATHS = {"/api/ping", "/api/thread-capture", "/api/thread-inbox"}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -797,19 +1160,22 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- helpers ------------------------------------------------
 
-    def _send(self, code: int, body: bytes, ctype: str, extra: dict = None):
+    def _send(self, code: int, body: bytes, ctype: str, extra: dict = None,
+              cors: bool = False):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, code: int, payload: dict):
+    def _json(self, code: int, payload: dict, cors: bool = False):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self._send(code, body, "application/json; charset=utf-8")
+        self._send(code, body, "application/json; charset=utf-8", cors=cors)
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -820,10 +1186,56 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
 
+    def _serve_bookmarklet(self):
+        # self.server 는 main() 에서 만든 ThreadingHTTPServer 인스턴스라,
+        # 지금 이 서버가 실제로 물려 있는 포트를 여기서 정확히 알 수 있다.
+        port = self.server.server_address[1]
+        try:
+            src = (WEB / "bookmarklet.src.js").read_text(encoding="utf-8")
+        except OSError:
+            return self._json(500, {"error": "bookmarklet.src.js 를 찾을 수 없습니다."})
+        js = src.replace("__PORT__", str(port))
+        html = BOOKMARKLET_INSTALL_TEMPLATE.format(port=port, payload=repr(js))
+        self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+
     # -- routes -------------------------------------------------
+
+    def do_OPTIONS(self):
+        # 북마크릿이 JSON 을 POST 하기 전에 브라우저가 미리 물어보는 요청
+        # (preflight). 우리 수집 주소만 허락해주면 된다.
+        #
+        # + Private Network Access: 최근 크롬은 https 사이트(threads.com 등)가
+        # 127.0.0.1 같은 사설/루프백 주소로 요청을 보낼 때 한 번 더 확인을
+        # 요구한다. Access-Control-Allow-Private-Network 헤더를 안 주면
+        # "프로그램을 찾을 수 없다"는 것과 똑같은 네트워크 오류로 막힌다.
+        path = self.path.split("?", 1)[0]
+        if path in _CORS_PATHS:
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+
+        if path == "/bookmarklet.html":
+            # 정적 파일이 아니라 요청 시점에 지금 포트를 끼워 즉석 생성한다.
+            return self._serve_bookmarklet()
+
+        if path == "/api/ping":
+            # 북마크릿이 여러 포트를 두드려보며 "이게 우리 서버 맞나?" 확인할 때 씀.
+            return self._json(200, {"ok": True, "app": "hooking-factory"}, cors=True)
+
+        if path == "/api/thread-inbox":
+            # 대시보드가 몇 초마다 물어보는 자리. 쌓인 게 있으면 통째로 내주고 비운다.
+            return self._json(200, {"items": thread_inbox_take()}, cors=True)
 
         if path == "/api/config":
             cfg = load_config()
@@ -865,6 +1277,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": str(exc)})
 
         try:
+            if path == "/api/thread-capture":
+                # 북마크릿이 스레드 글(사진 URL들 + 본문 + 카테고리)을 보내는 자리.
+                result = thread_capture(payload)
+                return self._json(200, result, cors=True)
+
             if path == "/api/config":
                 cfg = load_config()
                 if "api_key" in payload:
@@ -903,21 +1320,35 @@ class Handler(BaseHTTPRequestHandler):
                     lang=payload.get("lang", "ko"),
                     guide=payload.get("guide", ""),
                     style_sample=payload.get("style_sample", ""),
+                    category=payload.get("category", ""),
+                    variant=int(payload.get("variant") or 0),
                 )
                 return self._json(200, data)
 
             if path == "/api/erase":
+                mode = payload.get("mode", "erase")
+                target_ratio = ""
+                if mode == "expand":
+                    # 저장 크기 코드(ig/th/tt)로 받으면 서버가 실제 비율로
+                    # 바꿔준다 — 프론트가 임의 문자열을 보내 엉뚱한 값이
+                    # generationConfig 로 그대로 나가는 일을 막는다.
+                    size_key = payload.get("save_size", "")
+                    target_ratio = SAVE_ASPECTS.get(size_key, "")
+                    if not target_ratio:
+                        return self._json(400, {"error": "저장 크기가 올바르지 않습니다."})
                 result = transform_image(
                     image_b64=payload["image_b64"],
                     media_type=payload.get("media_type", "image/png"),
-                    mode=payload.get("mode", "erase"),
+                    mode=mode,
                     story=payload.get("story", ""),
+                    target_ratio=target_ratio,
                 )
                 return self._json(200, result)
 
             if path == "/api/save":
                 result = save_batch(payload.get("items", []),
-                                    payload.get("label", ""))
+                                    payload.get("label", ""),
+                                    bool(payload.get("flat")))
                 return self._json(200, result)
 
             if path == "/api/zip":
@@ -933,7 +1364,7 @@ class Handler(BaseHTTPRequestHandler):
 
         except Exception as exc:  # 사용자에게 그대로 보여줄 메시지
             print(f"[오류] {path}: {exc}", file=sys.stderr)
-            return self._json(500, {"error": str(exc)})
+            return self._json(500, {"error": str(exc)}, cors=path in _CORS_PATHS)
 
         return self._json(404, {"error": "없는 주소입니다."})
 
@@ -981,11 +1412,14 @@ def main() -> None:
         print("먼저 설치가 필요합니다:\n\n    pip install anthropic\n", file=sys.stderr)
         sys.exit(1)
 
-    port = find_port()
+    # 예전에 켜둔 서버가 8765 를 붙잡고 있으면 화면이 그쪽으로 열려
+    # 새 파일이 반영되지 않는다. 아예 다른 자리에서 시작한다.
+    port = find_port(8790)
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화가 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v11 이 열렸습니다.\n\n    {url}\n")
+    print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
         print("  ⚠ Anthropic 키가 없습니다. 화면 왼쪽 위 '설정'에서 넣어주세요.")

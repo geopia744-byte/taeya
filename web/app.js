@@ -19,6 +19,7 @@ const CONCURRENCY = 3;      // 동시에 돌릴 요청 수
 
 const state = {
   cards: [],          // {id, file, img, crop, copy, status, error, el, canvas}
+  archivedCards: [],  // 사용자가 직접 "완성 목록으로 보내기"를 눌러 옮긴 카드들
   logo: null,         // Image
   logoPos: 'center',
   logoSize: 22,       // 이미지 너비 대비 %
@@ -30,6 +31,27 @@ const state = {
   category: 'person', // 고른 카테고리 (인물정보가 기본)
   lastSaveDir: null,
   running: false,
+  viewFavorites: false,
+
+  // 글자 꾸미기. 제목과 본문을 따로 둔다. 둘은 역할이 달라서
+  // 크기·색·굵기가 같으면 구분이 안 된다.
+  headSize: 10,        // 이미지 높이 대비 %
+  headColor: '#FFD24A',
+  headFont: '',        // 빈 값이면 기본 글꼴
+  headWeight: 900,
+  bodyColor: '#FFFFFF',
+  bodyFont: '',
+  bodyWeight: 900,
+
+  saveSize: 'orig',    // orig | ig(4:5) | tt(9:16)
+  aiExpand: true,      // 저장 크기에 안 맞을 때, 여백 대신 Gemini로 확장할지
+};
+
+// 저장 크기. 인스타 피드는 4:5, 스레드는 정사각형, 틱톡 사진은 9:16 이 기본이다.
+const SAVE_SIZES = {
+  ig: { w: 1080, h: 1350 },
+  th: { w: 1080, h: 1080 },
+  tt: { w: 1080, h: 1920 },
 };
 
 let seq = 0;
@@ -52,6 +74,159 @@ let seq = 0;
  * 진짜인지 알 수 없게 된다.
  */
 
+/* ── 문체 견본 ─────────────────────────────────────────
+ *
+ * 문체는 말로 설명하기 어렵고 예시로 보여주는 게 빠르다. 자주 쓰는 여섯
+ * 가지를 미리 넣어두고, 고쳐 쓴 것은 이름을 붙여 남길 수 있게 한다.
+ */
+
+const STYLE_PRESETS = [
+  {
+    name: '담백 뉴스',
+    text: '[제목] 3년 만에 밝혀졌다\n' +
+          '[본문] 어제 공개된 내용입니다.\n' +
+          '결과부터 말씀드리면, 예상과 달랐습니다.',
+  },
+  {
+    name: '감성 여운',
+    text: '[제목] 그날, 아무도 몰랐다\n' +
+          '[본문] 그냥 지나칠 뻔했어요.\n' +
+          '근데 다시 보니까… 마음이 이상해지더라고요. 🥺',
+  },
+  {
+    name: '강한 반전',
+    text: '[제목] 끝난 줄 알았다\n' +
+          '[본문] 여기서 끝이 아니었습니다.\n' +
+          '마지막 한 줄에서 완전히 뒤집힙니다.',
+  },
+  {
+    name: '친근한 수다',
+    text: '[제목] 이건 진짜 몰랐다\n' +
+          '[본문] 어제 알았는데요… 😳\n' +
+          '저만 몰랐던 거 아니죠?',
+  },
+  {
+    name: '정보 정리',
+    text: '[제목] 오늘부터 달라진다\n' +
+          '[본문] 핵심만 짧게 정리했습니다.\n' +
+          '① 대상 ② 금액 ③ 신청 방법\n' +
+          '놓치면 손해입니다.',
+  },
+  {
+    name: '묵직한 기록',
+    text: '[제목] 그는 끝내 돌아오지 못했다\n' +
+          '[본문] 짧게 적겠습니다.\n' +
+          '확인된 사실만 옮깁니다.',
+  },
+];
+
+const STYLE_BOX = 'hooking-factory/styles';
+
+function loadStyles() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STYLE_BOX) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];   // 저장소를 못 써도 견본은 그대로 쓸 수 있어야 한다
+  }
+}
+
+function storeStyles(list) {
+  try {
+    localStorage.setItem(STYLE_BOX, JSON.stringify(list));
+  } catch { /* 못 저장해도 화면은 계속 돈다 */ }
+}
+
+// 지금 칸에 들어와 있는 견본을 눌린 상태로 표시한다.
+function markStylePreset() {
+  const now = $('#style-sample').value.trim();
+  $('#style-presets').querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', !!now && b.dataset.text === now);
+  });
+}
+
+function buildStylePresets() {
+  const box = $('#style-presets');
+  box.innerHTML = '';
+  STYLE_PRESETS.forEach((s) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = s.name;
+    b.dataset.text = s.text;
+    b.title = s.text;
+    box.appendChild(b);
+  });
+
+  box.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    $('#style-sample').value = btn.dataset.text;
+    markStylePreset();
+    saveSettings();
+    toast(`문체를 「${btn.textContent}」(으)로 바꿨습니다`);
+  });
+}
+
+function renderSavedStyles(pick = '') {
+  const sel = $('#style-saved');
+  const list = loadStyles();
+  sel.innerHTML = '<option value="">내가 저장한 문체…</option>';
+  list.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = s.name;
+    sel.appendChild(o);
+  });
+  sel.value = pick;
+  $('#style-del').disabled = !list.length;
+}
+
+function initStyles() {
+  buildStylePresets();
+  renderSavedStyles();
+
+  $('#style-save').addEventListener('click', () => {
+    const text = $('#style-sample').value.trim();
+    if (!text) return toast('먼저 아래 칸에 문체를 적어주세요', true);
+
+    const name = (prompt('이 문체에 이름을 붙여주세요', '내 문체') || '').trim();
+    if (!name) return;
+
+    const list = loadStyles();
+    // 같은 이름이 있으면 덮어쓴다. 이름이 둘이면 어느 것인지 알 수 없다.
+    const at = list.findIndex((s) => s.name === name);
+    if (at >= 0) list[at] = { name, text };
+    else list.push({ name, text });
+
+    storeStyles(list);
+    renderSavedStyles(String(at >= 0 ? at : list.length - 1));
+    toast(`「${name}」(으)로 저장했습니다`);
+  });
+
+  $('#style-saved').addEventListener('change', (ev) => {
+    const i = ev.target.value;
+    if (i === '') return;
+    const item = loadStyles()[Number(i)];
+    if (!item) return;
+    $('#style-sample').value = item.text;
+    markStylePreset();
+    saveSettings();
+  });
+
+  $('#style-del').addEventListener('click', () => {
+    const i = $('#style-saved').value;
+    if (i === '') return toast('지울 문체를 먼저 고르세요', true);
+    const list = loadStyles();
+    const gone = list.splice(Number(i), 1)[0];
+    storeStyles(list);
+    renderSavedStyles();
+    toast(`「${gone?.name || ''}」을(를) 지웠습니다`);
+  });
+
+  $('#style-sample').addEventListener('input', markStylePreset);
+  markStylePreset();
+}
+
 const CATS = [
   { v: 'person', name: '인물정보', c: '#b79cff' },
   { v: 'issue',  name: '시사뉴스', c: '#6fb1ff' },
@@ -60,6 +235,7 @@ const CATS = [
   { v: 'policy', name: '정책뉴스', c: '#ffc44d' },
   { v: 'animal', name: '동물뉴스', c: '#4fd6c4' },
   { v: 'city',   name: '도시풍경', c: '#ff9166' },
+  { v: 'general', name: '기타일반', c: '#a8b0bd' },
 ];
 
 const catOf = (v) => CATS.find((c) => c.v === v) || CATS[0];
@@ -67,7 +243,220 @@ const catOf = (v) => CATS.find((c) => c.v === v) || CATS[0];
 const REMEMBER = 'hooking-factory/settings';
 
 const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize',
-              'autoCrop', 'category'];
+              'autoCrop', 'category',
+              'headSize', 'headColor', 'headFont', 'headWeight',
+              'bodyColor', 'bodyFont', 'bodyWeight', 'saveSize', 'aiExpand'];
+
+/* ── 작업물 자동 저장 (IndexedDB) ──────────────────────────
+ *
+ * 화면 새로고침(또는 우리가 파일을 고쳐서 브라우저가 다시 불러올 때)에도
+ * 작업 중인 카드와 완성 창고가 그대로 남아있어야 한다. 서버(app.py)는
+ * 절대 건드리지 않기로 했으므로, 브라우저 안(IndexedDB)에만 저장한다 —
+ * 이러면 서버 코드를 한 줄도 안 바꿔도 새로고침에도 살아남는다.
+ *
+ * 저장하는 값은 "다시 그리는 데 필요한 재료"들이다(원본 사진, 지운/새로
+ * 만든 사진, 글 내용, 위치 등). 화면에 그려진 결과 자체를 통째로 저장하는
+ * 게 아니라 이 재료로 render() 를 다시 돌려서 복원한다.
+ */
+
+const CARD_DB_NAME = 'hooking-factory-cards';
+const CARD_DB_VERSION = 1;
+const CARD_STORE = 'cards';
+
+let cardDbPromise = null;
+
+function openCardDB() {
+  if (cardDbPromise) return cardDbPromise;
+  cardDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(CARD_DB_NAME, CARD_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(CARD_STORE)) {
+        db.createObjectStore(CARD_STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return cardDbPromise;
+}
+
+async function dbSaveAll(records) {
+  const db = await openCardDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(CARD_STORE, 'readwrite');
+    tx.objectStore(CARD_STORE).clear();
+    records.forEach((rec) => tx.objectStore(CARD_STORE).put(rec));
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbLoadAll() {
+  const db = await openCardDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CARD_STORE, 'readonly');
+    const req = tx.objectStore(CARD_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// 카드를 "다시 그리는 데 필요한 재료"만 뽑아 저장 가능한 평범한 객체로 만든다.
+// card.img / card.cleanImg 는 이미 data URL(card.dataUrl, card.cleanImg.src)에서
+// 만든 것이므로, 그 문자열만 있으면 다시 그릴 수 있다.
+//
+// 카드 하나가 대시보드에도, 완성 목록에도 동시에 있을 수 있으므로(복사 방식),
+// "어느 배열에서 왔는지"가 아니라 "지금 어디 어디에 들어있는지"를 플래그로 남긴다.
+function serializeCard(card, inDashboard, inArchive) {
+  return {
+    id: card.id,
+    inDashboard: !!inDashboard,
+    inArchive: !!inArchive,
+    imgDataUrl: card.dataUrl || null,
+    cleanDataUrl: card.cleanImg?.src || null,
+    crop: card.crop || null,
+    copy: card.copy || null,
+    origTitle: card.origTitle || null,
+    category: card.category,
+    favorite: !!card.favorite,
+    createdAt: (card.createdAt || new Date()).toISOString(),
+    status: card.status === 'done' ? 'done' : 'idle',
+    photoDone: !!card.photoDone,
+    madeBy: card.madeBy || null,
+    headOn: !!card.headOn,
+    headText: card.headText || '',
+    posHead: card.posHead || null,
+    posBody: card.posBody || null,
+    lineStyle: card.lineStyle || {},
+    wordStyle: card.wordStyle || {},
+    batchChecked: !!card.batchChecked,
+
+    // 스레드 북마크릿으로 가져온 카드만 쓰는 값들. 원래 있던 카드는
+    // 전부 null/false 로 저장되므로 기존 레코드 구조와 부딪히지 않는다.
+    fromThread: !!card.fromThread,
+    sourceImages: card.sourceImages || null,
+    sourceIndex: card.sourceIndex || 0,
+    sourceText: card.sourceText || null,
+    sourceUrl: card.sourceUrl || null,
+  };
+}
+
+let persistTimer = null;
+
+// 드래그처럼 아주 자주 일어나는 변경까지 매번 저장하면 무겁기만 하니,
+// 마지막 변경 이후 잠깐 쉬면 그때 한 번만 저장한다.
+function schedulePersist() {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    // 대시보드 배열과 완성 목록 배열에 같은 카드(같은 id)가 동시에 들어있을 수
+    // 있으므로, id 기준으로 합쳐서 카드당 딱 하나의 저장 레코드만 만든다.
+    const byId = new Map();
+    state.cards.forEach((c) => {
+      const rec = byId.get(c.id) || { card: c, inDashboard: false, inArchive: false };
+      rec.inDashboard = true;
+      byId.set(c.id, rec);
+    });
+    state.archivedCards.forEach((c) => {
+      const rec = byId.get(c.id) || { card: c, inDashboard: false, inArchive: false };
+      rec.inArchive = true;
+      byId.set(c.id, rec);
+    });
+    const records = [...byId.values()].map(
+      ({ card, inDashboard, inArchive }) => serializeCard(card, inDashboard, inArchive)
+    );
+    dbSaveAll(records).catch((err) => console.error('작업물 자동 저장 실패', err));
+  }, 500);
+}
+
+// 새로고침 직후, 저장돼 있던 카드들을 원래 모습 그대로 되살린다.
+// - 대시보드에도 있던 카드는 카드 그리드에 (완성목록에도 있었다면 같은 객체를 거기에도 등록)
+// - 대시보드에서는 빠지고 완성 목록에만 남아있던 카드는 완성 창고에만
+async function restoreAllCards() {
+  let records = [];
+  try {
+    records = await dbLoadAll();
+  } catch (err) {
+    console.error('저장된 작업물을 불러오지 못했습니다', err);
+    return;
+  }
+  if (!records.length) return;
+
+  // 쌓인 순서(만든 시각) 그대로 되살린다.
+  records.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  for (const rec of records) {
+    seq = Math.max(seq, rec.id || 0);
+    const card = {
+      id: rec.id,
+      file: null,
+      img: null,
+      dataUrl: rec.imgDataUrl,
+      cleanImg: null,
+      crop: rec.crop,
+      copy: rec.copy,
+      origTitle: rec.origTitle,
+      status: rec.status,
+      error: null,
+      category: rec.category,
+      favorite: rec.favorite,
+      createdAt: new Date(rec.createdAt),
+      photoDone: rec.photoDone,
+      madeBy: rec.madeBy,
+      headOn: rec.headOn,
+      headText: rec.headText,
+      posHead: rec.posHead,
+      posBody: rec.posBody,
+      lineStyle: rec.lineStyle || {},
+      wordStyle: rec.wordStyle || {},
+      batchChecked: rec.batchChecked,
+      archived: !!rec.inArchive,
+      hit: { head: null, body: null },
+
+      fromThread: !!rec.fromThread,
+      sourceImages: rec.sourceImages || null,
+      sourceIndex: rec.sourceIndex || 0,
+      sourceText: rec.sourceText || null,
+      sourceUrl: rec.sourceUrl || null,
+    };
+
+    try {
+      if (rec.imgDataUrl) card.img = await loadImage(rec.imgDataUrl);
+      if (rec.cleanDataUrl) card.cleanImg = await loadImage(rec.cleanDataUrl);
+    } catch (err) {
+      console.error('저장된 사진을 불러오지 못했습니다', rec.id, err);
+      continue;   // 사진 자체를 못 읽으면 이 카드는 건너뛴다
+    }
+
+    if (rec.inArchive && !rec.inDashboard) {
+      // 완성 창고에만 남아있던(대시보드에서는 이미 뺀) 카드는 화면(DOM)에
+      // 안 붙으므로, 화면 밖 캔버스 하나만 만들어서 다시보기/저장에 쓴다.
+      card.canvas = document.createElement('canvas');
+      state.archivedCards.push(card);
+      render(card);
+    } else {
+      // 대시보드에 실제로 마운트한다 — 이 카드는 진짜 캔버스(DOM)를 갖는다.
+      // (구버전 레코드처럼 inDashboard/inArchive가 둘 다 비어있는 손상된
+      //  레코드도 안전하게 대시보드로 복원한다.)
+      mountCard(card);
+      state.cards.push(card);
+      if (card.copy) fillCard(card);
+      render(card);
+      setStatus(card, card.status === 'done' ? 'done' : 'idle');
+      applyThreadUI(card);
+      const favBtn = card.el.querySelector('[data-act="fav"]');
+      if (favBtn && card.favorite) {
+        favBtn.textContent = '★';
+        favBtn.classList.add('on');
+      }
+      // 완성 목록에도 동시에 있었다면, 같은 카드 객체를 그대로 등록한다
+      // (대시보드에 실제로 그려진 캔버스를 완성 목록 썸네일에도 그대로 재사용).
+      if (rec.inArchive) state.archivedCards.push(card);
+    }
+  }
+
+  applyCategory();   // 칩 장수·빈 화면 표시를 복원된 카드 기준으로 다시 맞춘다
+}
 
 function loadSettings() {
   try {
@@ -225,34 +614,52 @@ function detectPhotoRegion(img) {
  * 원본 툴은 "자유가 아니" / "었다" 처럼 단어를 쪼개 놓았다.
  * 여기서는 어절 단위로만 끊고, 넘치면 글자를 줄인다.
  */
-function wrapByWords(ctx, lines, maxWidth) {
+function lineText(tokens) {
+  return tokens.map((t) => t.text).join(' ');
+}
+
+// 원본 줄들을 "단어 토큰" 배열로 쪼갠다. 토큰마다 몇 번째 줄(origin)의
+// 몇 번째 단어(wordIndex)인지 꼬리표를 붙여 둔다 — 나중에 줄바꿈이 다시
+// 일어나도 "그 단어"를 잃어버리지 않기 위해서다.
+function tokenizeLines(lines) {
+  return lines.map((raw, origin) => String(raw).trim().split(/\s+/).filter(Boolean)
+    .map((text, wordIndex) => ({ text, origin, wordIndex })));
+}
+
+// 줄바꿈이 필요할 때 어절(단어) 단위로 다시 나눈다. 원본 줄 경계는 넘지
+// 않는다 — 다른 줄의 단어가 한 줄에 같이 붙는 일은 없다.
+function wrapTokenLines(ctx, tokenLines, maxWidth) {
   const out = [];
-  for (const raw of lines) {
-    const words = String(raw).trim().split(/\s+/).filter(Boolean);
-    if (!words.length) continue;
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const test = `${cur} ${words[i]}`;
+  tokenLines.forEach((toks) => {
+    if (!toks.length) return;
+    let cur = [toks[0]];
+    let curText = toks[0].text;
+    for (let i = 1; i < toks.length; i++) {
+      const test = `${curText} ${toks[i].text}`;
       if (ctx.measureText(test).width <= maxWidth) {
-        cur = test;
+        cur.push(toks[i]);
+        curText = test;
       } else {
         out.push(cur);
-        cur = words[i];
+        cur = [toks[i]];
+        curText = toks[i].text;
       }
     }
     out.push(cur);
-  }
+  });
   return out;
 }
 
-function fitTitle(ctx, lines, boxW, boxH, startSize) {
+function fitTitle(ctx, lines, boxW, boxH, startSize, weight = 900, font = '') {
   const clean = lines.map((l) => String(l).trim()).filter(Boolean);
   if (!clean.length) return { size: startSize, wrapped: [] };
+  const face = fontOf(font);
+  const tokenLines = tokenizeLines(clean);
 
-  const fits = (size, arr) => {
-    ctx.font = `900 ${size}px ${FONT_STACK}`;
-    return arr.every((l) => ctx.measureText(l).width <= boxW)
-        && arr.length * size * LINE_HEIGHT <= boxH;
+  const fits = (size, outLines) => {
+    ctx.font = `${weight} ${size}px ${face}`;
+    return outLines.every((toks) => ctx.measureText(lineText(toks)).width <= boxW)
+        && outLines.length * size * LINE_HEIGHT <= boxH;
   };
 
   // 1단계 — AI가 준 줄 구성을 그대로 지키면서 글자만 줄여본다.
@@ -261,15 +668,15 @@ function fitTitle(ctx, lines, boxW, boxH, startSize) {
   let size = startSize;
   const floor = startSize * 0.62;
   while (size >= floor) {
-    if (fits(size, clean)) return { size, wrapped: clean };
+    if (fits(size, tokenLines)) return { size, wrapped: tokenLines };
     size *= 0.97;
   }
 
   // 2단계 — 그래도 안 들어가면 어절 단위로 다시 나눈다. 단어는 쪼개지 않는다.
   size = startSize;
   for (let step = 0; step < 40; step++) {
-    ctx.font = `900 ${size}px ${FONT_STACK}`;
-    const wrapped = wrapByWords(ctx, clean, boxW);
+    ctx.font = `${weight} ${size}px ${face}`;
+    const wrapped = wrapTokenLines(ctx, tokenLines, boxW);
     if (wrapped.length <= MAX_TITLE_LINES && fits(size, wrapped)) {
       return { size, wrapped };
     }
@@ -277,8 +684,8 @@ function fitTitle(ctx, lines, boxW, boxH, startSize) {
     if (size < 8) break;
   }
 
-  ctx.font = `900 ${size}px ${FONT_STACK}`;
-  return { size, wrapped: wrapByWords(ctx, clean, boxW) };
+  ctx.font = `${weight} ${size}px ${face}`;
+  return { size, wrapped: wrapTokenLines(ctx, tokenLines, boxW) };
 }
 
 /* ── 카드 한 장 그리기 ─────────────────────────────── */
@@ -352,12 +759,90 @@ function photoPending(card) {
       && !card.photoDone;
 }
 
+// 고른 글꼴을 쓰되, 없는 글꼴이면 기본 글꼴로 흘러가게 뒤에 붙여 둔다.
+function fontOf(name) {
+  return name ? `"${name}", ${FONT_STACK}` : FONT_STACK;
+}
+
+// 끌어서 오른쪽으로 밀어도 글자가 화면 밖으로 나가지 않게 붙잡는다.
+function clampLeft(ctx, fit, weight, font, left, w) {
+  ctx.font = `${weight} ${fit.size}px ${fontOf(font)}`;
+  const wide = Math.max(...fit.wrapped.map((toks) => ctx.measureText(lineText(toks)).width), 0);
+  return Math.max(0, Math.min(w - wide, left));
+}
+
+// 글자 덩어리 하나를 그린다. 자리를 잡아 돌려주므로 끌어 옮길 때 쓴다.
+// (제목처럼 한 줄 전체가 같은 글꼴·색인 경우에 쓴다)
+function drawBlock(ctx, cfg) {
+  const { lines, x, top, size, color, weight, font } = cfg;
+  ctx.font = `${weight} ${size}px ${fontOf(font)}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0,0,0,.55)';
+  ctx.shadowBlur = size * 0.28;
+  ctx.fillStyle = color;
+  const lineH = size * LINE_HEIGHT;
+  const first = top + size * 0.82;
+  let wide = 0;
+  lines.forEach((toks, k) => {
+    const text = lineText(toks);
+    ctx.fillText(text, x, first + k * lineH);
+    wide = Math.max(wide, ctx.measureText(text).width);
+  });
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  return { x, y: top, w: wide, h: lines.length * lineH };
+}
+
+// ── 본문: 단어마다 글꼴·크기·색이 다를 수 있다 ──
+// outLines: [{ words: [{text,color,font,weight,size}, ...], lineH }, ...]
+function clampLeftLines(ctx, outLines, left, w) {
+  let wide = 0;
+  outLines.forEach((ln) => {
+    let width = 0;
+    ln.words.forEach((word, i) => {
+      ctx.font = `${word.weight} ${word.size}px ${fontOf(word.font)}`;
+      if (i > 0) width += ctx.measureText(' ').width;
+      width += ctx.measureText(word.text).width;
+    });
+    wide = Math.max(wide, width);
+  });
+  return Math.max(0, Math.min(w - wide, left));
+}
+
+function drawBodyLines(ctx, { outLines, x, top }) {
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  let cursorY = top;
+  let wide = 0;
+  outLines.forEach((ln) => {
+    const maxSize = Math.max(...ln.words.map((w) => w.size));
+    const baseline = cursorY + maxSize * 0.82;   // 크기 다른 단어끼리도 같은 기준선에 앉는다
+    let cursorX = x;
+    ln.words.forEach((w, i) => {
+      ctx.font = `${w.weight} ${w.size}px ${fontOf(w.font)}`;
+      ctx.shadowColor = 'rgba(0,0,0,.55)';
+      ctx.shadowBlur = w.size * 0.28;
+      ctx.fillStyle = w.color;
+      if (i > 0) cursorX += ctx.measureText(' ').width;
+      ctx.fillText(w.text, cursorX, baseline);
+      cursorX += ctx.measureText(w.text).width;
+      wide = Math.max(wide, cursorX - x);
+    });
+    cursorY += ln.lineH;
+  });
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  return { x, y: top, w: wide, h: cursorY - top };
+}
+
 function render(card) {
   const canvas = card.canvas;
   // 글자를 지운 사진이 있으면 그걸 쓴다. 이미 깨끗하므로 잘라낼 것도 덮을 것도 없다.
   const clean = card.cleanImg;
   const img = clean || card.img;
   if (!img || !canvas) return;
+  schedulePersist();   // 화면에 뭔가 새로 그려질 때마다 자동 저장을 예약한다
   const crop = clean
     ? { x: 0, y: 0, w: clean.naturalWidth, h: clean.naturalHeight }
     : card.crop;
@@ -371,6 +856,8 @@ function render(card) {
   ctx.clearRect(0, 0, w, h);
   ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, w, h);
 
+  card.hit = { head: null, body: null };   // 끌어 옮길 때 쓸 자리
+
   const pad = w * 0.055;
   const boxW = w - pad * 2;
   const lines = photoPending(card)
@@ -378,51 +865,124 @@ function render(card) {
     : (card.copy?.title_lines?.filter(Boolean) || []);
   const region = clean ? null : coverRegion(card);
 
-  if (!lines.length) {
+  // 제목은 안 써도 된다. 켜고 글을 넣었을 때만 나온다.
+  const headLines = (!photoPending(card) && card.headOn && card.headText)
+    ? [String(card.headText).trim()].filter(Boolean) : [];
+
+  if (!lines.length && !headLines.length) {
     if (region) drawCover(ctx, w, h, region.top * h, region.bottom * h);
     if (state.logo) drawLogo(ctx, w);
     return;
   }
 
-  // 글자를 먼저 배치해 봐야 덮개를 얼마나 크게 칠지 정할 수 있다.
-  const base = h * (state.textSize / 100);
-  const { size, wrapped } = fitTitle(ctx, lines, boxW, h * 0.44, base);
-  const lineH = size * LINE_HEIGHT;
-  const blockH = wrapped.length * lineH;
+  /* ── 본문 자리 잡기 ──
+   * 우선순위: 단어 강조(card.wordStyle) > 줄 스타일(card.lineStyle) > 왼쪽 패널 공통값.
+   * 셋 다 없으면 전부 공통값으로 그려지던 원래 동작 그대로다. */
+  let body = null;
+  if (lines.length) {
+    const base = h * (state.textSize / 100);
+    ctx.font = `${state.bodyWeight} ${base}px ${fontOf(state.bodyFont)}`;
+    const fit = fitTitle(ctx, lines, boxW, h * 0.44, base, state.bodyWeight,
+                         state.bodyFont);
 
-  // 글자 위치. '자동'이면 원본 영어가 있던 자리에 그대로 앉힌다.
-  let blockTop;
-  if (state.textPos === 'top') blockTop = pad;
-  else if (state.textPos === 'middle') blockTop = (h - blockH) / 2;
-  else if (state.textPos === 'bottom') blockTop = h - pad - blockH;
-  else blockTop = region
-    ? ((region.top + region.bottom) / 2) * h - blockH / 2
-    : h - pad - blockH;
-  blockTop = Math.max(pad * 0.4, Math.min(h - blockH - pad * 0.4, blockTop));
+    const outLines = fit.wrapped.map((tokens) => {
+      const words = tokens.map((tok) => {
+        const lineOv = card.lineStyle?.[tok.origin] || {};
+        const wordOv = card.wordStyle?.[tok.origin]?.[tok.wordIndex] || {};
+        const weight = wordOv.weight || lineOv.weight || state.bodyWeight;
+        const font = wordOv.font || lineOv.font || state.bodyFont;
+        const color = wordOv.color || lineOv.color || state.bodyColor;
+        const sizePct = wordOv.size || lineOv.size || state.textSize;
+        return { text: tok.text, color, font, weight, size: h * (sizePct / 100) };
+      });
+      const lineH = Math.max(...words.map((w) => w.size)) * LINE_HEIGHT;
+      return { words, lineH };
+    });
 
-  // 덮개는 원본 글자 영역과 한국어 글자 영역을 모두 감싸야 한다.
-  // 둘 중 하나만 덮으면 영어가 삐져나오거나 한국어가 사진에 묻힌다.
-  const margin = size * 0.55;
-  let y0 = blockTop - margin;
-  let y1 = blockTop + blockH + margin;
-  if (region) {
-    y0 = Math.min(y0, region.top * h);
-    y1 = Math.max(y1, region.bottom * h);
+    // 강조 단어가 너무 커서 줄이 박스 밖으로 삐져나가면, 그 줄 전체를
+    // 비율대로 살짝 줄인다 (강조 단어만 따로 줄이면 비율이 깨진다).
+    outLines.forEach((ln) => {
+      const widthOf = () => ln.words.reduce((sum, w, i) => {
+        ctx.font = `${w.weight} ${w.size}px ${fontOf(w.font)}`;
+        return sum + ctx.measureText(w.text).width + (i > 0 ? ctx.measureText(' ').width : 0);
+      }, 0);
+      let guard = 0;
+      while (widthOf() > boxW && guard < 40) {
+        ln.words.forEach((w) => { w.size *= 0.95; });
+        ln.lineH = Math.max(...ln.words.map((w) => w.size)) * LINE_HEIGHT;
+        guard++;
+      }
+    });
+
+    const blockH = outLines.reduce((sum, ln) => sum + ln.lineH, 0);
+    const maxSize = Math.max(...outLines.flatMap((ln) => ln.words.map((w) => w.size)));
+
+    let top;
+    let left = pad;
+    if (card.posBody) {                       // 끌어서 옮겨 둔 자리
+      left = card.posBody.x * w;
+      top = card.posBody.y * h;
+    } else if (state.textPos === 'top') top = pad;
+    else if (state.textPos === 'middle') top = (h - blockH) / 2;
+    else if (state.textPos === 'bottom') top = h - pad - blockH;
+    else top = region
+      ? ((region.top + region.bottom) / 2) * h - blockH / 2
+      : h - pad - blockH;
+
+    top = Math.max(0, Math.min(h - blockH, top));
+    left = clampLeftLines(ctx, outLines, left, w);
+    body = { outLines, top, left, blockH, maxSize };
   }
-  // 글자를 지운 사진에는 넓은 덮개가 필요 없다. 한국어가 읽히게만 살짝 깐다.
-  if (clean) drawScrim(ctx, w, h, y0, y1 - y0);
-  else drawCover(ctx, w, h, Math.max(0, y0), Math.min(h, y1));
 
-  ctx.font = `900 ${size}px ${FONT_STACK}`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.shadowColor = 'rgba(0,0,0,.55)';
-  ctx.shadowBlur = size * 0.28;
-  ctx.fillStyle = '#fff';
-  const first = blockTop + size * 0.82;
-  wrapped.forEach((line, k) => ctx.fillText(line, pad, first + k * lineH));
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
+  /* ── 제목 자리 잡기 ── */
+  let head = null;
+  if (headLines.length) {
+    const base = h * (state.headSize / 100);
+    const fit = fitTitle(ctx, headLines, boxW, h * 0.3, base, state.headWeight,
+                         state.headFont);
+    const blockH = fit.wrapped.length * fit.size * LINE_HEIGHT;
+    let top = card.posHead ? card.posHead.y * h : pad;
+    let left = card.posHead ? card.posHead.x * w : pad;
+    top = Math.max(0, Math.min(h - blockH, top));
+    left = clampLeft(ctx, fit, state.headWeight, state.headFont, left, w);
+    head = { ...fit, top, left, blockH };
+  }
+
+  /* ── 덮개 ──
+     원본 영어가 있던 자리와 본문 글자 자리를 모두 감싸야 한다.
+     둘 중 하나만 덮으면 영어가 삐져나오거나 한국어가 사진에 묻힌다. */
+  if (body) {
+    const margin = body.maxSize * 0.55;
+    let y0 = body.top - margin;
+    let y1 = body.top + body.blockH + margin;
+    if (region) {
+      y0 = Math.min(y0, region.top * h);
+      y1 = Math.max(y1, region.bottom * h);
+    }
+    if (clean) drawScrim(ctx, w, h, y0, y1 - y0);
+    else drawCover(ctx, w, h, Math.max(0, y0), Math.min(h, y1));
+  } else if (region) {
+    drawCover(ctx, w, h, region.top * h, region.bottom * h);
+  }
+
+  // 제목은 사진 위 아무 데나 놓이므로, 읽히도록 그 자리에만 옅은 그늘을 깐다.
+  if (head) {
+    drawScrim(ctx, w, h, head.top - head.size * 0.5,
+              head.blockH + head.size);
+  }
+
+  /* ── 글자 ── */
+  if (body) {
+    card.hit.body = drawBodyLines(ctx, {
+      outLines: body.outLines, x: body.left, top: body.top,
+    });
+  }
+  if (head) {
+    card.hit.head = drawBlock(ctx, {
+      lines: head.wrapped, x: head.left, top: head.top, size: head.size,
+      color: state.headColor, weight: state.headWeight, font: state.headFont,
+    });
+  }
 
   if (state.logo) drawLogo(ctx, w);
 }
@@ -479,6 +1039,10 @@ async function addFiles(fileList) {
       status: 'idle',
       error: null,
       category: state.category,   // 넣는 순간의 항목에 담긴다
+      favorite: false,
+      createdAt: new Date(),
+      lineStyle: {},   // 본문 특정 줄만 다른 글꼴·크기·색을 줄 때 씀 { [줄번호]: {size,font,color,weight} }
+      wordStyle: {},   // 본문 특정 단어만 강조할 때 씀 { [줄번호]: { [단어번호]: {size,font,color,weight} } }
     };
     state.cards.push(card);
     mountCard(card);
@@ -503,46 +1067,440 @@ function mountCard(card) {
   card.canvas = node.querySelector('canvas');
 
   node.addEventListener('click', (ev) => {
-    const act = ev.target.dataset?.act;
+    const btn = ev.target.closest('[data-act]');
+    const act = btn?.dataset?.act;
     if (!act) return;
     if (act === 'remove') removeCard(card);
     if (act === 'copy') copyBody(card);
     if (act === 'regen') { card.cleanImg = null; card.madeBy = null; card.photoDone = false; runOne(card); }
-    if (act === 'download') downloadOne(card);
+    if (act === 'download') openSaveDialog(card);
+    if (act === 'fold') toggleFold(card, btn);
+    if (act === 'edit-title') openEditor(card);
+    if (act === 'edit-body') openBodyEditor(card);
+    if (act === 'archive') moveToArchive(card);
+    if (act === 'cat-tag') toggleCatPicker(card);
+    if (act === 'pick-cat') setCardCategory(card, btn.dataset.v);
+    if (act === 'car-prev') cycleCardImage(card, -1);
+    if (act === 'car-next') cycleCardImage(card, 1);
+    if (act === 'fav') {
+      card.favorite = !card.favorite;
+      btn.textContent = card.favorite ? '★' : '☆';
+      btn.classList.toggle('on', card.favorite);
+      applyCategory();
+      schedulePersist();
+    }
   });
+
+  const dateEl = node.querySelector('[data-role="date"]');
+  const hh = String(card.createdAt.getHours()).padStart(2, '0');
+  const mm = String(card.createdAt.getMinutes()).padStart(2, '0');
+  dateEl.textContent = `${card.createdAt.getMonth() + 1}.${card.createdAt.getDate()} ${hh}:${mm}`;
 
   node.querySelector('[data-role="body"]').addEventListener('input', (ev) => {
     if (card.copy) card.copy.body = ev.target.value;
   });
+
+  bindDrag(() => card, card.canvas);   // 작은 카드에서도 글자를 끌 수 있다
 
   const tag = node.querySelector('[data-role="cat"]');
   const cat = catOf(card.category);
   tag.textContent = cat.name;
   tag.style.setProperty('--c', cat.c);
 
+  // 카테고리 옮기기: cat-tag를 누르면 8개 항목이 팝오버로 뜬다.
+  const picker = node.querySelector('[data-role="cat-picker"]');
+  CATS.forEach((c) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.act = 'pick-cat';
+    b.dataset.v = c.v;
+    b.style.setProperty('--c', c.c);
+    b.textContent = c.name;
+    picker.appendChild(b);
+  });
+
   $('#cards').appendChild(node);
+}
+
+/* ── 카테고리 옮기기 ───────────────────────────────────────
+ * cat-tag(팻말)를 누르면 다른 8개 항목이 뜨고, 고르면 그 카드가
+ * 통째로 다른 카테고리로 옮겨간다. 지금 보고 있는 항목이 아니게
+ * 되면 화면에서는 바로 사라진다(그 항목 칸으로 갔다는 뜻).
+ */
+function toggleCatPicker(card) {
+  const picker = card.el.querySelector('[data-role="cat-picker"]');
+  const open = picker.hidden;
+  // 다른 카드에서 열려 있던 팝오버는 닫는다.
+  document.querySelectorAll('.cat-picker').forEach((p) => { p.hidden = true; });
+  picker.hidden = !open;
+}
+
+function setCardCategory(card, v) {
+  if (!v || card.category === v) {
+    card.el.querySelector('[data-role="cat-picker"]').hidden = true;
+    return;
+  }
+  card.category = v;
+  const cat = catOf(v);
+  const tag = card.el.querySelector('[data-role="cat"]');
+  tag.textContent = cat.name;
+  tag.style.setProperty('--c', cat.c);
+  card.el.querySelector('[data-role="cat-picker"]').hidden = true;
+  applyCategory();
+  schedulePersist();
+  toast(`「${cat.name}」로 옮겼습니다`);
+}
+
+document.addEventListener('click', (ev) => {
+  // 카드 바깥이나 다른 카드를 누르면 열려 있던 카테고리 팝오버를 닫는다.
+  if (ev.target.closest('[data-act="cat-tag"]') || ev.target.closest('.cat-picker')) return;
+  document.querySelectorAll('.cat-picker').forEach((p) => { p.hidden = true; });
+});
+
+/* ── 스레드 북마크릿으로 가져온 카드 ────────────────────────
+ *
+ * 일반 카드와 데이터 구조는 같다(card.img, card.dataUrl 을 그대로 씀).
+ * 다른 점은 딱 셋: 사진이 여러 장일 수 있어 캐러셀로 넘기고,
+ * 원문(sourceText)이 박스로 함께 붙고, "🧵 스레드 원문" 배지가 달린다.
+ * 문구 생성·저장·편집은 기존 카드와 완전히 같은 코드를 그대로 탄다 —
+ * card.img/card.dataUrl 만 지금 보이는 사진으로 맞춰주면 되기 때문이다.
+ */
+
+// 지금 카드에 보여줄 사진을 sourceImages[idx] 로 바꾼다.
+async function setCardImage(card, idx) {
+  if (!card.sourceImages || !card.sourceImages.length) return;
+  const total = card.sourceImages.length;
+  const i = ((idx % total) + total) % total;
+  const url = card.sourceImages[i];
+  try {
+    card.img = await loadImage(url);
+    card.dataUrl = url;
+    card.sourceIndex = i;
+    card.crop = cropFor(card.img);
+    render(card);
+  } catch (err) {
+    console.error('스레드 사진을 불러오지 못했습니다', err);
+  }
+  const count = card.el?.querySelector('[data-role="car-count"]');
+  if (count) count.textContent = `${i + 1}/${total}`;
+}
+
+function cycleCardImage(card, delta) {
+  setCardImage(card, (card.sourceIndex || 0) + delta);
+}
+
+// 스레드 카드에만 붙는 화면 조각(배지·캐러셀·원문 박스)을 마운트 이후에 켠다.
+function applyThreadUI(card) {
+  if (!card.fromThread || !card.el) return;
+
+  const badge = card.el.querySelector('[data-role="thread-badge"]');
+  if (badge) badge.hidden = false;
+
+  const total = (card.sourceImages || []).length;
+  const nav = card.el.querySelector('[data-role="carousel"]');
+  if (nav) {
+    nav.hidden = total <= 1;
+    const count = card.el.querySelector('[data-role="car-count"]');
+    if (count) count.textContent = `${(card.sourceIndex || 0) + 1}/${total}`;
+  }
+
+  if (card.sourceText) {
+    const box = card.el.querySelector('[data-role="source-box"]');
+    const text = card.el.querySelector('[data-role="source-text"]');
+    if (box && text) {
+      text.textContent = card.sourceText;
+      box.hidden = false;
+    }
+  }
+  const link = card.el.querySelector('[data-role="source-link"]');
+  if (link && card.sourceUrl) {
+    link.href = card.sourceUrl;
+    link.hidden = false;
+  }
+}
+
+// 사진을 하나도 못 가져왔을 때 캔버스에 안내를 그린다(원문 글만이라도 살린다).
+function renderNoImagePlaceholder(card) {
+  const canvas = card.canvas;
+  if (!canvas) return;
+  canvas.width = 864;
+  canvas.height = 1080;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#14161c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#666c78';
+  ctx.font = '600 30px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🧵 사진을 가져오지 못했어요', canvas.width / 2, canvas.height / 2);
+}
+
+// 서버 수집함(/api/thread-inbox)에서 받은 항목들을 카드로 만든다.
+async function createThreadCards(items) {
+  for (const item of items) {
+    const category = CATS.some((c) => c.v === item.category) ? item.category : state.category;
+    const card = {
+      id: ++seq,
+      file: null,
+      img: null,
+      crop: null,
+      copy: null,
+      status: 'idle',
+      error: null,
+      category,
+      favorite: false,
+      createdAt: item.capturedAt ? new Date(item.capturedAt) : new Date(),
+      lineStyle: {},
+      wordStyle: {},
+      fromThread: true,
+      sourceImages: item.images || [],
+      sourceIndex: 0,
+      sourceText: item.text || '',
+      sourceUrl: item.sourceUrl || '',
+    };
+    state.cards.push(card);
+    mountCard(card);
+    applyThreadUI(card);
+
+    if (card.sourceImages.length) {
+      await setCardImage(card, 0);
+    } else {
+      renderNoImagePlaceholder(card);
+    }
+    setStatus(card, 'idle');
+  }
+  applyCategory();
+  schedulePersist();
+  const n = items.length;
+  toast(n > 1 ? `스레드에서 ${n}건 가져왔어요` : '스레드에서 가져왔어요');
+}
+
+/* ── 서버 수집함 확인(폴링) ──────────────────────────────── */
+
+let threadPollTimer = null;
+
+async function pollThreadInbox() {
+  try {
+    const data = await api('/api/thread-inbox');
+    if (data.items && data.items.length) await createThreadCards(data.items);
+  } catch {
+    // 서버가 잠깐 바쁘거나 아직 안 켜졌을 수 있다. 조용히 넘어가고 다음 차례에 다시 본다.
+  }
+}
+
+function startThreadPolling() {
+  if (threadPollTimer) return;
+  pollThreadInbox();
+  threadPollTimer = setInterval(pollThreadInbox, 3500);
+}
+
+/* ── 본문 여닫기 · 제목 고치기 ────────────────────────────
+ *
+ * 카드가 세로로 길면 한 화면에 몇 장 안 들어온다. 본문과 해시태그는
+ * 접어두고 필요할 때만 편다.
+ *
+ * 제목은 render() 가 캔버스에 그릴 뿐이라, title_lines 만 바꾸고 다시
+ * 그리면 즉시 반영된다. 서버도 API 도 거치지 않는다.
+ */
+
+function toggleFold(card, btn) {
+  const open = card.el.classList.toggle('open-body');
+  btn.textContent = open ? '본문 접기 ▴' : '본문 보기 ▾';
+}
+
+function applyTitle(card, text) {
+  if (!card.copy) return;
+  // 빈 줄은 버린다. 줄 하나가 사진 위의 한 줄이 된다.
+  card.copy.title_lines = String(text)
+    .split('\n').map((s) => s.trim()).filter(Boolean);
+  render(card);
+}
+
+function resetTitle(card) {
+  if (!card.copy || !card.origTitle) return;
+  card.copy.title_lines = [...card.origTitle];
+  const box = $('#ed-body');
+  if (box) box.value = card.origTitle.join('\n');
+  if (editing === card) {
+    lineSel = 'all';
+    wordSel = null;
+    renderLineSelUI();
+    syncBodyLineUI();
+  }
+  render(card);
+  toast('처음 글로 되돌렸습니다');
+}
+
+/* ── 글자 끌어 옮기기 ──────────────────────────────────────
+ *
+ * 캔버스에 그린 글자는 버튼이 아니라 그림이라 클릭이 안 된다.
+ * 대신 누른 자리가 어느 덩어리 안인지 계산해서 그 덩어리를 따라 옮긴다.
+ * 화면에 줄여 보여주고 있으므로 화면 좌표를 캔버스 좌표로 환산한다.
+ */
+
+function canvasPoint(canvas, ev) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: (ev.clientX - r.left) * (canvas.width / r.width),
+    y: (ev.clientY - r.top) * (canvas.height / r.height),
+  };
+}
+
+function blockAt(card, p) {
+  const pad = card.canvas.width * 0.04;   // 손가락이 조금 빗나가도 잡히게
+  for (const key of ['head', 'body']) {   // 제목이 위에 있으니 먼저 본다
+    const b = card.hit?.[key];
+    if (!b) continue;
+    if (p.x >= b.x - pad && p.x <= b.x + b.w + pad
+     && p.y >= b.y - pad && p.y <= b.y + b.h + pad) return key;
+  }
+  return null;
+}
+
+function bindDrag(getCard, canvas) {
+  canvas.addEventListener('pointerdown', (ev) => {
+    const card = getCard();
+    if (!card || !card.copy || card.canvas !== canvas) return;
+    const p = canvasPoint(canvas, ev);
+    const key = blockAt(card, p);
+    if (!key) return;
+
+    ev.preventDefault();
+    canvas.setPointerCapture(ev.pointerId);
+    canvas.classList.add('dragging');
+    const b = card.hit[key];
+    const grabX = p.x - b.x;
+    const grabY = p.y - b.y;
+
+    const move = (e) => {
+      const q = canvasPoint(canvas, e);
+      const slot = key === 'head' ? 'posHead' : 'posBody';
+      card[slot] = {
+        x: Math.max(0, Math.min(1, (q.x - grabX) / canvas.width)),
+        y: Math.max(0, Math.min(1, (q.y - grabY) / canvas.height)),
+      };
+      render(card);
+    };
+    const up = () => {
+      canvas.classList.remove('dragging');
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', up);
+      canvas.removeEventListener('pointercancel', up);
+    };
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+  });
+}
+
+/* ── 큰 편집창 ────────────────────────────────────────────
+ *
+ * 목록의 카드는 작아서 글자를 정확히 놓기 어렵다. 편집할 때만
+ * 카드의 캔버스를 큰 창으로 옮겨 두고, 닫을 때 제자리로 돌려놓는다.
+ * 같은 캔버스를 쓰므로 창에서 고친 것이 카드에 그대로 남는다.
+ */
+
+let editing = null;
+let bodyEditing = null;   // 본문(긴 글) 편집 팝업이 지금 어느 카드를 다루고 있는지
+let archivePage = 1;      // 완성 목록 — 지금 보고 있는 페이지
+const ARCHIVE_PAGE_SIZE = 12;   // 한 페이지에 12개씩
+
+function openEditor(card) {
+  if (!card.copy) return toast('먼저 변환해주세요', true);
+  editing = card;
+  card.smallCanvas = card.canvas;
+  card.canvas = $('#ed-canvas');
+
+  $('#ed-head-on').checked = !!card.headOn;
+  $('#ed-head').value = card.headText || '';
+  $('#ed-head').disabled = !card.headOn;
+  $('#ed-body').value = (card.copy.title_lines || []).join('\n');
+  lineSel = 'all';
+  wordSel = null;
+  renderLineSelUI();
+  syncBodyLineUI();
+  render(card);
+  $('#editor').showModal();
+}
+
+function closeEditor() {
+  const card = editing;
+  editing = null;
+  if (!card) return;
+  card.canvas = card.smallCanvas;
+  card.smallCanvas = null;
+  render(card);            // 작은 카드에 다시 그린다
+}
+
+/* ── 본문(긴 글) 편집 — 큰 화면 팝업 ───────────────────────
+ * 사진 위에 그려지는 소제목(글자 편집/title_lines)과는 완전히 다른
+ * 데이터다. 이건 카드 하단 "본문 보기" 안 글(card.copy.body)을
+ * 그대로 편집하는 것뿐이라, 저장돼도 사진에는 아무 변화가 없다. */
+function openBodyEditor(card) {
+  if (!card.copy) return toast('먼저 변환해주세요', true);
+  bodyEditing = card;
+  $('#body-edit-text').value = card.copy.body || '';
+  $('#body-edit-dlg').showModal();
+  $('#body-edit-text').focus();
+}
+
+function closeBodyEditor() {
+  bodyEditing = null;
+  $('#body-edit-dlg').close();
+}
+
+function saveBodyEditor() {
+  const card = bodyEditing;
+  if (!card) return;
+  const text = $('#body-edit-text').value;
+  if (card.copy) card.copy.body = text;
+  // 카드 하단의 작은 본문 칸(접었다 펴는 곳)도 같이 맞춰준다.
+  const smallBox = card.el?.querySelector('[data-role="body"]');
+  if (smallBox) smallBox.value = text;
+  schedulePersist();
+  toast('본문을 저장했습니다');
+  closeBodyEditor();
 }
 
 function removeCard(card) {
   card.el?.remove();
   state.cards = state.cards.filter((c) => c !== card);
   applyCategory();
+  schedulePersist();
+}
+
+// 사용자가 직접 고른 완료 카드를 "완성 목록"으로 보낸다.
+// 예전엔 대시보드에서 빼서(이동) 옮겼는데, 그러면 작업하던 화면에서
+// 결과물이 사라져 불편하다는 요청이 있어 이제는 "복사"로 바꾼다 —
+// 카드는 대시보드에 그대로 남고, 사용자가 카드의 ✕(빼기)를 직접
+// 눌러야만 대시보드에서 없어진다. 완성 목록에는 별개로 계속 남아있다.
+function moveToArchive(card) {
+  if (card.archived) return;   // 이미 보낸 카드는 중복으로 다시 넣지 않는다
+  card.archived = true;
+  state.archivedCards.push(card);
+  const archiveBtn = card.el?.querySelector('[data-role="archive"]');
+  if (archiveBtn) archiveBtn.hidden = true;
+  applyCategory();
+  toast('완성 목록으로 보냈습니다 (대시보드에는 그대로 남아있어요)');
+  schedulePersist();   // 새로고침해도 안 사라지게 저장해 둔다
 }
 
 function setStatus(card, status, label) {
   card.status = status;
   const overlay = card.el.querySelector('[data-role="overlay"]');
   const text = card.el.querySelector('[data-role="status"]');
+  const archiveBtn = card.el.querySelector('[data-role="archive"]');
 
   // 아직 변환 전이거나 이미 끝났으면 사진을 가리지 않는다.
   // 덮개는 실제로 기다리는 동안에만 띄운다.
   if (status === 'done' || (status === 'idle' && !label)) {
     overlay.hidden = true;
+    if (archiveBtn) archiveBtn.hidden = status !== 'done' || card.archived;
     return;
   }
   overlay.hidden = false;
   overlay.classList.toggle('done', status === 'idle');
   text.textContent = label || (status === 'working' ? '읽는 중' : '차례 기다리는 중');
+  if (archiveBtn) archiveBtn.hidden = true;
 }
 
 function setError(card, message) {
@@ -567,28 +1525,18 @@ function fillCard(card) {
   card.el.querySelector('[data-role="tags"]').textContent =
     (copy.hashtags || []).join(' ');
 
-  // 사진을 실제로 손봤는지 표시한다. 덮은 것과 지운 것은 결과물이 다르다.
-  const badge = card.el.querySelector('[data-role="badge"]');
-  if (card.cleanImg) {
-    badge.hidden = false;
-    badge.className = 'badge clean';
-    badge.textContent = card.madeBy === 'recreate' ? '✨ 새로 만든 사진' : '✂ 영어 지움';
-  } else if (state.hasGemini && state.photoMode !== 'off') {
-    badge.hidden = false;
-    badge.className = 'badge';
-    badge.textContent = '덮어서 가림';
-  } else {
-    badge.hidden = true;
-  }
+  // 편집창에서 보고 있던 카드라면 새로 뽑은 글로 갈아 끼운다.
+  if (editing === card) $('#ed-body').value = (copy.title_lines || []).join('\n');
 
   render(card);
   setStatus(card, 'done');
+  syncUI();     // 한 장이라도 끝나면 저장 단추가 켜진다
 }
 
 /* ── 실행 ──────────────────────────────────────────────── */
 
-// 잘라낸 사진만 뽑아낸다. 인스타 UI 는 이미 빠진 상태라 Gemini 가 사진만 본다.
-function croppedBase64(card) {
+// 잘라낸 사진만 캔버스로 뽑아낸다. 인스타 UI 는 이미 빠진 상태라 Gemini 가 사진만 본다.
+function cropCanvas(card) {
   const c = document.createElement('canvas');
   c.width = card.crop.w;
   c.height = card.crop.h;
@@ -596,11 +1544,292 @@ function croppedBase64(card) {
     card.img, card.crop.x, card.crop.y, card.crop.w, card.crop.h,
     0, 0, card.crop.w, card.crop.h,
   );
-  return c.toDataURL('image/png').split(',')[1];
+  return c;
+}
+
+function croppedBase64(card) {
+  return cropCanvas(card).toDataURL('image/png').split(',')[1];
+}
+
+/* ── 인물 오려내기 (배경 합성용) ──────────────────────────
+ *
+ * "사진 새로 만들기"는 Gemini한테 "인물은 그대로 두고 배경만 바꿔라"라고
+ * 프롬프트로 부탁하지만, 모델이 사진 전체를 다시 그리는 방식이라 결과가
+ * 매번 달라진다(딴 사람처럼 나오거나 안고 있던 아기가 사라지는 등).
+ *
+ * 그래서 브라우저에서 인물만 정확히 오려내는(세그멘테이션) 작업을 따로
+ * 하고, Gemini가 만든 배경 위에 "원본 그 자체" 인물 픽셀을 다시 얹는다.
+ * 인물은 AI가 다시 그린 게 아니라 원본이라서 100% 같은 사람이 보장된다.
+ *
+ * MediaPipe Selfie Segmenter(사람 전용)를 쓰므로 동물 사진이나 인식이
+ * 안 되는 경우엔 마스크 신뢰도를 검사해서 자동으로 예전 방식(AI 결과를
+ * 그대로 씀)으로 돌아간다. */
+
+let _segmenterPromise = null;
+
+function getImageSegmenter() {
+  if (!_segmenterPromise) {
+    _segmenterPromise = (async () => {
+      const vision = await import(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs'
+      );
+      const fileset = await vision.FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm',
+      );
+      return vision.ImageSegmenter.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+          delegate: 'GPU',
+        },
+        outputCategoryMask: false,
+        outputConfidenceMasks: true,
+        runningMode: 'IMAGE',
+      });
+    })().catch((err) => {
+      _segmenterPromise = null;   // 실패하면 다음에 다시 시도할 수 있게 비운다
+      throw err;
+    });
+  }
+  return _segmenterPromise;
+}
+
+// 사람 마스크(0~255 그레이스케일)를 목표 크기(w,h)의 캔버스로 만든다.
+// 실패하거나 이 이미지엔 안 맞다 싶으면 null.
+// timeoutMs 안에 안 끝나면(콜백이 영영 안 오는 경우 등) 무조건 포기하고
+// null 을 준다 — 이 단계 때문에 사진 만들기 전체가 멈춰서는 안 된다.
+async function buildSubjectMaskCanvas(sourceCanvas, w, h, timeoutMs = 6000) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      buildSubjectMaskCanvasInner(sourceCanvas, w, h),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          console.warn('[사진처리] 인물 분리 시간 초과 — 예전 방식으로 처리합니다.');
+          resolve(null);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function buildSubjectMaskCanvasInner(sourceCanvas, w, h) {
+  console.log('[사진처리] 인물 분리 모델 준비 중…');
+  let segmenter;
+  try {
+    segmenter = await getImageSegmenter();
+  } catch (err) {
+    console.warn('인물 분리 모델을 불러오지 못했습니다 — 예전 방식으로 처리합니다.', err);
+    return null;
+  }
+  console.log('[사진처리] 인물 분리 모델 준비 완료, 분석 시작');
+
+  let result;
+  try {
+    // segment() 는 값을 리턴하지 않고 콜백으로 결과를 준다.
+    result = await new Promise((resolve, reject) => {
+      try {
+        segmenter.segment(sourceCanvas, resolve);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  } catch (err) {
+    console.warn('인물 분리에 실패했습니다 — 예전 방식으로 처리합니다.', err);
+    return null;
+  }
+  console.log('[사진처리] 인물 분리 분석 완료');
+
+  try {
+    const masks = result?.confidenceMasks;
+    if (!masks || !masks.length) return null;
+    const mask = masks[0];
+    const mw = mask.width;
+    const mh = mask.height;
+    const raw = mask.getAsFloat32Array();
+
+    const small = document.createElement('canvas');
+    small.width = mw;
+    small.height = mh;
+    const sctx = small.getContext('2d');
+    const imgData = sctx.createImageData(mw, mh);
+    for (let i = 0; i < mw * mh; i++) {
+      const v = Math.round(Math.min(1, Math.max(0, raw[i])) * 255);
+      imgData.data[i * 4 + 0] = v;
+      imgData.data[i * 4 + 1] = v;
+      imgData.data[i * 4 + 2] = v;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    sctx.putImageData(imgData, 0, 0);
+
+    // 목표 해상도로 확대. 자연스러운 보간 덕에 경계가 부드럽게 이어진다.
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = w;
+    maskCanvas.height = h;
+    const mctx = maskCanvas.getContext('2d');
+    mctx.imageSmoothingEnabled = true;
+    mctx.filter = 'blur(2px)';
+    mctx.drawImage(small, 0, 0, mw, mh, 0, 0, w, h);
+    return maskCanvas;
+  } finally {
+    result?.close?.();
+  }
+}
+
+// 마스크에서 "사람"으로 잡힌 비율. 너무 적거나(인식 실패) 너무 많으면
+// (동물처럼 화면 전체가 사람으로 오인되는 등) 신뢰하지 않는다.
+function maskCoverage(maskCanvas) {
+  const { width: w, height: h } = maskCanvas;
+  const data = maskCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 4) sum += data[i];
+  return sum / (255 * w * h);
+}
+
+// AI가 만든 새 배경 위에, 원본 사진 속 인물 픽셀을 마스크 모양대로 오려 얹는다.
+function compositeSubjectOntoBackground(bgImg, subjectCanvas, maskCanvas, w, h) {
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext('2d');
+  ctx.drawImage(bgImg, 0, 0, w, h);
+
+  const layer = document.createElement('canvas');
+  layer.width = w;
+  layer.height = h;
+  const lctx = layer.getContext('2d');
+  lctx.drawImage(subjectCanvas, 0, 0, w, h);
+  lctx.globalCompositeOperation = 'destination-in';
+  lctx.drawImage(maskCanvas, 0, 0, w, h);
+
+  ctx.drawImage(layer, 0, 0);
+  return out;
+}
+
+/* ── 저장 크기 ────────────────────────────────────────────
+ *
+ * 인스타 피드는 4:5, 틱톡 사진은 9:16 이다. 캡쳐 크기 그대로 올리면
+ * 플랫폼이 알아서 잘라내면서 글자가 잘릴 수 있다.
+ *
+ * 모자라는 자리는 같은 사진을 크게 늘려 흐리게 깐다. 검은 여백보다
+ * 자연스럽고, 사진을 잘라내지 않으므로 인물이 잘릴 일도 없다.
+ */
+function exportCanvas(card) {
+  const src = card.canvas;
+  const spec = SAVE_SIZES[state.saveSize];
+  if (!spec || !src.width) return src;
+
+  const { w: W, h: H } = spec;
+  const out = document.createElement('canvas');
+  out.width = W;
+  out.height = H;
+  const cx = out.getContext('2d');
+
+  const cover = Math.max(W / src.width, H / src.height);
+  cx.filter = 'blur(30px)';
+  cx.drawImage(src, (W - src.width * cover) / 2, (H - src.height * cover) / 2,
+               src.width * cover, src.height * cover);
+  cx.filter = 'none';
+  cx.fillStyle = 'rgba(0,0,0,.3)';
+  cx.fillRect(0, 0, W, H);
+
+  const fit = Math.min(W / src.width, H / src.height);
+  const dw = src.width * fit;
+  const dh = src.height * fit;
+  cx.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  return out;
+}
+
+// 사진을 자르지 않고 안 맞는 비율만큼 살짝 넘치게 채운다(여백/블러 없음).
+// AI 확장이 꺼져 있을 때, 그리고 AI가 돌려준 사진을 정확한 저장 크기로
+// 마지막에 맞출 때 둘 다 이 함수를 쓴다.
+function fitCoverCanvas(src, W, H) {
+  const out = document.createElement('canvas');
+  out.width = W;
+  out.height = H;
+  const cx = out.getContext('2d');
+  const cover = Math.max(W / src.width, H / src.height);
+  const dw = src.width * cover;
+  const dh = src.height * cover;
+  cx.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  return out;
+}
+
+// 원본 비율이 저장 크기랑 이미 거의 맞으면(1% 이내) 굳이 Gemini를
+// 부르지 않는다 — 잘릴 것도, 채울 것도 거의 없기 때문이다.
+function ratioAlreadyMatches(src, spec) {
+  const srcRatio = src.width / src.height;
+  const wantRatio = spec.w / spec.h;
+  return Math.abs(srcRatio - wantRatio) / wantRatio < 0.01;
+}
+
+// 원본이 너무 크면 줄여서 보낸다. 최종 저장 크기는 어차피 1080급이라
+// 화질 차이는 거의 안 보이는데, Gemini가 처리할 픽셀 수가 줄어서
+// 확장 속도가 눈에 띄게 빨라진다.
+function downscaledForAI(src, maxSide = 1280) {
+  const scale = Math.min(1, maxSide / Math.max(src.width, src.height));
+  if (scale >= 1) return src;
+  const out = document.createElement('canvas');
+  out.width = Math.round(src.width * scale);
+  out.height = Math.round(src.height * scale);
+  out.getContext('2d').drawImage(src, 0, 0, out.width, out.height);
+  return out;
+}
+
+// Gemini(nano-banana)로 저장 크기에 맞춰 자연스럽게 확장한다.
+// 실패하면 예외를 던지고, 부른 쪽(doSave)이 기존 방식으로 대체한다.
+async function expandCanvasWithAI(card) {
+  const src = card.canvas;
+  const spec = SAVE_SIZES[state.saveSize];
+  if (!spec || !src.width) return src;
+  if (ratioAlreadyMatches(src, spec)) return fitCoverCanvas(src, spec.w, spec.h);
+
+  const sendCanvas = downscaledForAI(src);
+  const image_b64 = sendCanvas.toDataURL('image/png').split(',')[1];
+  const out = await api('/api/erase', {
+    image_b64,
+    media_type: 'image/png',
+    mode: 'expand',
+    save_size: state.saveSize,
+  });
+  const img = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
+  // Gemini가 비율은 맞춰줘도 정확한 픽셀까지는 보장하지 않으므로,
+  // 마지막에 한 번 더 정확한 저장 크기로 맞춰 그린다(거의 안 잘림).
+  return fitCoverCanvas(img, spec.w, spec.h);
 }
 
 function canvasBase64(card) {
-  return card.canvas.toDataURL('image/png').split(',')[1];
+  return exportCanvas(card).toDataURL('image/png').split(',')[1];
+}
+
+// 파일명으로 못 쓰는 문자를 걷어낸다 (서버 safe_name과 같은 목적).
+function safeFileName(name, fallback = '무제') {
+  const cleaned = String(name || '')
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (cleaned || fallback).slice(0, 60);
+}
+
+// 캔버스를 그대로 파일로 다운로드한다. 서버에 저장 요청을 하지 않고
+// 브라우저가 정한 다운로드 폴더(대개 '다운로드')로 바로 떨어지게 한다.
+function downloadCanvasAsFile(canvas, filename) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error('이미지를 만들지 못했습니다.'));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      resolve();
+    }, 'image/png');
+  });
 }
 
 // 카피 쓰기. 원본 캡쳐 전체를 보고 쓴다 — 아래 캡션 글까지 읽어야 사건이 정확해진다.
@@ -612,13 +1841,23 @@ async function writeCopy(card) {
     lang: $('#lang').value,
     guide: $('#guide').value,
     style_sample: $('#style-sample').value,
+    // 어느 항목에 담긴 사진인지 알려준다. 문구의 관점과, 새로 그릴
+    // 배경의 방향이 여기서 갈린다.
+    category: card.category || '',
+    // 몇 번째로 뽑는 것인지. 0보다 크면 '다시 뽑기'이므로 앞서와
+    // 다른 각도·다른 장소를 달라고 요청한다.
+    variant: card.tries || 0,
   });
+  card.tries = (card.tries || 0) + 1;
+  // AI 가 처음 준 제목을 따로 둔다. 고쳤다가 「원래대로」로 돌아올 자리다.
+  card.origTitle = [...(card.copy.title_lines || [])];
 }
 
 // 사진 처리. 실패해도 카피는 살아 있으므로 덮는 방식으로 이어간다.
 async function transformOne(card) {
   const mode = state.photoMode;
   if (!state.hasGemini || mode === 'off' || card.cleanImg) {
+    console.log(`[사진처리] 건너뜀 — hasGemini=${state.hasGemini}, mode=${mode}, cleanImg=${!!card.cleanImg}`);
     if (!card.photoDone) {
       card.photoDone = true;
       fillCard(card);
@@ -628,18 +1867,91 @@ async function transformOne(card) {
 
   const recreate = mode === 'recreate';
   setStatus(card, 'working', recreate ? '사진 만드는 중' : '글자 지우는 중');
+  console.log(`[사진처리] 시작 — mode=${mode}`);
   try {
-    const out = await api('/api/erase', {
-      image_b64: croppedBase64(card),
-      media_type: 'image/png',
-      mode,
-      // 새로 만들 때는 무슨 사건인지 알려줘야 장면이 이야기에 맞는다.
-      story: recreate ? storyOf(card) : '',
-    });
-    card.cleanImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
-    card.madeBy = mode;
-    clearError(card);
+    const cropCv = cropCanvas(card);
+
+    if (!recreate) {
+      // 글자만 지우기 — 예전 그대로, 한 번만 호출한다.
+      console.log('[사진처리] Gemini 호출 시작 (글자 지우기)');
+      const out = await api('/api/erase', {
+        image_b64: cropCv.toDataURL('image/png').split(',')[1],
+        media_type: 'image/png',
+        mode,
+        story: '',
+      });
+      console.log('[사진처리] Gemini 응답 받음');
+      card.cleanImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
+      card.madeBy = mode;
+      clearError(card);
+    } else {
+      // 사진 새로 만들기 — 2단계로 나눈다.
+      // 1단계) 영어 글자부터 지우고 자연스럽게 메꾼다 (인물·배경은 원본 그대로).
+      // 2단계) 그 '깨끗한 사진'을 가지고 배경만 새로 그린다.
+      // 한 번의 요청에 "글자 지우기 + 인물 보존 + 배경 교체"를 다 시키면
+      // 모델이 배경 교체까지는 손을 못 대는 경우가 많아서 나눴다.
+      console.log('[사진처리] 1단계 — 글자 지우기 시작');
+      let erasedCv = cropCv;
+      try {
+        const eraseOut = await api('/api/erase', {
+          image_b64: cropCv.toDataURL('image/png').split(',')[1],
+          media_type: 'image/png',
+          mode: 'erase',
+          story: '',
+        });
+        const erasedImg = await loadImage(`data:${eraseOut.media_type};base64,${eraseOut.image_b64}`);
+        const c = document.createElement('canvas');
+        c.width = cropCv.width;
+        c.height = cropCv.height;
+        c.getContext('2d').drawImage(erasedImg, 0, 0, cropCv.width, cropCv.height);
+        erasedCv = c;
+        console.log('[사진처리] 1단계 완료 — 글자 지워진 사진 확보');
+      } catch (err) {
+        console.warn('[사진처리] 1단계(글자 지우기) 실패 — 원본으로 2단계 진행합니다.', err);
+      }
+
+      // 인물 마스크는 '글자 지워진 사진' 기준으로 뽑는다 — 인물 위에 글자가
+      // 걸쳐 있었다면 마스크도 그 지운 자국 기준이라야 나중에 얹을 인물
+      // 픽셀에 외국어 잔재가 안 남는다.
+      let maskCv = null;
+      try {
+        maskCv = await buildSubjectMaskCanvas(erasedCv, erasedCv.width, erasedCv.height);
+        if (maskCv) {
+          const cov = maskCoverage(maskCv);
+          console.log(`[사진처리] 인물 비율 ${(cov * 100).toFixed(1)}%`);
+          if (cov < 0.02 || cov > 0.92) maskCv = null;   // 인식 실패/동물 등 — 못 믿는다
+        }
+      } catch (err) {
+        console.warn('인물 마스크 준비 중 오류 — 예전 방식으로 처리합니다.', err);
+        maskCv = null;
+      }
+
+      console.log('[사진처리] 2단계 — 배경 교체 시작');
+      const out = await api('/api/erase', {
+        image_b64: erasedCv.toDataURL('image/png').split(',')[1],
+        media_type: 'image/png',
+        mode: 'recreate',
+        story: storyOf(card),
+      });
+      console.log('[사진처리] 2단계 완료 — 배경 응답 받음');
+      console.log(`[사진처리] 입력 크기 ${erasedCv.toDataURL('image/png').length}자, 결과 크기 ${out.image_b64.length}자 (모델: ${out.model || '?'})`);
+      let finalImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
+
+      if (maskCv) {
+        // 글자 지워진 원본 인물 픽셀을 새 배경 위에 그대로 얹는다.
+        const composed = compositeSubjectOntoBackground(
+          finalImg, erasedCv, maskCv, erasedCv.width, erasedCv.height,
+        );
+        finalImg = await loadImage(composed.toDataURL('image/png'));
+        console.log('[사진처리] 인물 합성 완료');
+      }
+
+      card.cleanImg = finalImg;
+      card.madeBy = mode;
+      clearError(card);
+    }
   } catch (err) {
+    console.error('[사진처리] 실패', err);
     setError(card,
       `${recreate ? '사진 만들기' : '글자 지우기'} 실패 — 덮어서 처리했습니다. (${err.message})`);
   }
@@ -671,39 +1983,52 @@ async function runOne(card) {
 }
 
 async function runAll() {
-  const queue = inCategory().filter((c) => c.img && c.status !== 'working');
+  // 'done' 상태인 카드는 이미 완성된 결과물이므로 다시 큐에 넣지 않는다.
+  // (예전엔 여기서 status !== 'working' 인 것만 걸렀는데, 그러면
+  //  이미 끝난 카드까지 다시 초기화·재처리되면서 결과가 덮어써졌다.)
+  const queue = inCategory().filter((c) => c.img && c.status !== 'working' && c.status !== 'done');
   if (!queue.length) return;
 
   state.running = true;
   syncUI();
   queue.forEach((c) => { clearError(c); c.photoDone = false; setStatus(c, 'queued'); });
 
-  // 1단계 — 카피. 글은 여러 장을 동시에 맡겨도 잘 받아준다.
-  let cursor = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-      while (cursor < queue.length) {
-        const card = queue[cursor++];
-        setStatus(card, 'working', '읽는 중');
-        try {
-          await writeCopy(card);
-          fillCard(card);
-          if (photoPending(card)) setStatus(card, 'queued', '사진 차례 기다리는 중');
-        } catch (err) {
-          setError(card, err.message);
+  try {
+    // 1단계 — 카피. 글은 여러 장을 동시에 맡겨도 잘 받아준다.
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        while (cursor < queue.length) {
+          const card = queue[cursor++];
+          if (!state.cards.includes(card)) continue;   // 그 사이 지워졌으면 건너뛴다
+          setStatus(card, 'working', '읽는 중');
+          try {
+            await writeCopy(card);
+            fillCard(card);
+            if (photoPending(card)) setStatus(card, 'queued', '사진 차례 기다리는 중');
+          } catch (err) {
+            setError(card, err.message);
+          }
         }
+      }),
+    );
+
+    // 2단계 — 글자 지우기. 이미지 생성은 분당 허용 횟수가 적어서
+    // 동시에 던지면 전부 한도에 걸린다. 한 장씩 차례로 보낸다.
+    for (const card of queue) {
+      if (!state.cards.includes(card)) continue;   // 처리 도중 ✕ 로 지워진 카드는 건너뛴다
+      if (!card.copy) continue;
+      try {
+        await transformOne(card);   // 건너뛸 때도 상태를 정리한다
+      } catch (err) {
+        setError(card, err.message);
       }
-    }),
-  );
-
-  // 2단계 — 글자 지우기. 이미지 생성은 분당 허용 횟수가 적어서
-  // 동시에 던지면 전부 한도에 걸린다. 한 장씩 차례로 보낸다.
-  for (const card of queue) {
-    if (card.copy) await transformOne(card);   // 건너뛸 때도 상태를 정리한다
+    }
+  } finally {
+    // 도중에 무슨 일이 있어도(카드 삭제, 오류 등) 버튼은 반드시 풀린다.
+    state.running = false;
+    syncUI();
   }
-
-  state.running = false;
-  syncUI();
 
   const failed = state.cards.filter((c) => c.status === 'error').length;
   toast(
@@ -715,16 +2040,297 @@ async function runAll() {
 /* ── 내보내기 ──────────────────────────────────────────── */
 
 function doneCards() {
-  return state.cards.filter((c) => c.copy && c.status === 'done');
+  // "완성 목록" 다이얼로그는 이제 자동으로 done인 걸 다 보여주지 않고,
+  // 사용자가 카드에서 직접 "📥 완성 목록으로 보내기"를 눌러 옮긴 것만 보여준다.
+  return state.archivedCards.filter((c) => c.copy && c.status === 'done');
 }
 
-function downloadOne(card) {
-  if (!card.copy) return toast('먼저 변환해주세요', true);
-  const name = (card.copy.title_lines || []).join(' ').replace(/[\\/:*?"<>|]/g, '');
+/* ── 완성 목록 ──────────────────────────────────────────
+ * 변환 + 본문 작업이 끝난 사진들을 날짜순 리스트로 보여주고,
+ * 체크한 것만 골라 한 번에 저장한다(폴더 하나에 사진+캡션 쌍으로). */
+
+function batchDateStr(card) {
+  const yyyy = card.createdAt.getFullYear();
+  const mm = String(card.createdAt.getMonth() + 1).padStart(2, '0');
+  const dd = String(card.createdAt.getDate()).padStart(2, '0');
+  return `${yyyy}/${mm}/${dd}`;
+}
+
+function batchTitleStr(card) {
+  return (card.copy?.title_lines || []).join(' ').trim() || '(제목 없음)';
+}
+
+function renderBatchList() {
+  const box = $('#archive-list');
+  const pager = $('#archive-pager');
+  // 구글 시트처럼 "쌓인 순서 그대로" — 오래된 것부터 1번, 2번… 번호가 붙는다.
+  const list = doneCards().sort((a, b) => a.createdAt - b.createdAt);
+
+  if (!list.length) {
+    box.innerHTML = '<p class="batch-empty">아직 완성 목록으로 보낸 사진이 없습니다.<br>카드 완료 후 나타나는 [📥 완성 목록으로 보내기]를 누르면 여기 모입니다.</p>';
+    pager.hidden = true;
+    pager.innerHTML = '';
+    return;
+  }
+
+  // 12개씩 페이지로 나눈다. 삭제 등으로 목록이 줄어들어 지금 페이지가
+  // 없어졌으면 마지막 페이지로 자동으로 당겨온다.
+  const totalPages = Math.max(1, Math.ceil(list.length / ARCHIVE_PAGE_SIZE));
+  if (archivePage > totalPages) archivePage = totalPages;
+  if (archivePage < 1) archivePage = 1;
+
+  const startIdx = (archivePage - 1) * ARCHIVE_PAGE_SIZE;
+  const pageItems = list.slice(startIdx, startIdx + ARCHIVE_PAGE_SIZE);
+
+  box.innerHTML = '';
+  pageItems.forEach((card, i) => {
+    const idx = startIdx + i;   // 페이지가 바뀌어도 번호는 전체 기준으로 이어진다
+    const row = document.createElement('div');
+    row.className = 'batch-row';
+    row.innerHTML = `
+      <input type="checkbox" class="batch-check" title="선택">
+      <span class="batch-no">${idx + 1}</span>
+      <span class="batch-date">${batchDateStr(card)}</span>
+      <img class="batch-thumb" alt="">
+      <span class="batch-title"></span>
+      <button type="button" class="batch-view" title="다시보기">👁️</button>
+      <button type="button" class="batch-save-one" title="PC로 저장">💾</button>
+      <button type="button" class="batch-del" title="완성 목록에서 삭제">✕</button>
+    `;
+
+    // 썸네일 하나가 어떤 이유로든 실패해도 나머지 목록까지 같이 비어버리면 안 되므로
+    // 카드 하나 처리 실패는 그 카드만 빈 썸네일로 두고 넘어간다.
+    try {
+      row.querySelector('.batch-thumb').src = card.canvas.toDataURL('image/png');
+    } catch (err) {
+      console.error('완성 목록 썸네일 만들기 실패', err);
+    }
+
+    row.querySelector('.batch-title').textContent = batchTitleStr(card);
+
+    // 체크칸은 지금은 실행 동작 없이 사용자가 직접 표시해두는 용도(예: 구글시트로 옮긴 것 체크).
+    const check = row.querySelector('.batch-check');
+    check.checked = !!card.batchChecked;
+    check.addEventListener('change', () => {
+      card.batchChecked = check.checked;
+      schedulePersist();
+    });
+
+    row.querySelector('.batch-view').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openPreview(card);
+    });
+
+    row.querySelector('.batch-save-one').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openSaveDialog(card);
+    });
+
+    row.querySelector('.batch-del').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      state.archivedCards = state.archivedCards.filter((c) => c !== card);
+      renderBatchList();
+      schedulePersist();
+    });
+
+    box.appendChild(row);
+  });
+
+  renderArchivePager(totalPages);
+}
+
+// 완성 목록 페이지 번호 단추들을 그린다. 1페이지뿐이면 아예 숨긴다.
+function renderArchivePager(totalPages) {
+  const pager = $('#archive-pager');
+  if (totalPages <= 1) {
+    pager.hidden = true;
+    pager.innerHTML = '';
+    return;
+  }
+  pager.hidden = false;
+  pager.innerHTML = '';
+
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'pager-nav';
+  prev.textContent = '‹';
+  prev.disabled = archivePage === 1;
+  prev.addEventListener('click', () => { archivePage -= 1; renderBatchList(); });
+  pager.appendChild(prev);
+
+  for (let p = 1; p <= totalPages; p++) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pager-num' + (p === archivePage ? ' on' : '');
+    b.textContent = String(p);
+    b.addEventListener('click', () => { archivePage = p; renderBatchList(); });
+    pager.appendChild(b);
+  }
+
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'pager-nav';
+  next.textContent = '›';
+  next.disabled = archivePage === totalPages;
+  next.addEventListener('click', () => { archivePage += 1; renderBatchList(); });
+  pager.appendChild(next);
+}
+
+// "완성 목록" 버튼을 누르면 팝업이 아니라, 카드 그리드가 있던 자리를
+// 완성 창고 목록 화면으로 통째로 바꿔서 보여준다. 자료가 몇백 장이 되어도
+// 화면 전체를 다 쓰기 때문에 팝업창보다 훨씬 넉넉하게 스크롤할 수 있다.
+function openArchiveView() {
+  archivePage = 1;   // 완성 목록을 새로 열 때는 항상 1페이지부터 보여준다
+  renderBatchList();
+  $('#empty').hidden = true;
+  $('#cards').hidden = true;
+  $('#archive-view').hidden = false;
+}
+
+function closeArchiveView() {
+  $('#archive-view').hidden = true;
+  $('#cards').hidden = false;
+  applyCategory();   // 카드 그리드/빈 화면 표시 상태를 원래대로 되돌린다
+}
+
+function isArchiveOpen() {
+  return !$('#archive-view').hidden;
+}
+
+// 완성 목록 리스트에서 "다시보기"를 누르면 그 사진을 크게 띄워준다.
+// PC 저장이나 삭제와 달리 아무것도 바꾸지 않는, 그냥 보기 전용 기능이다.
+function openPreview(card) {
+  try {
+    $('#preview-img').src = card.canvas.toDataURL('image/png');
+  } catch (err) {
+    console.error('다시보기 이미지 만들기 실패', err);
+    return toast('사진을 불러오지 못했습니다', true);
+  }
+  $('#preview-title').textContent = batchTitleStr(card);
+  $('#preview-dlg').showModal();
+}
+
+// CSV 안에 쉼표·줄바꿈·따옴표가 그대로 섞여 들어가면 칸이 깨지므로,
+// 그런 값은 큰따옴표로 감싸고 내부 따옴표는 두 개로 이스케이프한다.
+function csvEscape(value) {
+  const s = String(value ?? '');
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// 체크한 사진들만 골라 구글 시트로 바로 가져갈 수 있는 CSV 파일로 내보낸다.
+// (구글 계정 로그인·API 연동 없이도, 구글 시트에서 '파일 > 가져오기'로
+// 이 파일 하나만 올리면 바로 표가 채워진다.)
+function exportCheckedToSheet() {
+  const picked = doneCards()
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .filter((c) => c.batchChecked);
+
+  if (!picked.length) {
+    return toast('구글 시트로 보낼 사진을 먼저 체크해주세요', true);
+  }
+
+  const rows = [['번호', '날짜', '제목', '본문', '해시태그']];
+  picked.forEach((card, idx) => {
+    rows.push([
+      idx + 1,
+      batchDateStr(card),
+      batchTitleStr(card),
+      card.copy?.body || '',
+      (card.copy?.hashtags || []).join(' '),
+    ]);
+  });
+
+  const csv = rows.map((r) => r.map(csvEscape).join(',')).join('\r\n');
+  // 맨 앞의 BOM(\uFEFF)이 없으면 엑셀·구글 시트에서 한글이 깨져 보인다.
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const stamp = new Date();
+  const name = `완성목록_${stamp.getMonth() + 1}월${stamp.getDate()}일_`
+    + `${String(stamp.getHours()).padStart(2, '0')}${String(stamp.getMinutes()).padStart(2, '0')}.csv`;
+
   const a = document.createElement('a');
-  a.href = card.canvas.toDataURL('image/png');
-  a.download = `${name || '무제'}.png`;
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  toast(`${picked.length}장을 CSV로 내보냈습니다 — 구글 시트에서 [파일 > 가져오기]로 열어주세요`);
+}
+
+
+
+/* ── 이미지 저장 ──────────────────────────────────────────
+ *
+ * 저장할 때 두 가지를 고른다 — 어느 카테고리 폴더에 넣을지,
+ * 인스타용(4:5)인지 틱톡용(9:16)인지. 고르고 [저장]을 누르면
+ * 설정에서 지정한 폴더 아래 카테고리 이름의 폴더로 들어간다.
+ */
+
+let saveTarget = null;
+
+function openSaveDialog(card) {
+  if (!card || !card.copy) return toast('먼저 변환해주세요', true);
+  saveTarget = card;
+
+  const sel = $('#save-cat');
+  sel.innerHTML = CATS
+    .map((c) => `<option value="${c.v}">${c.name}</option>`).join('');
+  sel.value = card.category;
+
+  $('#save-size').value = SAVE_SIZES[state.saveSize] ? state.saveSize : 'ig';
+  $('#save-note').textContent = '';
+  $('#ai-expand').checked = state.aiExpand;
+  syncAiExpandRow();
+  $('#save-dlg').showModal();
+}
+
+// AI 확장 체크박스는 Gemini 키가 있고, '원본 그대로'가 아닐 때만 보인다.
+function syncAiExpandRow() {
+  const show = state.hasGemini && SAVE_SIZES[$('#save-size').value];
+  $('#ai-expand-row').hidden = !show;
+  $('#ai-expand-hint').hidden = !show || !$('#ai-expand').checked;
+}
+
+async function doSave() {
+  const card = saveTarget;
+  if (!card) return;
+
+  state.saveSize = $('#save-size').value;   // 고른 크기로 그려서 보낸다
+  state.aiExpand = $('#ai-expand').checked;
+  saveSettings();
+
+  const btn = $('#save-go');
+  btn.disabled = true;
+  try {
+    const useAI = state.aiExpand && state.hasGemini && SAVE_SIZES[state.saveSize];
+    let canvas;
+    if (useAI) {
+      $('#save-note').textContent = 'AI로 사진을 확장하는 중… (몇 초~몇십 초 걸려요)';
+      try {
+        canvas = await expandCanvasWithAI(card);
+      } catch (err) {
+        console.warn('[AI 확장 실패, 기존 방식으로 대체]', err);
+        toast(`AI 확장에 실패해서 기존 방식으로 저장했어요 (${err.message})`, true);
+        canvas = exportCanvas(card);
+      }
+    } else {
+      canvas = exportCanvas(card);
+    }
+
+    const title = (card.copy.title_lines || []).join(' ').trim();
+    const filename = `${safeFileName(title)}.png`;
+    await downloadCanvasAsFile(canvas, filename);
+    $('#save-note').textContent = '내 PC 다운로드 폴더에 저장했습니다.';
+    toast('다운로드 폴더에 저장했습니다');
+  } catch (err) {
+    $('#save-note').textContent = err.message;
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function copyBody(card) {
@@ -739,45 +2345,7 @@ async function copyBody(card) {
   }
 }
 
-async function saveToPC() {
-  const items = doneCards();
-  if (!items.length) return toast('저장할 게 없습니다', true);
-  try {
-    const res = await api('/api/save', {
-      label: $('#lang').value,
-      items: items.map((c) => ({
-        image_b64: canvasBase64(c),
-        title_lines: c.copy.title_lines,
-        body: c.copy.body,
-        hashtags: c.copy.hashtags,
-      })),
-    });
-    state.lastSaveDir = res.dir;
-    $('#save-note').textContent = `${res.count}장 저장 → ${res.dir}`;
-    toast(`${res.count}장을 PC에 저장했습니다`);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
 
-async function downloadZip() {
-  if (!state.lastSaveDir) {
-    await saveToPC();
-    if (!state.lastSaveDir) return;
-  }
-  const res = await fetch('/api/zip', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dir: state.lastSaveDir }),
-  });
-  if (!res.ok) return toast('ZIP을 만들지 못했습니다', true);
-  const blob = await res.blob();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '이미지AI자동화.zip';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-}
 
 /* ── UI 동기화 ─────────────────────────────────────────── */
 
@@ -787,6 +2355,212 @@ const MODE_HINT = {
   recreate: '인물·동물의 생김새는 그대로 두고 장면을 새로 만듭니다. '
           + '원본 사진을 쓰지 않으므로 글자도 남지 않습니다.',
 };
+
+/* 고를 수 있는 글꼴. PC 에 깔려 있는 것만 실제로 보인다.
+   없는 글꼴을 고르면 기본 글꼴로 나오므로 망가지지는 않는다. */
+const FONTS = [
+  ['', '기본 (Pretendard·맑은 고딕)'],
+  ['Malgun Gothic', '맑은 고딕'],
+  ['맑은 고딕', '맑은 고딕 (한글 이름)'],
+  ['NanumGothic', '나눔고딕'],
+  ['나눔스퀘어', '나눔스퀘어'],
+  ['NanumMyeongjo', '나눔명조'],
+  ['HY헤드라인M', 'HY헤드라인M'],
+  ['HYGothic-Extra', 'HY견고딕'],
+  ['Batang', '바탕'],
+  ['Gulim', '굴림'],
+  ['Dotum', '돋움'],
+  ['Gungsuh', '궁서'],
+  ['Black Han Sans', '검은고딕 (설치 시)'],
+  ['BM JUA_TTF', '배달의민족 주아 (설치 시)'],
+];
+
+function fillFontPicks() {
+  const html = FONTS
+    .map(([v, name]) => `<option value="${v}">${name}</option>`).join('');
+  ['#body-font', '#head-font', '#ed-body-font', '#ed-head-font']
+    .forEach((id) => { const el = $(id); if (el) el.innerHTML = html; });
+}
+
+/* 같은 값을 왼쪽 패널과 편집창 두 군데서 만진다. 한 곳에서 바꾸면
+   다른 곳도 따라와야 한다. 그래서 값은 state 한 곳에만 두고,
+   화면은 이 함수가 state 를 보고 다시 칠한다. */
+function syncStyleUI() {
+  const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  const out = (id, v) => { const el = $(id); if (el) el.textContent = `${v}%`; };
+  const seg = (id, v) => {
+    const box = $(id);
+    if (box) box.querySelectorAll('button[data-v]')
+      .forEach((b) => b.classList.toggle('on', b.dataset.v === String(v)));
+  };
+
+  set('#text-size', state.textSize);      out('#text-size-out', state.textSize);
+  set('#head-size', state.headSize);      out('#head-size-out', state.headSize);
+  set('#ed-head-size', state.headSize);   out('#ed-head-size-out', state.headSize);
+
+  set('#body-font', state.bodyFont);
+  set('#head-font', state.headFont);   set('#ed-head-font', state.headFont);
+  set('#body-color', state.bodyColor);
+  set('#head-color', state.headColor); set('#ed-head-color', state.headColor);
+
+  seg('#body-weight', state.bodyWeight);
+  seg('#head-weight', state.headWeight);  set('#ed-head-weight', state.headWeight);
+
+  // 본문(ed-body-*) 칸은 "적용 줄" 선택에 따라 값이 달라지므로 따로 채운다.
+  syncBodyLineUI();
+}
+
+/* ── 편집창 안, 본문 "줄 단위" / "단어 단위" 스타일 ─────────────────
+ *
+ * 왼쪽 패널의 크기·글꼴·색은 모든 카드·모든 줄에 공통으로 적용되는 값이다.
+ * 편집창에서 "적용 줄"을 특정 줄로 선택하면, 그때부터 크기·글꼴·색 칸은
+ * 그 카드의 그 줄에만 적용되는 값을 읽고 쓴다. "전체"로 두면 원래처럼
+ * 공통값을 건드린다.
+ *
+ * 거기서 한 단계 더 들어가서, 본문 칸에서 글자를 드래그로 선택하고
+ * "선택한 글자만 다르게"를 누르면 그 순간부터는 그 단어(들)에만 적용된다.
+ * 우선순위는 단어 > 줄 > 공통값이다. */
+
+let lineSel = 'all';   // 'all' | '0' | '1' | '2' ...
+let wordSel = null;    // { origin, wordIndices, label } | null — 선택된 단어
+
+const LINE_KEYMAP = { size: 'textSize', font: 'bodyFont', color: 'bodyColor', weight: 'bodyWeight' };
+
+function bodyLineValue(key) {
+  if (wordSel && editing) {
+    const wordOv = editing.wordStyle?.[wordSel.origin]?.[wordSel.wordIndices[0]] || {};
+    if (wordOv[key] !== undefined) return wordOv[key];
+    const lineOv = editing.lineStyle?.[wordSel.origin] || {};
+    return lineOv[key] !== undefined ? lineOv[key] : state[LINE_KEYMAP[key]];
+  }
+  const ov = (lineSel !== 'all' && editing?.lineStyle?.[lineSel]) || {};
+  return ov[key] !== undefined ? ov[key] : state[LINE_KEYMAP[key]];
+}
+
+function setBodyStyle(key, value) {
+  if (wordSel && editing) {
+    editing.wordStyle ||= {};
+    editing.wordStyle[wordSel.origin] ||= {};
+    wordSel.wordIndices.forEach((idx) => {
+      editing.wordStyle[wordSel.origin][idx] ||= {};
+      editing.wordStyle[wordSel.origin][idx][key] = value;
+    });
+    render(editing);
+    return;
+  }
+  if (lineSel === 'all' || !editing) {
+    setStyle(LINE_KEYMAP[key], value);
+    return;
+  }
+  editing.lineStyle ||= {};
+  editing.lineStyle[lineSel] ||= {};
+  editing.lineStyle[lineSel][key] = value;
+  render(editing);
+}
+
+// 본문(textarea)에서 지금 드래그로 선택된 글자가 어느 줄의 몇 번째
+// 단어(들)에 해당하는지 찾아낸다. 줄을 넘나드는 선택은 지원하지 않는다
+// (한 줄 안에서만 강조 가능).
+function getBodySelectionWords() {
+  const ta = $('#ed-body');
+  if (!ta || !editing) return null;
+  const { selectionStart: s, selectionEnd: e } = ta;
+  if (s === e) return null;
+
+  const text = ta.value;
+  const rawLines = text.split('\n');
+  let offset = 0;
+  let origin = -1;
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const raw = rawLines[i];
+    const lineStart = offset;
+    const lineEnd = offset + raw.length;
+    const isContent = !!raw.trim();
+    if (isContent) origin++;
+
+    if (s >= lineStart && s <= lineEnd) {
+      if (!isContent) return null;
+      const localStart = s - lineStart;
+      const localEnd = Math.min(e, lineEnd) - lineStart;
+      const words = raw.trim().split(/\s+/).filter(Boolean);
+      const hitIdx = [];
+      let pos = 0;
+      words.forEach((wd, idx) => {
+        const wStart = raw.indexOf(wd, pos);
+        const wEnd = wStart + wd.length;
+        pos = wEnd;
+        if (wStart < localEnd && wEnd > localStart) hitIdx.push(idx);
+      });
+      return hitIdx.length ? { origin, wordIndices: hitIdx, label: words.filter((_, i2) => hitIdx.includes(i2)).join(' ') } : null;
+    }
+    offset = lineEnd + 1;
+  }
+  return null;
+}
+
+function syncBodyLineUI() {
+  const size = $('#ed-body-size');
+  const sizeOut = $('#ed-body-size-out');
+  const font = $('#ed-body-font');
+  const color = $('#ed-body-color');
+  const weight = $('#ed-body-weight');
+  if (size) size.value = bodyLineValue('size');
+  if (sizeOut) sizeOut.textContent = `${bodyLineValue('size')}%`;
+  if (font) font.value = bodyLineValue('font');
+  if (color) color.value = bodyLineValue('color');
+  if (weight) weight.value = bodyLineValue('weight');
+
+  const status = $('#ed-word-status');
+  const clearBtn = $('#ed-word-clear');
+  if (status) {
+    status.hidden = !wordSel;
+    if (wordSel) status.textContent = `"${wordSel.label}" 강조 중 — 아래 크기·글꼴·색이 이 글자에만 적용됩니다`;
+  }
+  if (clearBtn) clearBtn.hidden = !wordSel;
+}
+
+// 편집창을 열 때, 본문 글이 바뀌어 줄 수가 바뀔 때마다 다시 그린다.
+function renderLineSelUI() {
+  const box = $('#ed-line-sel');
+  const resetBtn = $('#ed-line-reset');
+  const hint = $('#ed-line-hint');
+  if (!box || !editing) return;
+
+  const n = (editing.copy?.title_lines || []).length;
+  if (lineSel !== 'all' && Number(lineSel) >= n) lineSel = 'all';   // 줄이 사라졌으면 전체로
+
+  const opts = [['all', '전체']];
+  for (let i = 0; i < n; i++) opts.push([String(i), `${i + 1}줄`]);
+
+  box.innerHTML = opts.map(([v, label]) =>
+    `<button type="button" data-v="${v}" class="${v === lineSel ? 'on' : ''}">${label}</button>`,
+  ).join('');
+  box.querySelectorAll('button').forEach((b) => {
+    b.addEventListener('click', () => {
+      lineSel = b.dataset.v;
+      wordSel = null;          // 줄 선택으로 돌아오면 단어 강조 모드는 해제
+      renderLineSelUI();
+      syncBodyLineUI();
+    });
+  });
+
+  if (resetBtn) resetBtn.hidden = (lineSel === 'all');
+  if (hint) {
+    hint.hidden = false;
+    hint.textContent = lineSel === 'all'
+      ? '지금은 "전체"가 선택돼 있어서 아래 크기·글꼴·색을 바꾸면 모든 줄이 같이 바뀝니다. 한 줄만 바꾸려면 위에서 "1줄"·"2줄"을 눌러주세요.'
+      : '이 줄만 아래 크기·글꼴·색이 다르게 적용됩니다.';
+  }
+}
+
+// 값 하나를 바꾸고, 두 화면을 맞추고, 모든 카드를 다시 그린다.
+function setStyle(key, value) {
+  state[key] = value;
+  syncStyleUI();
+  saveSettings();
+  renderAll();
+}
 
 const MODE_LABEL = {
   off: '사진 그대로',
@@ -823,13 +2597,18 @@ function buildChips(id) {
 }
 
 function pickCategory(v) {
-  if (state.category === v) return;
+  if (isArchiveOpen()) closeArchiveView();
+  if (state.category === v && !state.viewFavorites) return;
   state.category = v;
+  state.viewFavorites = false;
+  const favBtn = $('#fav-view');
+  if (favBtn) favBtn.classList.remove('on');
   saveSettings();
   applyCategory();
 }
 
 function inCategory() {
+  if (state.viewFavorites) return state.cards.filter((c) => c.favorite);
   return state.cards.filter((c) => c.category === state.category);
 }
 
@@ -839,8 +2618,10 @@ function applyCategory() {
   state.cards.forEach((c) => { count[c.category] = (count[c.category] || 0) + 1; });
 
   ['#category', '#category-side'].forEach((id) => {
-    $(id).querySelectorAll('button[data-v]').forEach((b) => {
-      b.classList.toggle('on', b.dataset.v === state.category);
+    const box = $(id);
+    if (!box) return;
+    box.querySelectorAll('button[data-v]').forEach((b) => {
+      b.classList.toggle('on', !state.viewFavorites && b.dataset.v === state.category);
       const n = b.querySelector('.n');
       const v = count[b.dataset.v] || 0;
       n.hidden = v === 0;
@@ -848,11 +2629,32 @@ function applyCategory() {
     });
   });
 
+  const favCount = state.cards.filter((c) => c.favorite).length;
+  const favBadge = document.querySelector('#fav-view .n');
+  if (favBadge) {
+    favBadge.hidden = favCount === 0;
+    favBadge.textContent = favCount;
+  }
+
   state.cards.forEach((c) => {
-    if (c.el) c.el.hidden = c.category !== state.category;
+    if (c.el) c.el.hidden = state.viewFavorites ? !c.favorite : c.category !== state.category;
   });
 
+  updateSortOrder();
   syncUI();
+}
+
+// "최신순" 토글이 켜져 있으면 최근 작업한 것부터 보이게 시각적으로만
+// 순서를 바꾼다. 실제 state.cards 배열이나 DOM 위치는 안 건드리고
+// CSS grid 의 order 값만 바꾼다.
+function updateSortOrder() {
+  const cards = inCategory();
+  const sorted = state.sortRecent
+    ? [...cards].sort((a, b) => b.createdAt - a.createdAt)
+    : cards;
+  sorted.forEach((c, i) => {
+    if (c.el) c.el.style.order = i;
+  });
 }
 
 function syncUI() {
@@ -861,24 +2663,23 @@ function syncUI() {
   const elsewhere = state.cards.length - here.length;
 
   $('#empty').hidden = here.length > 0;
-  $('#run').disabled = !here.length || state.running;
+  $('#run').disabled = !here.length || state.running || state.viewFavorites;
 
-  // 지금 넣으면 어디로 담기는지 빈 화면에서도 알아야 한다.
-  $('#empty-sub').textContent = elsewhere
-    ? `지금 넣으면 「${cat.name}」에 담깁니다. 다른 항목에 ${elsewhere}장 있습니다.`
-    : `지금 넣으면 「${cat.name}」에 담깁니다.`;
-
-  $('#cat-note').textContent = here.length
-    ? `이 항목에 ${here.length}장. 변환은 이 항목만 처리합니다.`
-    : '변환된 이미지가 이 항목에 담깁니다.';
+  if (state.viewFavorites) {
+    // 지금 넣으면 어디로 담기는지 빈 화면에서도 알아야 한다.
+    $('#empty-sub').textContent = '★ 버튼을 누른 이미지가 여기 모입니다.';
+  } else {
+    // 지금 넣으면 어디로 담기는지 빈 화면에서도 알아야 한다.
+    $('#empty-sub').textContent = elsewhere
+      ? `지금 넣으면 「${cat.name}」에 담깁니다. 다른 항목에 ${elsewhere}장 있습니다.`
+      : `지금 넣으면 「${cat.name}」에 담깁니다.`;
+  }
 
   // 무엇이 돌아갈지 버튼에 적는다. 고른 것과 도는 것이 어긋나면 안 된다.
   const what = state.hasGemini ? MODE_LABEL[state.photoMode] : null;
   $('#run').textContent = state.running
     ? '변환 중…'
     : (what ? `이미지 변환 — ${what}` : '이미지 변환');
-
-  $('#export-group').hidden = doneCards().length === 0;
 }
 
 // 기억해둔 설정을 화면에 되살린다.
@@ -892,9 +2693,7 @@ function applySettings(saved) {
   mark('#photo-mode', state.photoMode);
   mark('#text-pos', state.textPos);
   mark('#logo-pos', state.logoPos);
-
-  $('#text-size').value = state.textSize;
-  $('#text-size-out').textContent = `${state.textSize}%`;
+  syncStyleUI();
   $('#logo-size').value = state.logoSize;
   $('#logo-size-out').textContent = `${state.logoSize}%`;
   $('#auto-crop').checked = state.autoCrop;
@@ -906,7 +2705,9 @@ function applySettings(saved) {
 }
 
 function bindSegment(id, onPick) {
-  $(id).addEventListener('click', (ev) => {
+  const box = $(id);
+  if (!box) return;      // 화면에서 뺀 항목이면 그냥 넘어간다
+  box.addEventListener('click', (ev) => {
     const btn = ev.target.closest('button[data-v]');
     if (!btn) return;
     $(id).querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
@@ -929,6 +2730,7 @@ function init() {
     state.cards = [];
     state.lastSaveDir = null;
     applyCategory();   // 칩에 붙은 장수도 같이 지워야 한다
+    schedulePersist();
   });
 
   // 끌어다 놓기
@@ -981,19 +2783,135 @@ function init() {
     renderAll();
   });
 
-  // 글자
-  bindSegment('#text-pos', (v) => { state.textPos = v; saveSettings(); renderAll(); });
-  $('#text-size').addEventListener('input', (e) => {
-    state.textSize = +e.target.value;
-    $('#text-size-out').textContent = `${e.target.value}%`;
+  // 글자 — 본문
+  bindSegment('#text-pos', (v) => {
+    state.textPos = v;
+    // 위치 단추를 누르면 끌어 옮겨 둔 자리는 버린다. 안 그러면 눌러도 안 움직인다.
+    state.cards.forEach((c) => { c.posBody = null; });
     saveSettings();
     renderAll();
   });
+  // 크기·글꼴·색·굵기는 왼쪽 패널과 편집창 두 군데에 같은 것이 있다.
+  // 어느 쪽을 만져도 같은 값을 바꾸고 두 화면이 함께 따라온다.
+  const pairs = [
+    ['#text-size',   null,               'textSize',   'num'],
+    ['#head-size',   '#ed-head-size',   'headSize',   'num'],
+    ['#body-font',   null,               'bodyFont',   'text'],
+    ['#head-font',   '#ed-head-font',   'headFont',   'text'],
+    ['#body-color',  null,               'bodyColor',  'text'],
+    ['#head-color',  '#ed-head-color',  'headColor',  'text'],
+    ['#ed-head-weight', null, 'headWeight', 'num'],
+  ];
+  pairs.forEach(([a, b, key, kind]) => {
+    [a, b].filter(Boolean).forEach((id) => {
+      const el = $(id);
+      if (!el) return;
+      ['input', 'change'].forEach((evName) =>
+        el.addEventListener(evName, (e) =>
+          setStyle(key, kind === 'num' ? +e.target.value : e.target.value)));
+    });
+  });
+  bindSegment('#body-weight', (v) => setStyle('bodyWeight', +v));
+  bindSegment('#head-weight', (v) => setStyle('headWeight', +v));
 
-  // 실행 · 내보내기
+  // 편집창의 본문 크기·글꼴·색·굵기 — "적용 줄"이 전체면 공통값을,
+  // 특정 줄이면 그 카드의 그 줄에만 적용되는 값을 바꾼다.
+  $('#ed-body-size').addEventListener('input', (e) => {
+    setBodyStyle('size', +e.target.value);
+    $('#ed-body-size-out').textContent = `${e.target.value}%`;
+  });
+  $('#ed-body-font').addEventListener('change', (e) => setBodyStyle('font', e.target.value));
+  $('#ed-body-color').addEventListener('input', (e) => setBodyStyle('color', e.target.value));
+  $('#ed-body-weight').addEventListener('change', (e) => setBodyStyle('weight', +e.target.value));
+  $('#ed-line-reset').addEventListener('click', () => {
+    if (!editing || lineSel === 'all') return;
+    if (editing.lineStyle) delete editing.lineStyle[lineSel];
+    syncBodyLineUI();
+    render(editing);
+    toast('이 줄을 기본값으로 되돌렸습니다');
+  });
+
+  $('#ed-word-mark').addEventListener('click', () => {
+    if (!editing) return;
+    const sel = getBodySelectionWords();
+    if (!sel) {
+      toast('본문 칸에서 강조할 글자를 먼저 드래그해서 선택해주세요');
+      return;
+    }
+    wordSel = sel;
+    lineSel = 'all';           // 화면 혼동을 막기 위해 줄 선택은 전체로 되돌림
+    renderLineSelUI();
+    syncBodyLineUI();
+  });
+
+  $('#ed-word-clear').addEventListener('click', () => {
+    if (!editing || !wordSel) return;
+    const bucket = editing.wordStyle?.[wordSel.origin];
+    if (bucket) wordSel.wordIndices.forEach((idx) => delete bucket[idx]);
+    wordSel = null;
+    syncBodyLineUI();
+    render(editing);
+    toast('강조를 없앴습니다');
+  });
+
+
+  // 큰 편집창
+  $('#ed-close').addEventListener('click', () => $('#editor').close());
+  $('#editor').addEventListener('close', closeEditor);
+  $('#ed-head-on').addEventListener('change', (e) => {
+    if (!editing) return;
+    editing.headOn = e.target.checked;
+    $('#ed-head').disabled = !e.target.checked;
+    if (e.target.checked && !editing.headText) $('#ed-head').focus();
+    render(editing);
+  });
+  $('#ed-head').addEventListener('input', (e) => {
+    if (!editing) return;
+    editing.headText = e.target.value;
+    render(editing);
+  });
+  $('#ed-body').addEventListener('input', (e) => {
+    if (!editing) return;
+    applyTitle(editing, e.target.value);
+    wordSel = null;
+    renderLineSelUI();
+    syncBodyLineUI();
+  });
+  $('#ed-reset-pos').addEventListener('click', () => {
+    if (!editing) return;
+    editing.posHead = null;
+    editing.posBody = null;
+    render(editing);
+    toast('글자를 처음 자리로 되돌렸습니다');
+  });
+  $('#ed-reset-text').addEventListener('click', () => {
+    if (editing) resetTitle(editing);
+  });
+  $('#ed-save').addEventListener('click', () => {
+    if (!editing) return;
+    openSaveDialog(editing);
+  });
+  bindDrag(() => editing, $('#ed-canvas'));
+
+  // 실행 · 저장
   $('#run').addEventListener('click', runAll);
-  $('#save-pc').addEventListener('click', saveToPC);
-  $('#download-zip').addEventListener('click', downloadZip);
+
+  // 로고·저장은 위쪽 줄의 단추로 연다. 왼쪽 패널을 끝까지 내리지 않아도 된다.
+  $('#btn-logo').addEventListener('click', () => $('#logo-dlg').showModal());
+  $('#logo-close').addEventListener('click', () => $('#logo-dlg').close());
+
+  $('#btn-batch').addEventListener('click', openArchiveView);
+  $('#archive-back').addEventListener('click', closeArchiveView);
+  $('#archive-export-sheet').addEventListener('click', exportCheckedToSheet);
+  $('#body-edit-close').addEventListener('click', closeBodyEditor);
+  $('#body-edit-dlg').addEventListener('close', () => { bodyEditing = null; });
+  $('#body-edit-save').addEventListener('click', saveBodyEditor);
+  $('#preview-close').addEventListener('click', () => $('#preview-dlg').close());
+  $('#save-close').addEventListener('click', () => $('#save-dlg').close());
+  $('#save-go').addEventListener('click', doSave);
+  $('#save-size').addEventListener('change', syncAiExpandRow);
+  $('#ai-expand').addEventListener('change', syncAiExpandRow);
+  $('#open-output2').addEventListener('click', () => api('/api/open-output'));
 
   // 설정
   const dlg = $('#settings');
@@ -1038,11 +2956,43 @@ function init() {
   $('#open-output').addEventListener('click', () => api('/api/open-output'));
 
   buildChips('#category');
-  buildChips('#category-side');
+  mountFavChip();
+  fillFontPicks();
   applySettings(loadSettings());
+  initStyles();
   applyCategory();
   loadConfig();
+  restoreAllCards();   // 작업 중이던 카드 + 완성 창고를 브라우저 저장소에서 되살린다
+  startThreadPolling();   // 북마크릿으로 들어온 게 있는지 몇 초마다 확인
   syncUI();
+}
+
+// "즐겨찾기" 전용 필터. CATS 목록에는 없는 특수 항목이라 buildChips 와
+// 별도로 만든다. 실제 카테고리가 아니므로 새로 넣는 사진은 여기 담기지
+// 않고, 별표(★)를 누른 사진만 모아서 보여준다.
+function mountFavChip() {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.id = 'fav-view';
+  b.className = 'chip fav-chip';
+  b.style.setProperty('--c', '#ffc736');
+
+  const name = document.createElement('span');
+  name.textContent = '★ 즐겨찾기';
+
+  const n = document.createElement('b');
+  n.className = 'n';
+  n.hidden = true;
+
+  b.append(name, n);
+  $('#category').appendChild(b);
+
+  b.addEventListener('click', () => {
+    if (isArchiveOpen()) closeArchiveView();
+    state.viewFavorites = !state.viewFavorites;
+    b.classList.toggle('on', state.viewFavorites);
+    applyCategory();
+  });
 }
 
 // 쓸 수 있는 사진 모델을 불러와 고를 수 있게 한다.
@@ -1080,3 +3030,20 @@ async function loadConfig() {
 }
 
 init();
+
+/* "최신순" 정렬 토글 — 새로 추가한 기능. 기존 코드는 건드리지 않음. */
+state.sortRecent = false;
+$('#sort-recent').addEventListener('click', () => {
+  state.sortRecent = !state.sortRecent;
+  $('#sort-recent').classList.toggle('on', state.sortRecent);
+  updateSortOrder();
+});
+
+/* 접이식(아코디언) 섹션 — 새로 추가한 기능. 기존 코드는 건드리지 않음.
+   .collapsible 클래스가 붙은 section 은 처음엔 접혀 있다가,
+   제목(h2)을 클릭하면 펼쳐진다. */
+document.querySelectorAll('.collapsible > h2').forEach((h) => {
+  h.addEventListener('click', () => {
+    h.parentElement.classList.toggle('open');
+  });
+});
