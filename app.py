@@ -575,6 +575,32 @@ OUTPUT_SCHEMA = {
 }
 
 
+def _claude_message(exc: Exception) -> str:
+    """Anthropic 이 돌려준 오류를 사용자가 알아들을 말로 바꾼다.
+
+    그냥 두면 화면에 영어 딕셔너리가 통째로 뜬다. 제미니 쪽은 이미
+    이렇게 옮기고 있는데(_gemini_message) 이쪽만 빠져 있었다.
+    """
+    raw = str(exc)
+    low = raw.lower()
+
+    if "credit balance is too low" in low or "insufficient" in low:
+        return ("Anthropic 잔액이 떨어졌습니다. console.anthropic.com 의 "
+                "Billing 에서 '자금 추가'로 충전해주세요. "
+                "(사진 한 장에 대략 30~40원 듭니다)")
+    if "invalid x-api-key" in low or "authentication_error" in low:
+        return ("Anthropic 키가 올바르지 않습니다. 화면 왼쪽 위 '설정'에서 "
+                "sk-ant- 로 시작하는 키를 다시 넣어주세요. "
+                "(중간에 줄바꿈이나 따옴표가 섞이지 않았는지 확인해주세요)")
+    if "permission" in low or "forbidden" in low:
+        return "이 키로는 쓸 수 없습니다. 키를 만든 계정과 워크스페이스를 확인해주세요."
+    if "rate_limit" in low or "429" in raw:
+        return "Anthropic 분당 한도에 걸렸습니다. 잠시 뒤 다시 시도해주세요."
+    if "overloaded" in low or "529" in raw:
+        return "Anthropic 서버가 붐빕니다. 잠시 뒤 다시 시도해주세요."
+    return raw
+
+
 def generate_copy(image_b64: str, media_type: str, lang: str,
                   guide: str, style_sample: str,
                   category: str = "", variant: int = 0) -> dict:
@@ -622,7 +648,13 @@ def generate_copy(image_b64: str, media_type: str, lang: str,
         )
     except (anthropic.BadRequestError, TypeError):
         # 폴백 베타를 못 쓰는 환경이면 그냥 진행한다.
-        response = client.messages.create(**request)
+        # 여기서 또 실패하면 그건 진짜 오류이므로 알아들을 말로 바꿔 올린다.
+        try:
+            response = client.messages.create(**request)
+        except anthropic.APIError as exc:
+            raise RuntimeError(_claude_message(exc)) from None
+    except anthropic.APIError as exc:
+        raise RuntimeError(_claude_message(exc)) from None
 
     if response.stop_reason == "refusal":
         detail = ""
