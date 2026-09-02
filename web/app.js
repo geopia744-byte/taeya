@@ -626,11 +626,42 @@ function tokenizeLines(lines) {
     .map((text, wordIndex) => ({ text, origin, wordIndex })));
 }
 
+// 일본어·중국어는 띄어쓰기가 없어서 한 줄이 통째로 어절 하나가 된다.
+// 그 덩어리가 폭을 넘으면 끊을 자리를 못 찾아 글씨만 한없이 작아진다.
+// 그럴 때만 글자 단위로 끊는다. 공백이 있는 한국어·영어는 여기 오지 않는다.
+const NOT_LINE_START = '」』）〉》］｝、。，．・！？!?：；';
+
+function splitWide(ctx, tok, maxWidth) {
+  if (ctx.measureText(tok.text).width <= maxWidth) return [tok];
+
+  const out = [];
+  let buf = '';
+  for (const ch of Array.from(tok.text)) {
+    if (buf && ctx.measureText(buf + ch).width > maxWidth) {
+      // 닫는 괄호·구두점이 다음 줄 첫 글자가 되면 일본어에서 눈에 거슬린다.
+      // 그런 글자는 앞줄에 붙여 보낸다.
+      if (NOT_LINE_START.includes(ch) && Array.from(buf).length > 1) {
+        out.push({ ...tok, text: buf + ch });
+        buf = '';
+        continue;
+      }
+      out.push({ ...tok, text: buf });
+      buf = ch;
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf) out.push({ ...tok, text: buf });
+  return out;
+}
+
 // 줄바꿈이 필요할 때 어절(단어) 단위로 다시 나눈다. 원본 줄 경계는 넘지
 // 않는다 — 다른 줄의 단어가 한 줄에 같이 붙는 일은 없다.
 function wrapTokenLines(ctx, tokenLines, maxWidth) {
   const out = [];
-  tokenLines.forEach((toks) => {
+  tokenLines.forEach((toks0) => {
+    // 폭을 넘는 덩어리를 먼저 잘라둔다. 자르고 나면 아래 흐름은 그대로다.
+    const toks = toks0.flatMap((t) => splitWide(ctx, t, maxWidth));
     if (!toks.length) return;
     let cur = [toks[0]];
     let curText = toks[0].text;
