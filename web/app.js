@@ -1109,6 +1109,7 @@ function mountCard(card) {
     if (act === 'edit-title') openEditor(card);
     if (act === 'edit-body') openBodyEditor(card);
     if (act === 'archive') moveToArchive(card);
+    if (act === 'pick') togglePick(card);
     if (act === 'ja') retitleIn(card, 'ja', btn);
     if (act === 'cat-tag') toggleCatPicker(card);
     if (act === 'pick-cat') setCardCategory(card, btn.dataset.v);
@@ -1150,6 +1151,8 @@ function mountCard(card) {
     b.textContent = c.name;
     picker.appendChild(b);
   });
+
+  paintPick(card);
 
   $('#cards').appendChild(node);
 }
@@ -2125,12 +2128,15 @@ function needsRemake(card) {
 async function runAll() {
   // 끝난 카드는 다시 넣지 않는다 — 결과가 덮어써지기 때문이다.
   // 단, 사진 처리 방식이 바뀌었다면 그건 사용자가 일부러 바꾼 것이므로 다시 만든다.
-  const queue = inCategory().filter((c) =>
+  // 고른 것이 있으면 그것만. 없으면 이 항목 전체.
+  const picked = pickedInCategory();
+  const pool = picked.length ? picked : inCategory();
+  const queue = pool.filter((c) =>
     c.img && c.status !== 'working' && (c.status !== 'done' || needsRemake(c)));
 
   if (!queue.length) {
     // 조용히 아무 일도 안 일어나면 고장으로 보인다. 왜 안 도는지 말해준다.
-    const done = inCategory().filter((c) => c.status === 'done').length;
+    const done = pool.filter((c) => c.status === 'done').length;
     toast(done
       ? `이 항목의 ${done}장은 이미 「${MODE_LABEL[wantedMode()]}」로 만들어졌습니다. `
         + '다시 만들려면 카드의 [다시 뽑기]를 누르세요.'
@@ -2772,6 +2778,33 @@ function pickCategory(v) {
   applyCategory();
 }
 
+// 고른 사진만 돌린다. 아무것도 안 골랐으면 예전처럼 전부 돈다 —
+// 한 장씩 고르는 게 규칙이 되면 20장 돌릴 때 손이 너무 많이 간다.
+function togglePick(card) {
+  card.picked = !card.picked;
+  paintPick(card);
+  syncUI();
+}
+
+function paintPick(card) {
+  const btn = card.el?.querySelector('[data-act="pick"]');
+  if (btn) btn.classList.toggle('on', !!card.picked);
+  card.el?.classList.toggle('picked', !!card.picked);
+}
+
+function pickedInCategory() {
+  return inCategory().filter((c) => c.picked);
+}
+
+function clearPicks() {
+  state.cards.forEach((c) => {
+    if (!c.picked) return;
+    c.picked = false;
+    paintPick(c);
+  });
+  syncUI();
+}
+
 function inCategory() {
   if (state.viewFavorites) return state.cards.filter((c) => c.favorite);
   return state.cards.filter((c) => c.category === state.category);
@@ -2841,10 +2874,19 @@ function syncUI() {
   }
 
   // 무엇이 돌아갈지 버튼에 적는다. 고른 것과 도는 것이 어긋나면 안 된다.
+  const picked = here.filter((c) => c.picked).length;
   const what = state.hasGemini ? MODE_LABEL[state.photoMode] : null;
+  const head = picked ? `선택한 ${picked}장 변환` : '이미지 변환';
   $('#run').textContent = state.running
     ? '변환 중…'
-    : (what ? `이미지 변환 — ${what}` : '이미지 변환');
+    : (what ? `${head} — ${what}` : head);
+
+  // 고른 게 있을 때만 해제 단추를 보여준다.
+  const chip = $('#pick-clear');
+  if (chip) {
+    chip.hidden = !picked;
+    chip.textContent = `✓ ${picked}장 선택 · 해제`;
+  }
 }
 
 // 기억해둔 설정을 화면에 되살린다.
@@ -2890,6 +2932,8 @@ function init() {
   $('#pick-folder').addEventListener('change', (e) => {
     addFiles(e.target.files); e.target.value = '';
   });
+  $('#pick-clear').addEventListener('click', clearPicks);
+
   $('#clear-all').addEventListener('click', () => {
     state.cards.forEach((c) => c.el?.remove());
     state.cards = [];

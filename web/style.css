@@ -719,7 +719,7 @@ output {
    지금 보는 게 무엇인지 카드만 봐도 알아야 한다. */
 .cat-tag {
   position: absolute;
-  left: 8px;
+  left: 52px;          /* 선택(✓) 버튼 자리를 비켜준다 */
   top: 8px;
   padding: 6px 13px;
   border-radius: 9px;
@@ -897,6 +897,49 @@ output {
   border-color: #3b7bdd;
   color: #fff;
 }
+
+/* 고를 사진만 골라 돌린다. 20장을 통째로 돌리면 마음에 안 드는 것까지
+   돈이 나간다. 아무것도 안 고르면 예전처럼 전부 돈다. */
+.pick {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(8, 12, 10, .72);
+  border: 2px solid rgba(255, 255, 255, .3);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, .45);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+
+.pick:hover { border-color: #34d399; color: #9ff3cd; }
+
+.pick.on {
+  background: #34d399;
+  border-color: #34d399;
+  color: #06251c;
+}
+
+/* 고른 카드는 테두리로도 표시한다. 스크롤하며 훑을 때 ✓ 하나로는 약하다. */
+.card.picked {
+  border-color: #34d399;
+  box-shadow: 0 0 0 1px #34d399;
+}
+
+.pick-chip {
+  flex: 0 0 auto;
+  border: 1.5px solid #34d399;
+  background: color-mix(in srgb, #34d399 16%, transparent);
+  color: #7cefcb;
+  font-weight: 700;
+}
+
+.pick-chip:hover { background: color-mix(in srgb, #34d399 28%, transparent); }
 
 /* 생성 날짜/시간. "생성된 본문" 옆에 흐리게 표시. */
 .made-at {
