@@ -1982,16 +1982,46 @@ async function runOne(card) {
   await transformOne(card);
 }
 
+// 사진 처리 방식을 바꿔놓고 다시 누른 것이라면, 끝난 카드도 다시 만들어야 한다.
+// 이게 없으면 '글자만 지우기'로 한 번 돌린 뒤 '사진 새로 만들기'로 바꿔도
+// 카드가 done 이라 큐에서 빠져, 눌러도 아무 일이 없었다.
+function wantedMode() {
+  return state.hasGemini ? state.photoMode : 'off';
+}
+
+function needsRemake(card) {
+  return card.status === 'done' && (card.madeBy || 'off') !== wantedMode();
+}
+
 async function runAll() {
-  // 'done' 상태인 카드는 이미 완성된 결과물이므로 다시 큐에 넣지 않는다.
-  // (예전엔 여기서 status !== 'working' 인 것만 걸렀는데, 그러면
-  //  이미 끝난 카드까지 다시 초기화·재처리되면서 결과가 덮어써졌다.)
-  const queue = inCategory().filter((c) => c.img && c.status !== 'working' && c.status !== 'done');
-  if (!queue.length) return;
+  // 끝난 카드는 다시 넣지 않는다 — 결과가 덮어써지기 때문이다.
+  // 단, 사진 처리 방식이 바뀌었다면 그건 사용자가 일부러 바꾼 것이므로 다시 만든다.
+  const queue = inCategory().filter((c) =>
+    c.img && c.status !== 'working' && (c.status !== 'done' || needsRemake(c)));
+
+  if (!queue.length) {
+    // 조용히 아무 일도 안 일어나면 고장으로 보인다. 왜 안 도는지 말해준다.
+    const done = inCategory().filter((c) => c.status === 'done').length;
+    toast(done
+      ? `이 항목의 ${done}장은 이미 「${MODE_LABEL[wantedMode()]}」로 만들어졌습니다. `
+        + '다시 만들려면 카드의 [다시 뽑기]를 누르세요.'
+      : '변환할 사진이 없습니다.', true);
+    return;
+  }
 
   state.running = true;
   syncUI();
-  queue.forEach((c) => { clearError(c); c.photoDone = false; setStatus(c, 'queued'); });
+  queue.forEach((c) => {
+    clearError(c);
+    // 방식이 바뀌어 다시 만드는 카드는 지난 결과를 비워야 새로 처리된다.
+    // (transformOne 은 cleanImg 가 남아 있으면 건너뛴다)
+    // 사진만 다시 만들면 되므로 문구는 그대로 둔다 — 다시 쓰면 Claude 값이
+    // 한 번 더 나가는데, 바뀐 건 사진 처리 방식뿐이다.
+    c.photoOnly = c.status === 'done' && !!c.copy;
+    if (c.status === 'done') { c.cleanImg = null; c.madeBy = null; }
+    c.photoDone = false;
+    setStatus(c, 'queued');
+  });
 
   try {
     // 1단계 — 카피. 글은 여러 장을 동시에 맡겨도 잘 받아준다.
@@ -2001,8 +2031,14 @@ async function runAll() {
         while (cursor < queue.length) {
           const card = queue[cursor++];
           if (!state.cards.includes(card)) continue;   // 그 사이 지워졌으면 건너뛴다
-          setStatus(card, 'working', '읽는 중');
           try {
+            if (card.photoOnly) {
+              // 문구는 이미 있다. 사진만 다시 만든다.
+              fillCard(card);
+              setStatus(card, 'queued', '사진 차례 기다리는 중');
+              continue;
+            }
+            setStatus(card, 'working', '읽는 중');
             await writeCopy(card);
             fillCard(card);
             if (photoPending(card)) setStatus(card, 'queued', '사진 차례 기다리는 중');
