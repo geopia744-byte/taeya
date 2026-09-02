@@ -955,6 +955,24 @@ output {
   letter-spacing: .01em;
 }
 
+/* 사진 처리가 실패했을 때. 오류 글자는 카드 맨 아래라 스크롤해야 보이는데,
+   사람은 사진을 보고 있다. 실패했다는 사실은 사진 위에서 말해야 한다.
+   화면에만 얹히고 저장되는 이미지에는 들어가지 않는다. */
+.warn-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  right: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(120, 20, 20, .92);
+  border: 1px solid rgba(255, 140, 140, .45);
+  color: #ffd9d9;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 /* ── 사진이 여러 장일 때 넘겨보는 화살표 ───────────────────── */
 .carousel-nav {
   position: absolute;

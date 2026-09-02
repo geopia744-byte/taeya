@@ -750,7 +750,7 @@ function drawCover(ctx, w, h, top, bottom) {
       sr += band[i]; sg += band[i + 1]; sb += band[i + 2]; n++;
     }
     if (n) {
-      const dim = 0.17;
+      const dim = 0.3;
       r = Math.round((sr / n) * dim);
       g = Math.round((sg / n) * dim);
       b = Math.round((sb / n) * dim);
@@ -1544,6 +1544,13 @@ function setError(card, message) {
 }
 
 // 실패로 처리할 것까지는 아니지만 알려야 할 때. status 는 건드리지 않는다.
+function setWarn(card, message) {
+  const el = card.el?.querySelector('[data-role="warn"]');
+  if (!el) return;
+  el.textContent = message || '';
+  el.hidden = !message;
+}
+
 function setNote(card, message) {
   const err = card.el.querySelector('[data-role="err"]');
   err.textContent = message;
@@ -1922,6 +1929,7 @@ async function transformOne(card) {
       card.cleanImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
       card.madeBy = mode;
       clearError(card);
+      setWarn(card, '');
     } else {
       // 사진 새로 만들기 — 2단계로 나눈다.
       // 1단계) 영어 글자부터 지우고 자연스럽게 메꾼다 (인물·배경은 원본 그대로).
@@ -1990,6 +1998,7 @@ async function transformOne(card) {
       card.cleanImg = finalImg;
       card.madeBy = mode;
       clearError(card);
+      setWarn(card, '');
       } catch (err) {
         // 배경 교체가 실패했다고 1단계에서 지운 사진까지 버리면 안 된다.
         // 버리면 이미 낸 돈도 날리고, 결과물은 검은 띠로 덮여 더 나빠진다.
@@ -1997,12 +2006,14 @@ async function transformOne(card) {
         console.warn('[사진처리] 2단계 실패 — 글자 지운 사진으로 마무리합니다.', err);
         card.cleanImg = await loadImage(erasedCv.toDataURL('image/png'));
         card.madeBy = 'erase';
+        setWarn(card, '⚠ 배경 교체 실패 · 글자만 지웠습니다');
         setNote(card, `글자는 지웠지만 배경 새로 만들기는 실패했습니다. `
                     + `[다시 뽑기]를 누르면 다시 시도합니다. (${err.message})`);
       }
     }
   } catch (err) {
     console.error('[사진처리] 실패', err);
+    setWarn(card, `⚠ ${recreate ? '사진 만들기' : '글자 지우기'} 실패 · 덮어서 가림`);
     setError(card,
       `${recreate ? '사진 만들기' : '글자 지우기'} 실패 — 덮어서 처리했습니다. (${err.message})`);
   }
