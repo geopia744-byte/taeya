@@ -3499,6 +3499,7 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
   const resultBox = $('#vid-result-box');
   const resultVid = $('#vid-result');
   const atLabel = $('#vid-at');
+  const timeLabel = $('#vid-time');
 
   let job = null;        // {id, width, height, ...}
   let band = null;       // [y0, y1] — 원본 픽셀 기준
@@ -3524,6 +3525,7 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     resultVid.removeAttribute('src');
     resultVid.load();
     saveBtn.hidden = true;
+    goBtn.hidden = false;
     fileIn.value = '';
     label.textContent = '영상 고르기 (mp4)';
     stage.hidden = true;
@@ -3559,11 +3561,58 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     window.location.href = `/api/video/result?id=${job.id}&dl=1`;
   });
 
+  // 문제 구간을 정확히 찾으려면 한 컷씩 넘길 수 있어야 한다. 재생 막대만
+  // 있으면 1초 단위로도 못 맞춘다.
+  const showTime = () => {
+    const d = Number.isFinite(resultVid.duration) ? resultVid.duration : 0;
+    timeLabel.textContent = `${resultVid.currentTime.toFixed(1)} / ${d.toFixed(1)}초`;
+  };
+  resultVid.addEventListener('timeupdate', showTime);
+  resultVid.addEventListener('loadedmetadata', showTime);
+  resultBox.querySelectorAll('[data-jump]').forEach((b) => {
+    b.addEventListener('click', () => {
+      resultVid.pause();      // 넘긴 자리에서 멈춰 있어야 들여다볼 수 있다
+      const d = Number.isFinite(resultVid.duration) ? resultVid.duration : 0;
+      resultVid.currentTime = Math.min(d,
+        Math.max(0, resultVid.currentTime + Number(b.dataset.jump)));
+      showTime();
+    });
+  });
+
+  // 지금 보고 있는 장면을 사진으로 저장한다. 어디가 어떻게 망가졌는지
+  // 보여주려면 말로 설명하는 것보다 그 순간의 사진 한 장이 정확하다.
+  $('#vid-grab').addEventListener('click', () => {
+    if (!resultVid.videoWidth) return fail('아직 영상을 읽지 못했습니다.');
+    const cv = document.createElement('canvas');
+    cv.width = resultVid.videoWidth;
+    cv.height = resultVid.videoHeight;
+    cv.getContext('2d').drawImage(resultVid, 0, 0, cv.width, cv.height);
+    const a = document.createElement('a');
+    a.href = cv.toDataURL('image/png');
+    a.download = `${job.name}_${resultVid.currentTime.toFixed(1)}초.png`;
+    a.click();
+    toast(`${resultVid.currentTime.toFixed(1)}초 장면을 저장했습니다.`);
+  });
+
+  // 띠를 고쳐 다시 돌리고 싶을 때. 영상은 이미 받아뒀으므로 다시 안 올린다.
+  $('#vid-back').addEventListener('click', () => {
+    resultBox.hidden = true;
+    runBox.hidden = true;
+    stage.hidden = false;
+    goBtn.hidden = false;
+    goBtn.textContent = '다시 지우기';
+  });
+
   // 드물게 브라우저가 이 영상 형식을 못 읽는 경우가 있다. 그때 깨진
   // 재생기를 보여주느니 어디서 확인하면 되는지 알려주는 편이 낫다.
+  // 재생이 있어야 뜻이 있는 것들. 못 읽을 때 이것만 접는다 — 결과칸을
+  // 통째로 접으면 [띠 다시 맞추기] 까지 사라져 아무것도 못 하게 된다.
+  const playOnly = () => [resultVid, $('#vid-jumps'), $('#vid-grab'),
+                          $('#vid-inspect-hint')];
+
   resultVid.addEventListener('error', () => {
     if (!resultVid.getAttribute('src')) return;
-    resultBox.hidden = true;
+    playOnly().forEach((el) => { if (el) el.hidden = true; });
     runNote.textContent += ' (이 브라우저에서는 미리보기가 안 됩니다 — '
                          + '[폴더 열기]로 확인하세요)';
   });
@@ -3694,8 +3743,13 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
       openDirBtn.hidden = false;
       saveBtn.hidden = false;
       // 바로 눈으로 확인하게 해준다. 폴더를 열어 찾아 재생할 필요가 없다.
+      playOnly().forEach((el) => { if (el) el.hidden = false; });
       resultVid.src = `/api/video/result?id=${job.id}`;
       resultBox.hidden = false;
+      // 띠 맞추던 화면을 접는다. 둘 다 펴두면 창이 길어져 재생기가
+      // 화면 밖으로 밀려나고, 멈춰서 들여다볼 수가 없다.
+      stage.hidden = true;
+      goBtn.hidden = true;
       toast('영상 자막을 지웠습니다. 출력 폴더에 저장했습니다.');
     }, 900);
   });

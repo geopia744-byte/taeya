@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.25</span></em>
+        <em>자동화 <span class="ver">v13.26</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -229,8 +229,21 @@
 
     <div id="vid-result-box" hidden>
       <video id="vid-result" controls playsinline preload="metadata"></video>
-      <p class="hint">자막이 잘 지워졌는지 확인해보세요.
-        이미 <b>출력 폴더에 저장</b>되어 있습니다.</p>
+      <div class="vid-step" id="vid-jumps">
+        <button type="button" class="mini" data-jump="-1">◀◀ 1초</button>
+        <button type="button" class="mini" data-jump="-0.1">◀ 한 컷</button>
+        <span class="vid-time" id="vid-time">0.0 / 0.0초</span>
+        <button type="button" class="mini" data-jump="0.1">한 컷 ▶</button>
+        <button type="button" class="mini" data-jump="1">1초 ▶▶</button>
+      </div>
+      <p class="hint" id="vid-inspect-hint">잘 안 지워졌거나 화면이 뭉개진 곳에서 <b>멈추세요.</b>
+        한 컷씩 넘기며 정확한 지점을 찾은 뒤 <b>[이 장면 저장]</b> 을 누르면
+        그 순간이 사진으로 저장됩니다. 그 사진을 저에게 보여주시면
+        무엇이 문제인지 짚어서 고칠 수 있습니다.</p>
+      <div class="vid-step">
+        <button type="button" class="mini" id="vid-grab">📸 이 장면 저장</button>
+        <button type="button" class="mini" id="vid-back">◀ 띠 다시 맞추기</button>
+      </div>
     </div>
 
     <p class="vid-error" id="vid-error" hidden></p>

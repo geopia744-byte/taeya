@@ -466,17 +466,25 @@ def video_job_start(job_id: str, src: str, dst: str, band):
         except Exception as exc:            # noqa: BLE001 - 화면에 그대로 보여준다
             with _video_lock:
                 _video_jobs[job_id].update(done=True, error=str(exc))
-        finally:
-            # 원본 임시 파일은 결과를 만든 뒤 지운다.
-            try:
-                os.remove(src)
-            except OSError:
-                pass
 
     with _video_lock:
         _video_jobs[job_id] = {"progress": 0.0, "done": False,
                                "error": None, "out": None}
     threading.Thread(target=run, daemon=True).start()
+
+
+def prune_video_temp(max_age_hours: float = 6.0) -> None:
+    """임시 폴더에 쌓인 옛 영상을 치운다. 영상은 커서 그냥 두면 곤란하다."""
+    cutoff = time.time() - max_age_hours * 3600
+    try:
+        for f in VIDEO_DIR.glob("*.mp4"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def video_job_state(job_id: str) -> dict:
@@ -1730,6 +1738,10 @@ class Handler(BaseHTTPRequestHandler):
                 f"영상이 너무 큽니다. {MAX_VIDEO // (1024 * 1024)}MB 까지 됩니다.")
 
         VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+        # 올려둔 원본은 작업이 끝나도 남긴다 - 띠를 고쳐 다시 돌릴 때
+        # 같은 영상을 또 올리게 하지 않기 위해서다. 대신 새 영상을 올릴
+        # 때마다 오래된 것을 치운다.
+        prune_video_temp()
         job_id = uuid.uuid4().hex[:12]
         src = VIDEO_DIR / f"{job_id}.mp4"
 
@@ -2034,7 +2046,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.25 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.26 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
