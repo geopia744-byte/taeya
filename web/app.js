@@ -310,11 +310,14 @@ async function dbLoadAll() {
 //
 // 카드 하나가 대시보드에도, 완성 목록에도 동시에 있을 수 있으므로(복사 방식),
 // "어느 배열에서 왔는지"가 아니라 "지금 어디 어디에 들어있는지"를 플래그로 남긴다.
-function serializeCard(card, inDashboard, inArchive) {
+function serializeCard(card, inDashboard, inArchive, sortIndex) {
   return {
     id: card.id,
     inDashboard: !!inDashboard,
     inArchive: !!inArchive,
+    // 손잡이로 옮겨놓은 순서. 이게 없으면 새로고침할 때 만든 시각순으로
+    // 되돌아가 사용자가 배치한 자리가 사라진다.
+    sortIndex: Number.isFinite(sortIndex) ? sortIndex : null,
     imgDataUrl: card.dataUrl || null,
     cleanDataUrl: card.cleanImg?.src || null,
     crop: card.crop || null,
@@ -354,9 +357,10 @@ function schedulePersist() {
     // 대시보드 배열과 완성 목록 배열에 같은 카드(같은 id)가 동시에 들어있을 수
     // 있으므로, id 기준으로 합쳐서 카드당 딱 하나의 저장 레코드만 만든다.
     const byId = new Map();
-    state.cards.forEach((c) => {
+    state.cards.forEach((c, i) => {
       const rec = byId.get(c.id) || { card: c, inDashboard: false, inArchive: false };
       rec.inDashboard = true;
+      rec.sortIndex = i;          // 대시보드에 놓인 순서를 그대로 적어둔다
       byId.set(c.id, rec);
     });
     state.archivedCards.forEach((c) => {
@@ -365,7 +369,8 @@ function schedulePersist() {
       byId.set(c.id, rec);
     });
     const records = [...byId.values()].map(
-      ({ card, inDashboard, inArchive }) => serializeCard(card, inDashboard, inArchive)
+      ({ card, inDashboard, inArchive, sortIndex }) =>
+        serializeCard(card, inDashboard, inArchive, sortIndex)
     );
     dbSaveAll(records).catch((err) => console.error('작업물 자동 저장 실패', err));
   }, 500);
@@ -384,8 +389,11 @@ async function restoreAllCards() {
   }
   if (!records.length) return;
 
-  // 쌓인 순서(만든 시각) 그대로 되살린다.
-  records.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  // 손잡이로 옮겨놓은 순서가 있으면 그대로, 없으면 만든 시각순으로 되살린다.
+  // (예전에 저장된 카드에는 sortIndex 가 없다. 그건 시각순 뒤에 붙는다.)
+  const at = (r) => (Number.isFinite(r.sortIndex) ? r.sortIndex : Infinity);
+  records.sort((a, b) =>
+    at(a) - at(b) || new Date(a.createdAt) - new Date(b.createdAt));
 
   for (const rec of records) {
     seq = Math.max(seq, rec.id || 0);
@@ -3278,3 +3286,86 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     h.parentElement.classList.toggle('open');
   });
 });
+
+/* 카드 순서 바꾸기(끌어놓기) — 새로 추가한 기능. 기존 코드는 건드리지 않음.
+
+   사진 위에는 이미 '글자 끌기'가 붙어 있다. 그래서 사진을 잡아 끄는 방식으로
+   만들면 제목을 옮기려다 카드가 움직인다. 전용 손잡이(⠿)에서만 시작한다.
+
+   실제로 state.cards 배열의 순서를 바꾼다. 저장도 이 순서를 따르므로
+   프로그램을 껐다 켜도 내가 놓은 자리가 그대로 남는다. */
+(function enableCardReorder() {
+  const box = $('#cards');
+  if (!box) return;
+  let dragging = null;
+
+  const cardOf = (el) => {
+    const art = el && el.closest ? el.closest('.card') : null;
+    return art ? state.cards.find((c) => c.el === art) : null;
+  };
+
+  const clearMarks = () => {
+    box.querySelectorAll('.drop-before, .drop-after').forEach((el) =>
+      el.classList.remove('drop-before', 'drop-after'));
+  };
+
+  const endDrag = () => {
+    clearMarks();
+    if (dragging && dragging.el) dragging.el.classList.remove('card-dragging');
+    dragging = null;
+  };
+
+  // 마우스가 카드의 왼쪽 절반에 있으면 그 앞, 오른쪽 절반이면 그 뒤에 꽂는다.
+  const dropsBefore = (over, x) => {
+    const r = over.el.getBoundingClientRect();
+    return x < r.left + r.width / 2;
+  };
+
+  box.addEventListener('dragstart', (e) => {
+    if (!e.target.classList || !e.target.classList.contains('grip')) return;
+    const card = cardOf(e.target);
+    if (!card) return;
+    dragging = card;
+    card.el.classList.add('card-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // 값이 없으면 일부 브라우저에서 끌기가 아예 시작되지 않는다.
+    e.dataTransfer.setData('text/plain', String(card.id));
+  });
+
+  box.addEventListener('dragover', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const over = cardOf(e.target);
+    clearMarks();
+    if (!over || over === dragging) return;
+    over.el.classList.add(dropsBefore(over, e.clientX) ? 'drop-before' : 'drop-after');
+  });
+
+  box.addEventListener('drop', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const over = cardOf(e.target);
+    const moved = dragging;
+    clearMarks();
+    if (over && over !== moved) {
+      const before = dropsBefore(over, e.clientX);
+      state.cards.splice(state.cards.indexOf(moved), 1);
+      const at = state.cards.indexOf(over) + (before ? 0 : 1);
+      state.cards.splice(at, 0, moved);
+
+      // '최신순'이 켜져 있으면 시간순이 내가 놓은 순서를 덮어쓴다. 꺼준다.
+      if (state.sortRecent) {
+        state.sortRecent = false;
+        const btn = $('#sort-recent');
+        if (btn) btn.classList.remove('on');
+        toast('순서를 직접 바꿨으므로 「최신순」을 껐습니다.');
+      }
+      updateSortOrder();
+      schedulePersist();
+    }
+    endDrag();
+  });
+
+  box.addEventListener('dragend', endDrag);
+})();

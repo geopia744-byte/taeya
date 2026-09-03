@@ -769,11 +769,54 @@ output {
 /* 카드 */
 
 .card {
+  position: relative;      /* 순서 바꾸기 표시선의 기준 */
   background: var(--panel);
   border: 1px solid var(--line-soft);
   border-radius: 12px;
   overflow: hidden;
 }
+
+/* ── 순서 바꾸기(끌어놓기) ──────────────────────────────── */
+
+/* 사진에는 이미 '글자 끌기'가 붙어 있어서, 순서 옮기기는 전용 손잡이로만
+   시작한다. 선택(✓) 버튼 바로 아래에 세로로 붙인다. */
+.grip {
+  position: absolute;
+  left: 8px;
+  top: 54px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(0, 0, 0, .55);
+  border: 2px solid rgba(255, 255, 255, .28);
+  border-radius: 10px;
+  color: #dfe3ea;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: grab;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+.grip:hover { background: rgba(0, 0, 0, .75); border-color: rgba(255, 255, 255, .5); }
+.grip:active { cursor: grabbing; }
+
+.card.card-dragging { opacity: .35; }
+
+/* 어디에 꽂히는지 세로 막대로 보여준다. */
+.card.drop-before::after,
+.card.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #6ea8ff;
+  box-shadow: 0 0 10px rgba(110, 168, 255, .9);
+  z-index: 6;
+  pointer-events: none;
+}
+.card.drop-before::after { left: 0; }
+.card.drop-after::after { right: 0; }
 
 .canvas-wrap {
   position: relative;
