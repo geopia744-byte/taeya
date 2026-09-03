@@ -434,6 +434,36 @@ SYSTEM_PROMPT = """\
    - 인스타 UI 안의 캡션 글은 여기 포함하지 마라. **사진 위에 얹힌 글자만** 센다.
    - 박힌 글자가 아예 없다 → `{top: 0, bottom: 0}`
 
+7. **overlays** — 사진 위에 **얹혀 있는 작은 사진·배지**의 자리.
+
+   뉴스 카드 사진에는 본 사진 위에 **또 다른 작은 사진**이 얹혀 있는
+   경우가 많다. 동그란 테두리 안에 인물 얼굴이 들어 있거나, 네모난
+   섬네일이 모서리에 붙어 있는 식이다.
+
+   이것들은 **장면의 일부가 아니라 스티커다.** 상어는 물속에 있지만
+   동그라미 속 얼굴은 어디에 있는 것이 아니라 그냥 덮여 있을 뿐이다.
+   그래서 배경을 새로 만들 때 이 자리는 **원본을 그대로 도로 얹는다.**
+   네가 자리를 알려주지 않으면 이 스티커가 사라지거나 뭉개진다.
+
+   왼쪽 위, 오른쪽 아래 — 자리는 사진마다 다르다. 정해두지 말고
+   **네 눈으로 보고** 찾아라. 여러 개면 여러 개 다 적어라.
+
+   각 항목은 `shape`("circle" 또는 "rect")와 네 변의 위치를 낸다.
+   왼쪽 끝을 0.0, 오른쪽 끝을 1.0 으로 보고 `left`/`right`,
+   맨 위를 0.0, 맨 아래를 1.0 으로 보고 `top`/`bottom` 이다.
+   테두리(흰 링, 그림자)까지 포함해 **아주 살짝 넉넉하게** 잡아라.
+
+   - 왼쪽 위 동그란 얼굴 사진 → `{shape:"circle", left:0.05, top:0.04, right:0.30, bottom:0.24}`
+   - 오른쪽 아래 네모 섬네일 → `{shape:"rect", left:0.68, top:0.70, right:0.96, bottom:0.94}`
+
+   ⚠️ **얹힌 작은 사진만이다.** 아래를 넣지 마라:
+   - 본 사진 속에 실제로 있는 것(사람, 동물, 자동차, 간판)
+   - 글자·자막 (그건 `text_area` 가 맡는다)
+   - 하트·댓글 같은 인스타 UI 아이콘
+   - 사진 전체를 덮을 만큼 큰 것
+
+   그런 게 없으면 빈 배열 `[]` 을 내라. 억지로 찾지 마라.
+
 ## 원본에서 읽을 것
 
 이미지에는 인스타 UI(하트, 댓글 수, 계정명, 캡션)가 같이 찍혀 있을 수 있다.
@@ -573,9 +603,31 @@ OUTPUT_SCHEMA = {
             "required": ["top", "bottom"],
             "additionalProperties": False,
         },
+        "overlays": {
+            "type": "array",
+            "description": (
+                "본 사진 위에 얹혀 있는 작은 사진·배지의 자리. 동그란 인물 "
+                "사진, 모서리의 네모 섬네일 같은 것. 배경을 새로 만들 때 이 "
+                "자리는 원본을 그대로 도로 얹으므로, 사라지면 안 되는 것을 "
+                "여기 적는다. 사진 속에 실제로 있는 것(사람·동물·사물), "
+                "글자, 인스타 UI 아이콘은 넣지 마라. 없으면 빈 배열."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "shape": {"type": "string", "enum": ["circle", "rect"]},
+                    "left": {"type": "number"},
+                    "top": {"type": "number"},
+                    "right": {"type": "number"},
+                    "bottom": {"type": "number"},
+                },
+                "required": ["shape", "left", "top", "right", "bottom"],
+                "additionalProperties": False,
+            },
+        },
     },
     "required": ["source_text", "title_lines", "body", "hashtags",
-                 "scene", "text_area"],
+                 "scene", "text_area", "overlays"],
     "additionalProperties": False,
 }
 
@@ -1587,7 +1639,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.20 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.21 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():

@@ -1361,6 +1361,7 @@ async function retitleIn(card, lang, btn) {
     // 사진에 관한 값은 예전 것을 지킨다. 사진을 다시 만들지 않았기 때문이다.
     // (text_area 를 새 값으로 덮으면 이미 지운 사진 위에 엉뚱한 덮개가 생긴다)
     if (card.copy && card.copy.text_area) copy.text_area = card.copy.text_area;
+    if (card.copy && card.copy.overlays) copy.overlays = card.copy.overlays;
 
     card.copy = copy;
     card.lang = lang;
@@ -1869,6 +1870,55 @@ function compositeSubjectOntoBackground(bgImg, subjectCanvas, maskCanvas, w, h) 
   return out;
 }
 
+// 사진 위에 얹혀 있던 작은 사진(동그란 얼굴, 모서리 섬네일)을 원본에서
+// 그대로 도로 찍는다. 이건 장면이 아니라 스티커다 — 상어는 물속에 있지만
+// 동그라미 속 얼굴은 어디에 있는 게 아니라 그냥 덮여 있을 뿐이다.
+// AI를 한 번도 거치지 않으므로 위치도 내용도 1픽셀 안 틀린다.
+// 자리는 클로드가 사진을 보고 찾아준다. 왼쪽이든 오른쪽이든, 몇 개든.
+function stampOverlays(baseCanvas, srcCanvas, overlays, w, h) {
+  const list = Array.isArray(overlays) ? overlays : [];
+  if (!list.length) return baseCanvas;
+
+  const ctx = baseCanvas.getContext('2d');
+  const clamp = (v) => Math.min(1, Math.max(0, Number(v)));
+  let done = 0;
+
+  list.forEach((ov) => {
+    if (!ov) return;
+    const l = clamp(ov.left);
+    const t = clamp(ov.top);
+    const r = clamp(ov.right);
+    const b = clamp(ov.bottom);
+    if (!(r > l && b > t)) return;
+    // 사진의 절반 가까이를 덮는다면 스티커가 아니라 잘못 읽은 것이다.
+    // 그대로 찍으면 새로 만든 배경을 통째로 가려버린다.
+    if ((r - l) * (b - t) > 0.4) {
+      console.log('[사진처리] 얹힌 사진이 너무 큽니다 — 건너뜁니다');
+      return;
+    }
+
+    const x = l * w;
+    const y = t * h;
+    const ww = (r - l) * w;
+    const hh = (b - t) * h;
+
+    ctx.save();
+    ctx.beginPath();
+    if (ov.shape === 'rect') {
+      ctx.rect(x, y, ww, hh);
+    } else {
+      ctx.ellipse(x + ww / 2, y + hh / 2, ww / 2, hh / 2, 0, 0, Math.PI * 2);
+    }
+    ctx.clip();
+    ctx.drawImage(srcCanvas, 0, 0, w, h);
+    ctx.restore();
+    done += 1;
+  });
+
+  if (done) console.log(`[사진처리] 얹힌 사진 ${done}개를 원본 그대로 다시 얹었습니다`);
+  return baseCanvas;
+}
+
 /* ── 저장 크기 ────────────────────────────────────────────
  *
  * 인스타 피드는 4:5, 틱톡 사진은 9:16 이다. 캡쳐 크기 그대로 올리면
@@ -2110,16 +2160,29 @@ async function transformOne(card) {
       console.log('[사진처리] 2단계 완료 — 배경 응답 받음');
       console.log(`[사진처리] 입력 크기 ${erasedCv.toDataURL('image/png').length}자, 결과 크기 ${out.image_b64.length}자 (모델: ${out.model || '?'})`);
       let finalImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
+      const W = erasedCv.width;
+      const H = erasedCv.height;
+      let outCv = null;
 
       if (maskCv) {
         // 글자 지워진 원본 주인공 픽셀을 새 배경 위에 그대로 얹는다.
-        const composed = compositeSubjectOntoBackground(
-          finalImg, erasedCv, maskCv, erasedCv.width, erasedCv.height,
-        );
-        finalImg = await loadImage(composed.toDataURL('image/png'));
+        outCv = compositeSubjectOntoBackground(finalImg, erasedCv, maskCv, W, H);
         console.log('[사진처리] 주인공 합성 완료 — 원본 픽셀 그대로');
       }
 
+      // 얹혀 있던 작은 사진은 배경과 함께 사라지거나 뭉개진다. 도로 찍는다.
+      const overlays = (card.copy || {}).overlays;
+      if (Array.isArray(overlays) && overlays.length) {
+        if (!outCv) {
+          outCv = document.createElement('canvas');
+          outCv.width = W;
+          outCv.height = H;
+          outCv.getContext('2d').drawImage(finalImg, 0, 0, W, H);
+        }
+        stampOverlays(outCv, erasedCv, overlays, W, H);
+      }
+
+      if (outCv) finalImg = await loadImage(outCv.toDataURL('image/png'));
       card.cleanImg = finalImg;
       card.madeBy = mode;
       clearError(card);
