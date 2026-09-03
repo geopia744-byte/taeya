@@ -1733,3 +1733,94 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
 @keyframes rise {
   from { opacity: 0; transform: translate(-50%, 8px); }
 }
+
+/* ── 영상 자막 지우기 ────────────────────────────────────── */
+
+/* dialog 의 기본 너비(400px)는 요소 선택자라 클래스로는 못 이긴다. id 로 잡는다. */
+#video-dlg {
+  width: min(520px, 94vw);
+  max-height: 92vh;
+}
+.vid-dlg {
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+/* 세로 영상(9:16)이면 미리보기가 창을 넘긴다. 높이를 묶고, 틀은 사진에
+   딱 맞게 줄인다 — 그래야 띠의 비율 좌표가 사진과 어긋나지 않는다. */
+.vid-preview {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px auto 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  line-height: 0;
+}
+.vid-preview img {
+  display: block;
+  max-height: 44vh;
+  width: auto;
+  max-width: 100%;
+}
+
+/* 지울 범위. 안이 비쳐야 자막이 덮였는지 눈으로 확인할 수 있다. */
+.vid-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(110, 168, 255, .22);
+  border-top: 2px solid #6ea8ff;
+  border-bottom: 2px solid #6ea8ff;
+  cursor: default;
+}
+/* 손잡이는 띠보다 넉넉히 잡아야 마우스로 집기 쉽다. */
+.vid-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 16px;
+  cursor: ns-resize;
+}
+.vid-grip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 5px;
+  margin: -2.5px 0 0 -23px;
+  border-radius: 3px;
+  background: #6ea8ff;
+  box-shadow: 0 0 8px rgba(110, 168, 255, .9);
+}
+.vid-grip-t { top: -9px; }
+.vid-grip-b { bottom: -9px; }
+
+.vid-bar {
+  height: 10px;
+  margin: 14px 0 8px;
+  border-radius: 6px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.vid-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #4f8cff, #7de2c3);
+  transition: width .25s ease;
+}
+
+.vid-error {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, .12);
+  border: 1px solid rgba(255, 107, 107, .4);
+  color: #ffb4b4;
+  font-size: 12.5px;
+  line-height: 1.5;
+}

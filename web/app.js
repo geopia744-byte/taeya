@@ -3470,3 +3470,190 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
 
   box.addEventListener('dragend', endDrag);
 })();
+
+/* 영상 자막 지우기 — 새로 추가한 기능. 기존 코드는 건드리지 않음.
+
+   영상에 구워진 자막을 지운다. 통째로 뭉개거나 검은 띠로 덮는 게 아니라,
+   글자 획만 골라 지우고 그 자리를 주변 화면으로 메운다. 소리는 그대로 남는다.
+
+   무거운 일은 전부 서버가 한다. 여기서는 영상을 넘기고, 지울 범위를
+   맞추게 하고, 진행률을 보여줄 뿐이다. */
+(function videoSubtitleEraser() {
+  const dlg = $('#video-dlg');
+  const openBtn = $('#btn-video');
+  if (!dlg || !openBtn) return;
+
+  const fileIn = $('#vid-file');
+  const label = $('#vid-label');
+  const stage = $('#vid-stage');
+  const shot = $('#vid-shot');
+  const bandEl = $('#vid-band');
+  const meta = $('#vid-meta');
+  const runBox = $('#vid-run');
+  const barFill = $('#vid-bar-fill');
+  const runNote = $('#vid-run-note');
+  const errBox = $('#vid-error');
+  const goBtn = $('#vid-go');
+  const openDirBtn = $('#vid-open');
+
+  let job = null;        // {id, width, height, ...}
+  let band = null;       // [y0, y1] — 원본 픽셀 기준
+  let poll = null;
+  let busy = false;
+
+  const fail = (msg) => {
+    errBox.textContent = msg;
+    errBox.hidden = !msg;
+  };
+
+  function reset() {
+    if (poll) clearInterval(poll);
+    poll = null;
+    job = null;
+    band = null;
+    busy = false;
+    fileIn.value = '';
+    label.textContent = '영상 고르기 (mp4)';
+    stage.hidden = true;
+    runBox.hidden = true;
+    openDirBtn.hidden = true;
+    goBtn.disabled = true;
+    goBtn.textContent = '자막 지우기';
+    barFill.style.width = '0%';
+    fail('');
+  }
+
+  // 띠는 원본 픽셀 좌표로 다루고, 화면에는 비율로 그린다. 미리보기가
+  // 창 크기에 따라 줄어들어도 좌표가 어긋나지 않는다.
+  function drawBand() {
+    if (!job || !band) return;
+    const top = (band[0] / job.height) * 100;
+    const h = ((band[1] - band[0]) / job.height) * 100;
+    bandEl.style.top = `${top}%`;
+    bandEl.style.height = `${h}%`;
+  }
+
+  openBtn.addEventListener('click', () => {
+    reset();
+    dlg.showModal();
+  });
+  $('#vid-close').addEventListener('click', () => {
+    // 작업 중에 닫아도 서버는 계속 돈다. 결과는 출력 폴더에 남는다.
+    dlg.close();
+  });
+  openDirBtn.addEventListener('click', () => api('/api/open-output'));
+
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files && fileIn.files[0];
+    if (!f) return;
+    fail('');
+    label.textContent = `${f.name} — 살펴보는 중…`;
+    goBtn.disabled = true;
+
+    try {
+      const res = await fetch('/api/video/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: f,
+      });
+      const info = await res.json();
+      if (!res.ok || info.error) throw new Error(info.error || '영상을 읽지 못했습니다.');
+
+      job = info;
+      job.name = f.name.replace(/\.[^.]+$/, '');
+      shot.src = `data:image/jpeg;base64,${info.preview_b64}`;
+      // 못 찾았으면 아래쪽에 흔히 있는 자리로 띠를 놓아준다.
+      band = info.band && info.band.length === 2
+        ? info.band.slice()
+        : [Math.round(info.height * 0.78), Math.round(info.height * 0.95)];
+      drawBand();
+
+      const mb = (f.size / (1024 * 1024)).toFixed(1);
+      meta.textContent = `${info.width}×${info.height} · ${info.seconds}초 · ${mb}MB`
+        + (info.band ? ' · 자막 자리를 자동으로 찾았습니다'
+                     : ' · 자막을 못 찾아 아래쪽에 띠를 놓았습니다');
+      label.textContent = `${f.name} — 다른 영상 고르기`;
+      stage.hidden = false;
+      goBtn.disabled = false;
+    } catch (err) {
+      label.textContent = '영상 고르기 (mp4)';
+      fail(err.message);
+    }
+  });
+
+  // 띠의 위아래 손잡이 끌기
+  bandEl.addEventListener('pointerdown', (e) => {
+    const edge = e.target.dataset && e.target.dataset.edge;
+    if (!edge || !job || busy) return;
+    e.preventDefault();
+    e.target.setPointerCapture(e.pointerId);
+
+    const box = shot.getBoundingClientRect();
+    const move = (ev) => {
+      const ratio = Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height));
+      const y = Math.round(ratio * job.height);
+      const gap = Math.round(job.height * 0.02);   // 띠가 뒤집히지 않게
+      if (edge === 'top') band[0] = Math.min(y, band[1] - gap);
+      else band[1] = Math.max(y, band[0] + gap);
+      band[0] = Math.max(0, band[0]);
+      band[1] = Math.min(job.height, band[1]);
+      drawBand();
+    };
+    const up = () => {
+      e.target.removeEventListener('pointermove', move);
+      e.target.removeEventListener('pointerup', up);
+    };
+    e.target.addEventListener('pointermove', move);
+    e.target.addEventListener('pointerup', up);
+  });
+
+  goBtn.addEventListener('click', async () => {
+    if (!job || busy) return;
+    busy = true;
+    fail('');
+    goBtn.disabled = true;
+    goBtn.textContent = '지우는 중…';
+    runBox.hidden = false;
+    runNote.textContent = '시작하는 중…';
+
+    try {
+      const out = await api('/api/video/start',
+        { id: job.id, band, name: job.name });
+      if (out.error) throw new Error(out.error);
+    } catch (err) {
+      busy = false;
+      goBtn.disabled = false;
+      goBtn.textContent = '자막 지우기';
+      runBox.hidden = true;
+      return fail(err.message);
+    }
+
+    poll = setInterval(async () => {
+      let st;
+      try {
+        st = await (await fetch(`/api/video/status?id=${job.id}`)).json();
+      } catch {
+        return;   // 잠깐 못 물어봤다고 그만두지 않는다
+      }
+      const pct = Math.round((st.progress || 0) * 100);
+      barFill.style.width = `${pct}%`;
+      runNote.textContent = st.done ? '' : `${pct}% — 창을 닫아도 계속 진행됩니다`;
+
+      if (!st.done) return;
+      clearInterval(poll);
+      poll = null;
+      busy = false;
+      goBtn.textContent = '자막 지우기';
+      goBtn.disabled = false;
+
+      if (st.error) {
+        runBox.hidden = true;
+        return fail(st.error);
+      }
+      const file = String(st.out || '').split(/[\\/]/).pop();
+      runNote.textContent = `완성됐습니다 — ${file}`;
+      openDirBtn.hidden = false;
+      toast('영상 자막을 지웠습니다. 출력 폴더에 저장했습니다.');
+    }, 900);
+  });
+})();

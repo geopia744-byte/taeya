@@ -21,6 +21,10 @@ echo   준비 중입니다. 잠시만 기다려 주세요...
 %PY% -m pip install --quiet --disable-pip-version-check anthropic
 if errorlevel 1 goto NOINSTALL
 
+rem 영상 자막 지우기에 필요한 부품. 이건 실패해도 그냥 넘어간다 -
+rem 영상 기능만 못 쓸 뿐, 사진 기능은 그대로 돌아간다.
+%PY% -m pip install --quiet --disable-pip-version-check opencv-python-headless imageio-ffmpeg
+
 echo.
 %PY% app.py
 echo.

@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.21</span></em>
+        <em>자동화 <span class="ver">v13.22</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -113,6 +113,7 @@
       <div class="top-tools">
         <button type="button" class="tool-btn" id="btn-batch">📦 완성 창고</button>
         <button type="button" class="tool-btn" id="btn-logo">🖼️ 로고</button>
+        <button type="button" class="tool-btn" id="btn-video">🎬 영상 자막 지우기</button>
       </div>
       <div class="quicklinks">
         <a class="qlink yt" href="https://youtube.com" target="_blank" rel="noopener">▶️ 유튜브</a>
@@ -186,6 +187,48 @@
       <button type="button" class="primary" id="save-settings">저장</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="video-dlg">
+  <div class="dlg vid-dlg">
+    <h2>🎬 영상 자막 지우기</h2>
+
+    <label class="filebtn">
+      <input type="file" id="vid-file" accept="video/*" hidden>
+      <span id="vid-label">영상 고르기 (mp4)</span>
+    </label>
+
+    <p class="hint" id="vid-hint">영상에 구워진 자막을 지웁니다.
+      글자만 골라 지우고 그 자리를 주변 화면으로 메우므로, 자막 뒤에
+      있던 배경이 살아납니다. 소리는 그대로 남습니다.</p>
+
+    <div id="vid-stage" hidden>
+      <div class="vid-preview">
+        <img id="vid-shot" alt="영상 장면">
+        <div class="vid-band" id="vid-band">
+          <span class="vid-grip vid-grip-t" data-edge="top"></span>
+          <span class="vid-grip vid-grip-b" data-edge="bottom"></span>
+        </div>
+      </div>
+      <p class="hint" id="vid-meta"></p>
+      <p class="hint">파란 띠가 <b>자막을 덮도록</b> 위아래 손잡이를 끌어 맞추세요.
+        띠 밖의 글자는 건드리지 않습니다.</p>
+    </div>
+
+    <div id="vid-run" hidden>
+      <div class="vid-bar"><i id="vid-bar-fill"></i></div>
+      <p class="hint" id="vid-run-note">준비 중…</p>
+    </div>
+
+    <p class="vid-error" id="vid-error" hidden></p>
+
+    <div class="dlg-foot">
+      <button type="button" class="ghost" id="vid-open" hidden>📂 폴더 열기</button>
+      <span class="spacer"></span>
+      <button type="button" class="primary" id="vid-go" disabled>자막 지우기</button>
+      <button type="button" class="ghost" id="vid-close">닫기</button>
+    </div>
+  </div>
 </dialog>
 
 <dialog id="logo-dlg">

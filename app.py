@@ -14,9 +14,12 @@ import mimetypes
 import os
 import re
 import socket
+import subprocess
 import sys
+import tempfile
 import threading
 import time
+import uuid
 import urllib.error
 import urllib.request
 import webbrowser
@@ -38,6 +41,8 @@ MODEL = "claude-opus-5"
 
 # 요청 본문 상한 (이미지 여러 장이 base64로 들어오므로 넉넉히)
 MAX_BODY = 64 * 1024 * 1024
+# 영상은 JSON 이 아니라 날것으로 받으므로 한도를 따로 둔다.
+MAX_VIDEO = 600 * 1024 * 1024
 
 # "개인(personal)" 타입 Anthropic 키는 여러 워크스페이스에 걸쳐 쓸 수 있어서
 # 요청마다 "어느 워크스페이스로 실행할지"를 헤더로 알려줘야 한다(안 그러면
@@ -207,6 +212,244 @@ def thread_inbox_take() -> list:
         items, _thread_inbox[:] = list(_thread_inbox), []
     return items
 
+
+# ─────────────────────────────────────────────────────────────
+# 영상 자막 지우기
+#
+# 자막을 통째로 뭉개거나 검은 띠로 덮지 않는다. 글자 획만 골라내서
+# 지우고 그 자리를 주변 픽셀로 메운다. 그래야 자막 뒤에 있던 배경이
+# 살아난다.
+#
+# 무거운 짐(opencv, ffmpeg)은 이 기능을 처음 쓸 때만 불러온다. 영상을
+# 안 쓰는 사람에게까지 시작을 느리게 만들 이유가 없다.
+# ─────────────────────────────────────────────────────────────
+
+VIDEO_DIR = Path(tempfile.gettempdir()) / "hooking-factory-video"
+_video_jobs = {}
+_video_lock = threading.Lock()
+
+
+def _cv2():
+    try:
+        import cv2
+        import numpy
+        return cv2, numpy
+    except ImportError as exc:
+        raise RuntimeError(
+            "영상 기능에 필요한 부품이 없습니다. 프로그램을 껐다가 "
+            "'시작하기_윈도우.bat' 으로 다시 열어주세요. (자동으로 설치됩니다)"
+        ) from exc
+
+
+def _ffmpeg() -> str:
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:
+        raise RuntimeError(
+            "영상을 저장할 도구(ffmpeg)를 찾지 못했습니다. 프로그램을 껐다가 "
+            "'시작하기_윈도우.bat' 으로 다시 열어주세요."
+        ) from exc
+
+
+def subtitle_mask(frame, band=None):
+    """이 한 장에서 '자막 글자'로 보이는 곳만 흰색으로 남긴 마스크."""
+    cv2, np = _cv2()
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # 자막은 어두운 테두리를 두른 밝은 글자다. 톱햇은 '주변보다 밝고 얇은
+    # 것'만 남기므로, 배경이 밝은 곳에서도 글자만 걸린다.
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (17, 17))
+    top = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k)
+    _, m = cv2.threshold(top, 55, 255, cv2.THRESH_BINARY)
+    m[gray < 165] = 0            # 글자는 아주 밝다
+
+    if band:
+        y0, y1 = band
+        keep = np.zeros_like(m)
+        keep[max(0, y0):min(h, y1), :] = 255
+        m = cv2.bitwise_and(m, keep)
+
+    # 흩어진 획을 한 덩어리(글자·단어)로 붙인다.
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
+                         cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3)))
+
+    # 덩어리를 검사해 글자답지 않은 것을 버린다. 이게 없으면 하늘의 구름,
+    # 물빛 반사 같은 밝은 배경까지 지워서 영상이 얼룩덜룩해진다.
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(m, 8)
+    out = np.zeros_like(m)
+    for i in range(1, n):
+        _, _, cw, ch, area = stats[i]
+        if ch < 6 or ch > h * 0.12:      # 너무 작거나 큰 것
+            continue
+        if cw > w * 0.98:                # 화면을 가로지르는 띠
+            continue
+        if area < 20:
+            continue
+        out[lab == i] = 255
+    return out
+
+
+def find_subtitle_band(path: str, samples: int = 24):
+    """자막이 늘 머무는 가로 띠를 찾는다. 못 찾으면 None."""
+    cv2, np = _cv2()
+    cap = cv2.VideoCapture(path)
+    try:
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if h <= 0:
+            return None
+        rows = np.zeros(h, dtype=np.float64)
+        hit = 0
+        for i in range(samples):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * i / samples))
+            ok, f = cap.read()
+            if not ok:
+                continue
+            hit += 1
+            rows += (subtitle_mask(f) > 0).sum(axis=1)
+    finally:
+        cap.release()
+    if not hit:
+        return None
+    rows /= hit
+    thr = max(rows.max() * 0.25, 2.0)
+    ys = np.where(rows > thr)[0]
+    if not len(ys):
+        return None
+    pad = int(h * 0.02)
+    return [int(max(0, ys.min() - pad)), int(min(h, ys.max() + pad + 1))]
+
+
+def video_info(path: str) -> dict:
+    """길이·크기와, 자막이 제일 잘 보이는 장면 한 장."""
+    cv2, np = _cv2()
+    cap = cv2.VideoCapture(path)
+    try:
+        if not cap.isOpened():
+            raise RuntimeError("영상을 읽지 못했습니다. mp4 파일인지 확인해주세요.")
+        fps = cap.get(cv2.CAP_PROP_FPS) or 24
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # 자막이 가장 많이 잡히는 장면을 골라 미리보기로 준다. 아무 데나
+        # 뽑으면 하필 자막 없는 순간이 걸려 띠를 맞출 수가 없다.
+        best, best_score = None, -1
+        for i in range(16):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * i / 16) if total else 0)
+            ok, f = cap.read()
+            if not ok:
+                continue
+            score = int((subtitle_mask(f) > 0).sum())
+            if score > best_score:
+                best, best_score = f, score
+        if best is None:
+            raise RuntimeError("영상에서 장면을 하나도 읽지 못했습니다.")
+        ok, buf = cv2.imencode(".jpg", best, [cv2.IMWRITE_JPEG_QUALITY, 82])
+        preview = base64.b64encode(buf.tobytes()).decode() if ok else ""
+    finally:
+        cap.release()
+
+    return {
+        "width": w, "height": h, "fps": round(fps, 3),
+        "frames": total, "seconds": round(total / fps, 1) if fps else 0,
+        "preview_b64": preview,
+        "band": find_subtitle_band(path),
+    }
+
+
+def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
+    """자막을 지운 영상을 dst 로 만든다. 원본 소리는 그대로 옮긴다."""
+    cv2, _np = _cv2()
+    ff = _ffmpeg()
+
+    cap = cv2.VideoCapture(src)
+    if not cap.isOpened():
+        raise RuntimeError("영상을 읽지 못했습니다.")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+
+    # 화면은 ffmpeg 에 날것으로 흘려보내고, 소리는 원본에서 그대로 복사한다.
+    # 중간 파일을 만들었다가 다시 인코딩하면 화질이 두 번 깎인다.
+    cmd = [
+        ff, "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "bgr24",
+        "-s", f"{w}x{h}", "-r", f"{fps}", "-i", "-",
+        "-i", src,
+        "-map", "0:v:0", "-map", "1:a:0?",   # 소리가 없는 영상도 있다
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        "-c:a", "copy", "-shortest", dst,
+    ]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+    grow = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    done = 0
+    try:
+        while True:
+            ok, f = cap.read()
+            if not ok:
+                break
+            m = subtitle_mask(f, band)
+            if m.any():
+                # 글자 가장자리의 흐린 획까지 덮도록 조금 부풀린다.
+                m = cv2.dilate(m, grow, iterations=1)
+                f = cv2.inpaint(f, m, 5, cv2.INPAINT_TELEA)
+            proc.stdin.write(f.tobytes())
+            done += 1
+            if on_progress and total and done % 8 == 0:
+                on_progress(done / total)
+    finally:
+        cap.release()
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+        err = proc.stderr.read().decode("utf-8", "replace")
+        code = proc.wait()
+
+    if code != 0:
+        raise RuntimeError(f"영상을 저장하지 못했습니다. {err.strip()[:200]}")
+    if on_progress:
+        on_progress(1.0)
+
+
+def video_job_start(job_id: str, src: str, dst: str, band):
+    """따로 도는 일꾼. 화면은 진행률만 물어본다."""
+    def run():
+        try:
+            def prog(p):
+                with _video_lock:
+                    if job_id in _video_jobs:
+                        _video_jobs[job_id]["progress"] = round(p, 3)
+            erase_subtitles(src, dst, band, prog)
+            with _video_lock:
+                _video_jobs[job_id].update(done=True, progress=1.0, out=dst)
+        except Exception as exc:            # noqa: BLE001 - 화면에 그대로 보여준다
+            with _video_lock:
+                _video_jobs[job_id].update(done=True, error=str(exc))
+        finally:
+            # 원본 임시 파일은 결과를 만든 뒤 지운다.
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+
+    with _video_lock:
+        _video_jobs[job_id] = {"progress": 0.0, "done": False,
+                               "error": None, "out": None}
+    threading.Thread(target=run, daemon=True).start()
+
+
+def video_job_state(job_id: str) -> dict:
+    with _video_lock:
+        job = _video_jobs.get(job_id)
+        return dict(job) if job else {"error": "그런 작업이 없습니다."}
 
 # ─────────────────────────────────────────────────────────────
 # 설정
@@ -1303,6 +1546,18 @@ def safe_name(name: str, fallback: str = "무제") -> str:
     return (cleaned or fallback)[:60]
 
 
+def unique_path(path: Path) -> Path:
+    """같은 이름이 있으면 (2), (3) 을 붙인다. 덮어쓰지 않는다."""
+    if not path.exists():
+        return path
+    stem, suffix, n = path.stem, path.suffix, 2
+    while True:
+        cand = path.with_name(f"{stem} ({n}){suffix}")
+        if not cand.exists():
+            return cand
+        n += 1
+
+
 def save_batch(items: list, folder_label: str = "", flat: bool = False) -> dict:
     """완성된 카드를 저장한다.
 
@@ -1393,6 +1648,40 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self._send(code, body, "application/json; charset=utf-8", cors=cors)
 
+    def _take_video(self) -> dict:
+        """올라온 영상을 임시 폴더에 받아두고, 크기·길이와 미리보기를 준다."""
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0:
+            raise ValueError("영상이 비어 있습니다.")
+        if length > MAX_VIDEO:
+            raise ValueError(
+                f"영상이 너무 큽니다. {MAX_VIDEO // (1024 * 1024)}MB 까지 됩니다.")
+
+        VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+        job_id = uuid.uuid4().hex[:12]
+        src = VIDEO_DIR / f"{job_id}.mp4"
+
+        # 한 번에 다 읽으면 큰 영상에서 메모리가 튄다. 조금씩 흘려 넣는다.
+        left = length
+        with open(src, "wb") as fp:
+            while left > 0:
+                chunk = self.rfile.read(min(1024 * 512, left))
+                if not chunk:
+                    break
+                fp.write(chunk)
+                left -= len(chunk)
+
+        try:
+            info = video_info(str(src))
+        except Exception:
+            try:
+                src.unlink()
+            except OSError:
+                pass
+            raise
+        info["id"] = job_id
+        return info
+
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
@@ -1449,6 +1738,11 @@ class Handler(BaseHTTPRequestHandler):
             # 북마크릿이 여러 포트를 두드려보며 "이게 우리 서버 맞나?" 확인할 때 씀.
             return self._json(200, {"ok": True, "app": "hooking-factory"}, cors=True)
 
+        if path.startswith("/api/video/status"):
+            from urllib.parse import parse_qs, urlparse
+            job_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            return self._json(200, video_job_state(job_id))
+
         if path == "/api/thread-inbox":
             # 대시보드가 몇 초마다 물어보는 자리. 쌓인 게 있으면 통째로 내주고 비운다.
             return self._json(200, {"items": thread_inbox_take()}, cors=True)
@@ -1487,6 +1781,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+
+        # 영상은 수십 MB 다. JSON(base64) 으로 감싸면 크기가 1.4배로 불고
+        # 메모리에 통째로 올라간다. 날것 그대로 받아 파일로 흘려 넣는다.
+        if path == "/api/video/upload":
+            try:
+                return self._json(200, self._take_video())
+            except Exception as exc:              # noqa: BLE001
+                return self._json(400, {"error": str(exc)})
+
         try:
             payload = self._read_json()
         except (ValueError, json.JSONDecodeError) as exc:
@@ -1566,6 +1869,23 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return self._json(200, result)
 
+            if path == "/api/video/start":
+                job_id = str(payload.get("id") or "")
+                src = VIDEO_DIR / f"{job_id}.mp4"
+                if not job_id.isalnum() or not src.exists():
+                    return self._json(400, {"error": "영상을 다시 넣어주세요."})
+                band = payload.get("band")
+                if band and len(band) == 2:
+                    band = [int(band[0]), int(band[1])]
+                else:
+                    band = None
+                name = safe_name(payload.get("name") or "영상")
+                out_dir = get_output_dir()
+                out_dir.mkdir(parents=True, exist_ok=True)
+                dst = unique_path(out_dir / f"{name}_자막지움.mp4")
+                video_job_start(job_id, str(src), str(dst), band)
+                return self._json(200, {"ok": True, "id": job_id})
+
             if path == "/api/save":
                 result = save_batch(payload.get("items", []),
                                     payload.get("label", ""),
@@ -1639,7 +1959,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.21 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.22 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
