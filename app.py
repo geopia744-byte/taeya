@@ -386,7 +386,10 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
         "-s", f"{w}x{h}", "-r", f"{fps}", "-i", "-",
         "-i", src,
         "-map", "0:v:0", "-map", "1:a:0?",   # 소리가 없는 영상도 있다
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        # 화질이 첫째다. 자막 자리만 고치는데 나머지 화면까지 압축으로
+        # 깎이면 안 된다. crf 16 + slow 는 원본과 눈으로 구분되지 않는
+        # 수준이다(용량은 늘지만, 화질을 잃는 것보다 낫다).
+        "-c:v", "libx264", "-preset", "slow", "-crf", "16",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-c:a", "copy", "-shortest", dst,
     ]
@@ -410,7 +413,9 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
             if m.any():
                 # 글자 가장자리의 흐린 획까지 덮도록 조금 부풀린다.
                 m = cv2.dilate(m, grow, iterations=1)
-                f[y0:y1] = cv2.inpaint(strip, m, 5, cv2.INPAINT_TELEA)
+                # 메우는 반경은 3이 가장 깨끗했다. 넓게 잡으면 주변 색이
+                # 더 많이 끌려와 오히려 자국이 커진다.
+                f[y0:y1] = cv2.inpaint(strip, m, 3, cv2.INPAINT_TELEA)
             proc.stdin.write(f.tobytes())
             done += 1
             if on_progress and total and done % 8 == 0:
@@ -1970,7 +1975,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.23 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.24 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
