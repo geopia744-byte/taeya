@@ -252,10 +252,15 @@ def _ffmpeg() -> str:
         ) from exc
 
 
-def subtitle_mask(frame, band=None):
-    """이 한 장에서 '자막 글자'로 보이는 곳만 흰색으로 남긴 마스크."""
+def subtitle_mask(frame, band=None, ref=None):
+    """이 한 장에서 '자막 글자'로 보이는 곳만 흰색으로 남긴 마스크.
+
+    ref 는 '원래 화면'의 (높이, 너비). 띠만 잘라서 넘길 때 쓴다. 글자
+    크기를 화면 높이에 견주어 판단하는데, 잘라낸 조각의 높이로 재면
+    자막 글자가 전부 '너무 크다'고 걸러져 하나도 안 지워진다.
+    """
     cv2, np = _cv2()
-    h, w = frame.shape[:2]
+    h, w = ref if ref else frame.shape[:2]
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     # 자막은 어두운 테두리를 두른 밝은 글자다. 톱햇은 '주변보다 밝고 얇은
@@ -268,7 +273,7 @@ def subtitle_mask(frame, band=None):
     if band:
         y0, y1 = band
         keep = np.zeros_like(m)
-        keep[max(0, y0):min(h, y1), :] = 255
+        keep[max(0, y0):min(frame.shape[0], y1), :] = 255
         m = cv2.bitwise_and(m, keep)
 
     # 흩어진 획을 한 덩어리(글자·단어)로 붙인다.
@@ -381,7 +386,7 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
         "-s", f"{w}x{h}", "-r", f"{fps}", "-i", "-",
         "-i", src,
         "-map", "0:v:0", "-map", "1:a:0?",   # 소리가 없는 영상도 있다
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-c:a", "copy", "-shortest", dst,
     ]
@@ -389,17 +394,23 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
     grow = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    # 자막이 있는 띠만 들여다본다. 화면 전체를 훑을 이유가 없다 — 같은
+    # 결과를 내면서 눈에 띄게 빨라진다.
+    y0, y1 = (band if band else (0, h))
+    y0 = max(0, min(y0, h - 1))
+    y1 = max(y0 + 1, min(y1, h))
     done = 0
     try:
         while True:
             ok, f = cap.read()
             if not ok:
                 break
-            m = subtitle_mask(f, band)
+            strip = f[y0:y1]
+            m = subtitle_mask(strip, ref=(h, w))
             if m.any():
                 # 글자 가장자리의 흐린 획까지 덮도록 조금 부풀린다.
                 m = cv2.dilate(m, grow, iterations=1)
-                f = cv2.inpaint(f, m, 5, cv2.INPAINT_TELEA)
+                f[y0:y1] = cv2.inpaint(strip, m, 5, cv2.INPAINT_TELEA)
             proc.stdin.write(f.tobytes())
             done += 1
             if on_progress and total and done % 8 == 0:
@@ -1959,7 +1970,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.22 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.23 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
