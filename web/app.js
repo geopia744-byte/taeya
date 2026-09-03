@@ -3715,37 +3715,52 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     drawBands();
   });
 
-  // 띠의 위아래 손잡이 끌기
+  // 띠 끌기.
+  //   손잡이(위/아래) 를 잡으면 → 그 변만 움직여 크기를 바꾼다
+  //   띠 가운데를 잡으면       → 크기는 그대로 두고 통째로 옮긴다
+  // 옮기기가 없으면 자막 자리로 띠를 보내려고 위아래를 번갈아 맞춰야 해서
+  // 사실상 못 쓴다.
   bandsBox.addEventListener('pointerdown', (e) => {
-    const edge = e.target.dataset && e.target.dataset.edge;
-    if (!edge || !job || busy) return;
-    const band = bands[Number(e.target.closest('.vid-band').dataset.i)];
+    if (!job || busy) return;
+    if (e.target.classList.contains('vid-drop')) return;   // ✕ 는 삭제다
+    const el = e.target.closest('.vid-band');
+    if (!el) return;
+    const band = bands[Number(el.dataset.i)];
     if (!band) return;
+
+    const edge = (e.target.dataset && e.target.dataset.edge) || null;
+    const H = job.height;
+    const cap = Math.round(H * 0.3);
+    const gap = Math.round(H * 0.02);       // 띠가 뒤집히지 않게
+    const box = shot.getBoundingClientRect();
+    const yOf = (ev) => Math.round(
+      Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height)) * H);
+    const grabAt = yOf(e);                  // 옮길 때 쓰는 처음 잡은 자리
+    const start = [band[0], band[1]];
+
     e.preventDefault();
     e.target.setPointerCapture(e.pointerId);
 
-    const box = shot.getBoundingClientRect();
-    const el = e.target.closest('.vid-band');
     const move = (ev) => {
-      const ratio = Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height));
-      const y = Math.round(ratio * job.height);
-      const gap = Math.round(job.height * 0.02);   // 띠가 뒤집히지 않게
-      if (edge === 'top') band[0] = Math.min(y, band[1] - gap);
-      else band[1] = Math.max(y, band[0] + gap);
-      band[0] = Math.max(0, band[0]);
-      band[1] = Math.min(job.height, band[1]);
-
-      // 띠가 넓을수록 손댈 곳이 늘어 화면이 상한다. 자막은 아무리 커도
-      // 화면의 3할을 넘지 않는다. 넓게 끌면 그 지점에서 멈춘다.
-      const cap = Math.round(job.height * 0.3);
-      if (band[1] - band[0] > cap) {
-        if (edge === 'top') band[0] = band[1] - cap;
-        else band[1] = band[0] + cap;
+      const y = yOf(ev);
+      if (edge === 'top') {
+        band[0] = Math.max(0, Math.min(y, band[1] - gap));
+        if (band[1] - band[0] > cap) band[0] = band[1] - cap;
+      } else if (edge === 'bottom') {
+        band[1] = Math.min(H, Math.max(y, band[0] + gap));
+        if (band[1] - band[0] > cap) band[1] = band[0] + cap;
+      } else {
+        // 통째로 옮기기 — 높이를 지키고 화면 밖으로 나가지 않게 한다.
+        const tall = start[1] - start[0];
+        let top = start[0] + (y - grabAt);
+        top = Math.max(0, Math.min(top, H - tall));
+        band[0] = top;
+        band[1] = top + tall;
       }
       // 끄는 중에는 이 띠만 고쳐 그린다. 전체를 다시 만들면 지금 잡고
       // 있는 손잡이가 사라져 끌기가 그 자리에서 끊긴다.
-      el.style.top = `${(band[0] / job.height) * 100}%`;
-      el.style.height = `${((band[1] - band[0]) / job.height) * 100}%`;
+      el.style.top = `${(band[0] / H) * 100}%`;
+      el.style.height = `${((band[1] - band[0]) / H) * 100}%`;
     };
     const up = () => {
       e.target.removeEventListener('pointermove', move);

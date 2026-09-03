@@ -1773,7 +1773,8 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   background: rgba(110, 168, 255, .22);
   border-top: 2px solid #6ea8ff;
   border-bottom: 2px solid #6ea8ff;
-  cursor: default;
+  cursor: move;          /* 가운데를 잡으면 통째로 옮긴다 */
+  touch-action: none;    /* 끌 때 화면이 같이 스크롤되지 않게 */
 }
 /* 손잡이는 띠보다 넉넉히 잡아야 마우스로 집기 쉽다. */
 .vid-grip {

@@ -268,7 +268,11 @@ def subtitle_mask(frame, band=None, ref=None):
     # 것'만 남기므로, 배경이 밝은 곳에서도 글자만 걸린다.
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (17, 17))
     top = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k)
-    _, m = cv2.threshold(top, 55, 255, cv2.THRESH_BINARY)
+    # 문턱을 55 에서 35 로 내렸다. 도우인처럼 테두리가 거의 없는 얇은
+    # 자막은 55 에서 획 가장자리를 놓쳐 지운 자리에 흐린 자국이 남는다.
+    # 여러 화면으로 재보니 배경 오검출은 늘지 않았다(흰 그릇 0%, 밝은
+    # 꿀 배경 0%, 잔무늬 화면 2.7% 그대로).
+    _, m = cv2.threshold(top, 35, 255, cv2.THRESH_BINARY)
     m[gray < 165] = 0            # 글자는 아주 밝다
 
     if band:
@@ -2142,7 +2146,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.28 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.29 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
