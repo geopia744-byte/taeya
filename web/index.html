@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.27</span></em>
+        <em>자동화 <span class="ver">v13.28</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -205,10 +205,7 @@
     <div id="vid-stage" hidden>
       <div class="vid-preview">
         <img id="vid-shot" alt="영상 장면">
-        <div class="vid-band" id="vid-band">
-          <span class="vid-grip vid-grip-t" data-edge="top"></span>
-          <span class="vid-grip vid-grip-b" data-edge="bottom"></span>
-        </div>
+        <div id="vid-bands"></div>
       </div>
       <div class="vid-shots">
         <button type="button" class="mini" id="vid-prev">‹ 앞 장면</button>
@@ -217,8 +214,14 @@
         <button type="button" class="mini" id="vid-grab-src">📸 원본 장면 저장</button>
       </div>
       <p class="hint" id="vid-meta"></p>
+      <div class="vid-shots">
+        <button type="button" class="mini" id="vid-add-band">＋ 띠 추가</button>
+        <span class="vid-at" id="vid-band-n"></span>
+      </div>
       <p class="hint">파란 띠가 <b>자막을 덮도록</b> 위아래 손잡이를 끌어 맞추세요.
         띠 밖의 글자는 건드리지 않습니다.<br>
+        <b>위 제목과 아래 자막이 같이 뜨면 띠를 두 개</b> 만드세요. 하나로
+        묶으면 그 사이의 멀쩡한 화면까지 지워집니다. 띠의 ✕ 로 지웁니다.<br>
         띠는 <b>영상 전체</b>에 그대로 적용됩니다. 여러 장면을 넘겨보면서
         자막이 내내 띠 안에 들어오는지 확인하세요.</p>
     </div>

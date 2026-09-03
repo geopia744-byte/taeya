@@ -3487,7 +3487,7 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
   const label = $('#vid-label');
   const stage = $('#vid-stage');
   const shot = $('#vid-shot');
-  const bandEl = $('#vid-band');
+  const bandsBox = $('#vid-bands');
   const meta = $('#vid-meta');
   const runBox = $('#vid-run');
   const barFill = $('#vid-bar-fill');
@@ -3502,7 +3502,7 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
   const timeLabel = $('#vid-time');
 
   let job = null;        // {id, width, height, ...}
-  let band = null;       // [y0, y1] — 원본 픽셀 기준
+  let bands = [];        // [[y0,y1], …] — 원본 픽셀 기준. 여러 개 될 수 있다
   let shots = [];        // 영상 곳곳에서 뽑아둔 장면들
   let shotAt = 0;
   let poll = null;
@@ -3517,7 +3517,7 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     if (poll) clearInterval(poll);
     poll = null;
     job = null;
-    band = null;
+    bands = [];
     shots = [];
     shotAt = 0;
     busy = false;
@@ -3539,12 +3539,27 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
 
   // 띠는 원본 픽셀 좌표로 다루고, 화면에는 비율로 그린다. 미리보기가
   // 창 크기에 따라 줄어들어도 좌표가 어긋나지 않는다.
-  function drawBand() {
-    if (!job || !band) return;
-    const top = (band[0] / job.height) * 100;
-    const h = ((band[1] - band[0]) / job.height) * 100;
-    bandEl.style.top = `${top}%`;
-    bandEl.style.height = `${h}%`;
+  const MAX_BANDS = 4;
+
+  function drawBands() {
+    if (!job) return;
+    bandsBox.innerHTML = '';
+    bands.forEach((b, i) => {
+      const el = document.createElement('div');
+      el.className = 'vid-band';
+      el.dataset.i = i;
+      el.style.top = `${(b[0] / job.height) * 100}%`;
+      el.style.height = `${((b[1] - b[0]) / job.height) * 100}%`;
+      el.innerHTML = '<span class="vid-grip vid-grip-t" data-edge="top"></span>'
+        + `<span class="vid-no">${i + 1}</span>`
+        + (bands.length > 1
+            ? '<button type="button" class="vid-drop" title="이 띠 지우기">✕</button>'
+            : '')
+        + '<span class="vid-grip vid-grip-b" data-edge="bottom"></span>';
+      bandsBox.appendChild(el);
+    });
+    $('#vid-band-n').textContent = `띠 ${bands.length}개`;
+    $('#vid-add-band').disabled = bands.length >= MAX_BANDS;
   }
 
   openBtn.addEventListener('click', () => {
@@ -3660,17 +3675,18 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
       shots = Array.isArray(info.previews) && info.previews.length
         ? info.previews
         : [{ at: 0, b64: info.preview_b64 }];
-      // 못 찾았으면 아래쪽에 흔히 있는 자리로 띠를 놓아준다.
-      band = info.band && info.band.length === 2
-        ? info.band.slice()
-        : [Math.round(info.height * 0.78), Math.round(info.height * 0.95)];
+      // 못 찾았으면 아래쪽에 흔히 있는 자리로 띠 하나를 놓아준다.
+      bands = (Array.isArray(info.bands) && info.bands.length)
+        ? info.bands.map((b) => [b[0], b[1]])
+        : [[Math.round(info.height * 0.78), Math.round(info.height * 0.95)]];
       showShot(0);
-      drawBand();
+      drawBands();
 
       const mb = (f.size / (1024 * 1024)).toFixed(1);
       meta.textContent = `${info.width}×${info.height} · ${info.seconds}초 · ${mb}MB`
-        + (info.band ? ' · 자막 자리를 자동으로 찾았습니다'
-                     : ' · 자막을 못 찾아 아래쪽에 띠를 놓았습니다');
+        + (info.bands && info.bands.length
+            ? ` · 자막 자리 ${info.bands.length}곳을 자동으로 찾았습니다`
+            : ' · 자막을 못 찾아 아래쪽에 띠를 놓았습니다');
       label.textContent = `${f.name} — 다른 영상 고르기`;
       stage.hidden = false;
       goBtn.disabled = false;
@@ -3680,14 +3696,36 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     }
   });
 
+  // 띠 추가·삭제
+  $('#vid-add-band').addEventListener('click', () => {
+    if (!job || bands.length >= MAX_BANDS) return;
+    // 이미 있는 띠 아래 빈 곳에 놓는다. 겹쳐서 나오면 고치기 번거롭다.
+    const H = job.height;
+    const below = Math.max(0, ...bands.map((b) => b[1])) + Math.round(H * 0.04);
+    const from = Math.min(H - Math.round(H * 0.09), below);
+    bands.push([from, Math.min(H, from + Math.round(H * 0.08))]);
+    bands.sort((a, b) => a[0] - b[0]);
+    drawBands();
+  });
+
+  bandsBox.addEventListener('click', (e) => {
+    if (!e.target.classList.contains('vid-drop') || busy) return;
+    const i = Number(e.target.closest('.vid-band').dataset.i);
+    if (bands.length > 1) bands.splice(i, 1);
+    drawBands();
+  });
+
   // 띠의 위아래 손잡이 끌기
-  bandEl.addEventListener('pointerdown', (e) => {
+  bandsBox.addEventListener('pointerdown', (e) => {
     const edge = e.target.dataset && e.target.dataset.edge;
     if (!edge || !job || busy) return;
+    const band = bands[Number(e.target.closest('.vid-band').dataset.i)];
+    if (!band) return;
     e.preventDefault();
     e.target.setPointerCapture(e.pointerId);
 
     const box = shot.getBoundingClientRect();
+    const el = e.target.closest('.vid-band');
     const move = (ev) => {
       const ratio = Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height));
       const y = Math.round(ratio * job.height);
@@ -3704,11 +3742,16 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
         if (edge === 'top') band[0] = band[1] - cap;
         else band[1] = band[0] + cap;
       }
-      drawBand();
+      // 끄는 중에는 이 띠만 고쳐 그린다. 전체를 다시 만들면 지금 잡고
+      // 있는 손잡이가 사라져 끌기가 그 자리에서 끊긴다.
+      el.style.top = `${(band[0] / job.height) * 100}%`;
+      el.style.height = `${((band[1] - band[0]) / job.height) * 100}%`;
     };
     const up = () => {
       e.target.removeEventListener('pointermove', move);
       e.target.removeEventListener('pointerup', up);
+      bands.sort((a, b) => a[0] - b[0]);   // 놓고 나서 위→아래 순으로 정리
+      drawBands();
     };
     e.target.addEventListener('pointermove', move);
     e.target.addEventListener('pointerup', up);
@@ -3725,7 +3768,7 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
 
     try {
       const out = await api('/api/video/start',
-        { id: job.id, band, name: job.name });
+        { id: job.id, bands, name: job.name });
       if (out.error) throw new Error(out.error);
     } catch (err) {
       busy = false;

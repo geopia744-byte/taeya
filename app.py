@@ -308,8 +308,12 @@ def subtitle_mask(frame, band=None, ref=None):
     return out
 
 
-def find_subtitle_band(path: str, samples: int = 24):
-    """자막이 늘 머무는 가로 띠를 찾는다. 못 찾으면 None."""
+def find_subtitle_bands(path: str, samples: int = 24, max_bands: int = 3):
+    """자막이 머무는 가로 띠들을 찾는다. 없으면 빈 목록.
+
+    요즘 영상은 위에 제목, 아래에 대사 자막이 동시에 뜬다. 이걸 하나로
+    묶으면 그 사이의 멀쩡한 화면까지 전부 지워진다. 그래서 따로 찾는다.
+    """
     cv2, np = _cv2()
     cap = cv2.VideoCapture(path)
     try:
@@ -334,7 +338,7 @@ def find_subtitle_band(path: str, samples: int = 24):
     thr = max(rows.max() * 0.25, 2.0)
     on = rows > thr
     if not on.any():
-        return None
+        return []
 
     # 이어진 구간들을 따로 모은다. 최소~최대로 한 덩어리를 만들면, 위쪽
     # 자막과 아래쪽 오검출 하나 사이의 화면 전체가 띠가 되어버린다.
@@ -354,17 +358,27 @@ def find_subtitle_band(path: str, samples: int = 24):
     if start is not None:
         runs.append((start, h))
     if not runs:
-        return None
+        return []
 
-    # 가장 글자가 많이 모인 구간 하나만 쓴다.
-    y0, y1 = max(runs, key=lambda r: rows[r[0]:r[1]].sum())
+    # 글자가 많이 모인 구간부터 고른다.
+    runs.sort(key=lambda r: -rows[r[0]:r[1]].sum())
     pad = int(h * 0.02)
-    y0 = int(max(0, y0 - pad))
-    y1 = int(min(h, y1 + pad))
-    # 아무리 커도 화면의 3할을 넘기지 않는다. 그 이상은 자막이 아니다.
-    if y1 - y0 > h * 0.3:
-        y1 = y0 + int(h * 0.3)
-    return [y0, y1]
+    picked = []
+    for y0, y1 in runs[:max_bands]:
+        y0 = int(max(0, y0 - pad))
+        y1 = int(min(h, y1 + pad))
+        # 띠 하나가 화면의 3할을 넘지 않는다. 그 이상은 자막이 아니다.
+        if y1 - y0 > h * 0.3:
+            y1 = y0 + int(h * 0.3)
+        picked.append([y0, y1])
+    picked.sort(key=lambda b: b[0])          # 위에서 아래 순으로
+    return picked
+
+
+def find_subtitle_band(path: str, samples: int = 24):
+    """예전 이름. 첫 번째 띠만 준다."""
+    got = find_subtitle_bands(path, samples)
+    return got[0] if got else None
 
 
 def video_info(path: str) -> dict:
@@ -417,11 +431,32 @@ def video_info(path: str) -> dict:
         "frames": total, "seconds": round(total / fps, 1) if fps else 0,
         "preview_b64": preview,
         "previews": previews,
-        "band": find_subtitle_band(path),
+        "bands": find_subtitle_bands(path),
     }
 
 
-def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
+def clamp_bands(bands, h: int) -> list:
+    """띠들을 화면 안으로 넣고, 하나가 화면의 3할을 넘지 않게 자른다.
+
+    띠가 넓을수록 손댈 곳이 많아져 화면이 상할 위험이 커진다. 화면 쪽에서
+    잘못 보내와도 여기서 자른다.
+    """
+    out = []
+    for b in (bands or []):
+        try:
+            y0, y1 = int(b[0]), int(b[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        y0 = max(0, min(y0, h - 1))
+        y1 = max(y0 + 1, min(y1, h))
+        if y1 - y0 > h * 0.3:
+            y1 = y0 + int(h * 0.3)
+        out.append((y0, y1))
+    out.sort()
+    return out
+
+
+def erase_subtitles(src: str, dst: str, bands=None, on_progress=None) -> None:
     """자막을 지운 영상을 dst 로 만든다. 원본 소리는 그대로 옮긴다."""
     cv2, _np = _cv2()
     ff = _ffmpeg()
@@ -455,14 +490,7 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
     grow = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
     # 자막이 있는 띠만 들여다본다. 화면 전체를 훑을 이유가 없다 — 같은
     # 결과를 내면서 눈에 띄게 빨라진다.
-    y0, y1 = (band if band else (0, h))
-    y0 = max(0, min(y0, h - 1))
-    y1 = max(y0 + 1, min(y1, h))
-    # 띠가 넓을수록 손댈 곳이 많아져 화면이 상할 위험이 커진다. 자막은
-    # 아무리 커도 화면의 3할을 넘지 않는다. 화면 쪽에서 잘못 보내와도
-    # 여기서 자른다.
-    if y1 - y0 > h * 0.3:
-        y1 = y0 + int(h * 0.3)
+    spans = clamp_bands(bands, h) or [(0, h)]
     done = 0
     skipped = 0          # 화면이 깨질까 봐 손대지 않고 지나간 장면 수
     try:
@@ -470,9 +498,13 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
             ok, f = cap.read()
             if not ok:
                 break
-            strip = f[y0:y1]
-            m = subtitle_mask(strip, ref=(h, w))
-            if m.any():
+            # 띠마다 따로 본다. 위 제목과 아래 자막을 하나로 묶으면 그
+            # 사이의 멀쩡한 화면까지 지워진다.
+            for y0, y1 in spans:
+                strip = f[y0:y1]
+                m = subtitle_mask(strip, ref=(h, w))
+                if not m.any():
+                    continue
                 # 글자 가장자리의 흐린 획까지 덮도록 조금 부풀린다.
                 m = cv2.dilate(m, grow, iterations=1)
 
@@ -482,8 +514,6 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
                 # 자막이 남는 것이 화면이 깨지는 것보다 낫다.
                 if (m > 0).mean() > 0.28:
                     skipped += 1
-                    proc.stdin.write(f.tobytes())
-                    done += 1
                     continue
 
                 # 메우는 반경은 3이 가장 깨끗했다. 넓게 잡으면 주변 색이
@@ -509,7 +539,7 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
     return {"frames": done, "skipped": skipped}
 
 
-def video_job_start(job_id: str, src: str, dst: str, band):
+def video_job_start(job_id: str, src: str, dst: str, bands):
     """따로 도는 일꾼. 화면은 진행률만 물어본다."""
     def run():
         try:
@@ -517,7 +547,7 @@ def video_job_start(job_id: str, src: str, dst: str, band):
                 with _video_lock:
                     if job_id in _video_jobs:
                         _video_jobs[job_id]["progress"] = round(p, 3)
-            res = erase_subtitles(src, dst, band, prog) or {}
+            res = erase_subtitles(src, dst, bands, prog) or {}
             with _video_lock:
                 _video_jobs[job_id].update(done=True, progress=1.0, out=dst,
                                            skipped=res.get("skipped", 0),
@@ -2020,16 +2050,23 @@ class Handler(BaseHTTPRequestHandler):
                 src = VIDEO_DIR / f"{job_id}.mp4"
                 if not job_id.isalnum() or not src.exists():
                     return self._json(400, {"error": "영상을 다시 넣어주세요."})
-                band = payload.get("band")
-                if band and len(band) == 2:
-                    band = [int(band[0]), int(band[1])]
-                else:
-                    band = None
+                # 여러 띠를 받는다. 예전 방식(band 하나)도 그대로 받아준다.
+                bands = payload.get("bands")
+                if not bands:
+                    one = payload.get("band")
+                    bands = [one] if one else []
+                clean = []
+                for b in bands[:4]:
+                    try:
+                        clean.append([int(b[0]), int(b[1])])
+                    except (TypeError, ValueError, IndexError):
+                        pass
+                bands = clean or None
                 name = safe_name(payload.get("name") or "영상")
                 out_dir = get_output_dir()
                 out_dir.mkdir(parents=True, exist_ok=True)
                 dst = unique_path(out_dir / f"{name}_자막지움.mp4")
-                video_job_start(job_id, str(src), str(dst), band)
+                video_job_start(job_id, str(src), str(dst), bands)
                 return self._json(200, {"ok": True, "id": job_id})
 
             if path == "/api/save":
@@ -2105,7 +2142,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.27 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.28 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():

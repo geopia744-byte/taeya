@@ -1865,3 +1865,34 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   color: var(--ink-dim);
   font-variant-numeric: tabular-nums;
 }
+
+/* 띠는 여러 개가 될 수 있다 — 위 제목과 아래 자막이 같이 뜨는 영상 때문이다. */
+.vid-band .vid-no {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #cfe2ff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+  pointer-events: none;
+  line-height: 1;
+}
+.vid-band .vid-drop {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .6);
+  color: #ffd7d7;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.vid-band .vid-drop:hover { background: rgba(200, 60, 60, .85); color: #fff; }
