@@ -466,7 +466,8 @@ SYSTEM_PROMPT = """\
 
 
 def build_user_prompt(lang: str, guide: str, style_sample: str,
-                      category: str = "", variant: int = 0) -> str:
+                      category: str = "", variant: int = 0,
+                      bg_note: str = "") -> str:
     lang_name = LANGUAGES.get(lang, "한국어")
     parts = [
         f"## 작성 언어\n\n**{lang_name}**로 써라. title_lines, body, hashtags 전부.",
@@ -487,6 +488,20 @@ def build_user_prompt(lang: str, guide: str, style_sample: str,
             f"{guide.strip()}\n\n"
             "이 방향에 맞춰 어조를 잡아라. "
             "(이 지시가 한국어로 적혀 있어도, 산출물은 위에서 지정한 언어로 써라.)"
+        )
+    if bg_note.strip():
+        # 배경 지시는 오직 scene 만을 위한 칸이다. 여기 적은 말이 제목이나
+        # 본문으로 새어 들어가면 사용자는 "배경만 바꾸려 했는데 문구까지
+        # 바뀌었다"고 느낀다. 그래서 적용 범위를 못 박아 둔다.
+        parts.append(
+            "## 새 배경 지시 (사용자가 직접 지정)\n\n"
+            f"{bg_note.strip()}\n\n"
+            "**이 지시는 `scene` 항목에만 적용된다.** 여기 적힌 장소로 배경을 "
+            "정하고, 조명·시간대·분위기·질감은 네가 살을 붙여 한 문단으로 "
+            "완성해라. 이 장소에서 벗어나지 마라.\n\n"
+            "**title_lines, body, hashtags 에는 절대 반영하지 마라.** "
+            "문구는 사진과 위의 다른 지시만 보고 쓴다. 배경 지시는 문구와 "
+            "아무 상관이 없다."
         )
     if style_sample.strip():
         # 견본은 대개 한국어로 적혀 있는데 일본어·영어로 뽑을 때도 그대로
@@ -593,7 +608,8 @@ def _claude_message(exc: Exception) -> str:
 
 def generate_copy(image_b64: str, media_type: str, lang: str,
                   guide: str, style_sample: str,
-                  category: str = "", variant: int = 0) -> dict:
+                  category: str = "", variant: int = 0,
+                  bg_note: str = "") -> dict:
     """이미지 한 장 → 제목·본문·해시태그."""
     import anthropic
 
@@ -625,7 +641,7 @@ def generate_copy(image_b64: str, media_type: str, lang: str,
                 },
                 {"type": "text",
                  "text": build_user_prompt(lang, guide, style_sample,
-                                           category, variant)},
+                                           category, variant, bg_note)},
             ],
         }],
         output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
@@ -975,7 +991,7 @@ def _looks_unchanged(before_b64: str, after_b64: str) -> bool:
     return abs(a - b) / max(a, b) < 0.005
 
 
-def build_image_prompt(mode: str, story: str) -> str:
+def build_image_prompt(mode: str, story: str, bg_note: str = "") -> str:
     """모드에 맞는 지시문을 만든다.
 
     새로 만들기에는 Claude 가 설계한 장면 묘사를 넣는다. 막연히 "새로
@@ -990,7 +1006,18 @@ def build_image_prompt(mode: str, story: str) -> str:
         scene = ("A new, contextually fitting empty location behind the main "
                  "subject, clearly different from the reference image's "
                  "background, in sharp focus.")
-    return RECREATE_PROMPT.format(scene=scene[:800])
+    scene = scene[:800]
+    # 사용자가 배경 칸에 직접 적은 지시. Claude 가 이미 scene 에 반영했겠지만,
+    # 놓쳤을 수도 있으므로 여기서 한 번 더, 그것도 마지막에 못 박는다.
+    # 마지막에 두는 이유: 앞의 묘사와 어긋날 때 사용자가 적은 쪽이 이겨야 한다.
+    note = (bg_note or "").strip()[:300]
+    if note:
+        scene += ("\n\nThe location of the new background is fixed by the user "
+                  f"and must be exactly this: {note}\n"
+                  "This overrides any conflicting location above. It describes "
+                  "the BACKGROUND ONLY - it never changes the main subject, "
+                  "its pose, or the camera framing.")
+    return RECREATE_PROMPT.format(scene=scene)
 
 
 def candidate_models(key: str) -> list:
@@ -1129,7 +1156,7 @@ class _Busy(Exception):
 
 def transform_image(image_b64: str, media_type: str,
                     mode: str = "erase", story: str = "",
-                    target_ratio: str = "") -> dict:
+                    target_ratio: str = "", bg_note: str = "") -> dict:
     """사진에서 글자를 지우거나(erase), 같은 인물로 장면을 새로 만들거나
     (recreate), 저장 크기에 맞게 여백 없이 확장한다(expand).
 
@@ -1140,7 +1167,7 @@ def transform_image(image_b64: str, media_type: str,
     if not key:
         raise RuntimeError("Gemini 키가 없습니다.")
 
-    prompt = build_image_prompt(mode, story)
+    prompt = build_image_prompt(mode, story, bg_note)
     aspect = target_ratio if mode == "expand" else ""
     # 방금 분당 한도에 걸린 모델은 뒤로 미뤄 둔다. 매번 같은 모델로 시작하면
     # 그 한 번이 늘 헛되이 나간다.
@@ -1462,6 +1489,7 @@ class Handler(BaseHTTPRequestHandler):
                     style_sample=payload.get("style_sample", ""),
                     category=payload.get("category", ""),
                     variant=int(payload.get("variant") or 0),
+                    bg_note=payload.get("bg_note", ""),
                 )
                 return self._json(200, data)
 
@@ -1482,6 +1510,7 @@ class Handler(BaseHTTPRequestHandler):
                     mode=mode,
                     story=payload.get("story", ""),
                     target_ratio=target_ratio,
+                    bg_note=payload.get("bg_note", ""),
                 )
                 return self._json(200, result)
 
@@ -1558,7 +1587,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.17 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.18 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():

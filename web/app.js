@@ -486,6 +486,7 @@ function saveSettings() {
     KEEP.forEach((k) => { out[k] = state[k]; });
     out.lang = $('#lang').value;
     out.guide = $('#guide').value;
+    out.bgNote = $('#bg-note').value;
     out.styleSample = $('#style-sample').value;
     out.expandReset = true;   // 위의 한 번짜리 초기화를 되풀이하지 않는다
     localStorage.setItem(REMEMBER, JSON.stringify(out));
@@ -1343,6 +1344,8 @@ async function retitleIn(card, lang, btn) {
       lang,
       guide: $('#guide').value,
       style_sample: $('#style-sample').value,
+      // 배경 칸. 문구가 아니라 scene(새 배경 묘사)에만 쓰인다.
+      bg_note: bgNote(),
       category: card.category || '',
       variant: 0,
     });
@@ -1946,6 +1949,8 @@ async function writeCopy(card) {
     lang: $('#lang').value,
     guide: $('#guide').value,
     style_sample: $('#style-sample').value,
+    // 배경 칸. 문구가 아니라 scene(새 배경 묘사)에만 쓰인다.
+    bg_note: bgNote(),
     // 어느 항목에 담긴 사진인지 알려준다. 문구의 관점과, 새로 그릴
     // 배경의 방향이 여기서 갈린다.
     category: card.category || '',
@@ -2054,6 +2059,7 @@ async function transformOne(card) {
         media_type: 'image/png',
         mode: 'recreate',
         story: storyOf(card),
+        bg_note: bgNote(),
       });
       console.log('[사진처리] 2단계 완료 — 배경 응답 받음');
       console.log(`[사진처리] 입력 크기 ${erasedCv.toDataURL('image/png').length}자, 결과 크기 ${out.image_b64.length}자 (모델: ${out.model || '?'})`);
@@ -2092,6 +2098,12 @@ async function transformOne(card) {
   }
   card.photoDone = true;   // 이제 제목을 얹어도 된다
   fillCard(card);
+}
+
+// 왼쪽 패널 '배경 지시' 칸. 사진 새로 만들기에만 쓰인다.
+function bgNote() {
+  const el = $('#bg-note');
+  return el ? el.value.trim() : '';
 }
 
 // 사진을 새로 만들 때 넘길 장면 묘사.
@@ -2859,6 +2871,11 @@ function updateSortOrder() {
 }
 
 function syncUI() {
+  // 배경 지시는 '사진 새로 만들기'에서만 쓰인다. 다른 모드에선 숨겨서
+  // 적어놓고 왜 안 먹느냐는 오해를 없앤다.
+  const bgBox = $('#bg-group');
+  if (bgBox) bgBox.hidden = !state.hasGemini || state.photoMode !== 'recreate';
+
   const here = inCategory();
   const cat = catOf(state.category);
   const elsewhere = state.cards.length - here.length;
@@ -2911,6 +2928,7 @@ function applySettings(saved) {
 
   if (saved.lang) $('#lang').value = saved.lang;
   if (saved.guide) $('#guide').value = saved.guide;
+  if (saved.bgNote) $('#bg-note').value = saved.bgNote;
   if (saved.styleSample) $('#style-sample').value = saved.styleSample;
 }
 
@@ -3163,7 +3181,7 @@ function init() {
     saveSettings();
     syncUI();
   });
-  ['#lang', '#guide', '#style-sample'].forEach((sel) =>
+  ['#lang', '#guide', '#style-sample', '#bg-note'].forEach((sel) =>
     $(sel).addEventListener('change', saveSettings));
   $('#open-output').addEventListener('click', () => api('/api/open-output'));
 
@@ -3239,6 +3257,7 @@ async function loadConfig() {
     state.hasGemini = false;
   }
   $('#erase-group').hidden = !state.hasGemini;
+  syncUI();   // 배경 지시 칸 등 Gemini 여부에 따라 달라지는 것들
 }
 
 init();
