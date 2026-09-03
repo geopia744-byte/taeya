@@ -3699,11 +3699,20 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
   // 띠 추가·삭제
   $('#vid-add-band').addEventListener('click', () => {
     if (!job || bands.length >= MAX_BANDS) return;
-    // 이미 있는 띠 아래 빈 곳에 놓는다. 겹쳐서 나오면 고치기 번거롭다.
     const H = job.height;
-    const below = Math.max(0, ...bands.map((b) => b[1])) + Math.round(H * 0.04);
-    const from = Math.min(H - Math.round(H * 0.09), below);
-    bands.push([from, Math.min(H, from + Math.round(H * 0.08))]);
+    const tall = Math.round(H * 0.08);
+    const free = (top) => bands.every((b) => top + tall < b[0] || top > b[1]);
+
+    // 자막이 흔히 앉는 자리부터 내어준다 — 아래쪽, 그다음 위쪽. 둘 다
+    // 차 있으면 마지막 띠 아래에 붙인다. 새 띠가 늘 바로 아래에 생기면
+    // 아래쪽 자막에 쓰려고 화면 끝까지 끌어야 한다.
+    const spots = [Math.round(H * 0.80), Math.round(H * 0.08)];
+    let top = spots.find(free);
+    if (top === undefined) {
+      top = Math.min(H - tall,
+        Math.max(0, ...bands.map((b) => b[1])) + Math.round(H * 0.03));
+    }
+    bands.push([top, Math.min(H, top + tall)]);
     bands.sort((a, b) => a[0] - b[0]);
     drawBands();
   });
