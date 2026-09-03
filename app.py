@@ -398,18 +398,29 @@ SYSTEM_PROMPT = """\
 
 4. **source_text** — 원본 이미지에서 읽어낸 문구를 그대로. (검수용)
 
-5. **scene** — 사진을 새로 만들 때 쓸 **장면 묘사**를 영어로 한 문단.
+5. **scene** — 주인공 **뒤에 새로 깔 배경**을 영어로 한 문단.
 
-   원본 사진을 흉내내지 말고, **이 사건에 어울리는 다른 장면**을 새로 짜라.
-   - 장소를 바꿔라 (같은 방이 아니라 골목, 병원 복도, 들판…)
-   - 카메라 각도를 정하라 (낮은 각도, 어깨 너머, 정면 클로즈업…)
+   ⚠️ 이건 "사진을 새로 찍는" 게 아니라 **배경만 갈아끼우는** 작업이다.
+   주인공은 — 사람이든, 동물이든, 상어든, 자동차든, 건물이든 —
+   원본 사진에서 **그대로 오려서 붙인다.** 네가 설계하는 건
+   **그 뒤와 주위 공간뿐이다.**
+
+   써야 할 것 — 배경뿐이다:
+   - 장소를 바꿔라 (같은 방이 아니라 골목, 병원 복도, 들판, 깊은 바다…)
    - 시간대와 조명을 정하라 (비 오는 밤의 네온, 새벽 역광, 형광등…)
    - 분위기를 한 마디로 (차갑고 무겁게, 따뜻하고 아련하게…)
+   - 선명하게. 흐릿한 배경(보케·아웃포커스)은 쓰지 마라.
 
-   **인물의 생김새는 쓰지 마라.** 얼굴은 원본 사진에서 그대로 가져오므로
-   여기에 적으면 오히려 방해가 된다. 장면만 써라.
+   **절대 쓰지 마라** — 이걸 쓰면 주인공이 딴것으로 바뀐다:
+   - 카메라 얘기 (낮은 각도, 클로즈업, 어깨 너머, 줌, 구도…)
+     → 카메라는 원본 그대로다. 네가 정하는 게 아니다.
+   - 주인공의 생김새 (얼굴, 머리, 옷, 털, 몸집, 색깔…)
+     → 원본에서 그대로 가져오므로 적으면 방해만 된다.
+   - 주인공의 동작·자세 ("남자가 걸어온다", "상어가 헤엄친다"…)
+     → 자세도 원본 그대로다. 움직이게 하면 안 된다.
 
-   원본에 인물이 없다면(사물·풍경) 그 대상이 놓인 새로운 장면을 써라.
+   즉 **주인공이 아직 들어오기 전의, 텅 빈 장소 사진**을 묘사한다고
+   생각해라. 그 빈 자리에 주인공을 나중에 그대로 올려놓을 것이다.
 
 6. **text_area** — 사진에 **박혀 있는 글자**가 차지하는 세로 범위.
    이미지 맨 위를 0.0, 맨 아래를 1.0으로 보고 `top`과 `bottom`을 낸다.
@@ -522,12 +533,15 @@ OUTPUT_SCHEMA = {
         "scene": {
             "type": "string",
             "description": (
-                "사진을 새로 만들 때 쓸 장면 묘사. 영어로 한 문단. "
-                "원본과 '다른' 장소·각도·시간대를 정하고, 조명과 분위기를 "
-                "구체적으로 적어라. 인물의 생김새는 여기 쓰지 마라(원본에서 가져온다). "
-                "예: 'A rain-soaked city alley at night, seen from a low angle. "
-                "Neon signs reflect in puddles. The man walks toward the camera, "
-                "backlit by a streetlamp. Cold blue tones, heavy atmosphere.'"
+                "주인공 뒤에 새로 깔 배경 묘사. 영어로 한 문단. "
+                "주인공(사람·동물·사물 무엇이든)은 원본에서 그대로 오려 붙이므로 "
+                "여기엔 배경만 쓴다. 장소·시간대·조명·분위기를 구체적으로 적어라. "
+                "카메라 각도/구도, 주인공의 생김새, 주인공의 동작이나 자세는 "
+                "절대 쓰지 마라 — 쓰면 주인공이 딴것으로 바뀐다. "
+                "주인공이 아직 없는 '텅 빈 장소' 사진을 묘사하듯 써라. "
+                "예: 'A rain-soaked city alley at night. Neon signs reflect in "
+                "puddles on wet asphalt. Brick walls, a streetlamp glowing at the "
+                "far end. Cold blue tones, heavy atmosphere. Sharp focus throughout.'"
             ),
         },
         "text_area": {
@@ -673,25 +687,36 @@ composition, the same framing, the same colors. Do not crop or zoom.
 Do not add any new text. Do not change anyone's face or appearance.
 """
 
-# 사진을 새로 만든다. 인물·동물과 자세·구도는 그대로 두고 "배경만" 새로
-# 그린다 — 제미니 쪽 용어로는 "피사체 보존 배경 교체
+# 사진을 새로 만든다. 주인공(사람이든 동물이든 사물이든)과 자세·구도는
+# 그대로 두고 "배경만" 새로 그린다 — 제미니 쪽 용어로는 "피사체 보존 배경 교체
 # (Subject-Preserving Background Replacement)" / "생성형 채우기 기반
 # 배경 교체(Generative Fill Background Replacement)"에 해당한다.
 # (예전엔 아예 "새로운 사진"을 통째로 다시 찍으라고 시켰더니 사람 자체가
 #  달라지는 문제가 있어서, 지금은 배경 교체로 방향을 바꿨다.)
 RECREATE_PROMPT = """\
 TASK TYPE: Photo editing (inpainting / outpainting), NOT new image
-generation. Treat the person (or animal) in the reference photo as a fixed,
-immovable foreground layer to be copied over unchanged - like a cutout
-pasted onto a new backdrop, not redrawn.
+generation.
 
-Do not redraw, restyle, reinterpret, or regenerate the subject in any way.
-Their face, facial features, skin tone, hairstyle, exact expression,
-clothing, body pose, body proportions, scale, and exact pixel position in
-the frame must all stay identical to the reference photo. If someone who
-knows this person looked at the result, they must instantly recognize it as
-the very same person in the very same pose - not a similar-looking person,
-not a re-enactment, not a new photoshoot.
+STEP 1 - Identify the MAIN SUBJECT of the reference photo yourself. The
+main subject is whatever the photo is actually about. It is NOT always a
+person: it may be a person, several people, an animal, a fish or a shark,
+a vehicle, a building, a plant, a piece of food, or any other object. If
+more than one thing is clearly prominent, treat all of them as the main
+subject and keep every one of them.
+
+STEP 2 - Treat that main subject as a fixed, immovable foreground layer to
+be copied over unchanged - like a cutout pasted onto a new backdrop, not
+redrawn.
+
+Do not redraw, restyle, reinterpret, or regenerate the main subject in any
+way. Its exact silhouette, outline, colours, texture, markings, surface
+detail, pose and orientation, proportions, scale, and exact pixel position
+in the frame must all stay identical to the reference photo. When the
+subject is a person or an animal, that also means the identical face,
+facial features, skin or fur, hairstyle, expression, body pose and
+clothing. Someone who knows the original must instantly recognise the
+result as the very same subject in the very same pose - not a
+similar-looking one, not a re-enactment, not a new photoshoot.
 
 Only the pixels behind the subject (the background/environment) should be
 erased and generatively filled in with the new setting described below.
@@ -717,8 +742,13 @@ New background to generate:
 
 {scene}
 
-Do not change the camera framing, zoom, angle, or crop from the original
-photo. Do not add, move, or remove any part of the subject.
+Do not change the camera framing, zoom, angle, viewpoint, perspective, or
+crop from the original photo - the camera stays exactly where it was. Do
+not add, move, rotate, resize, or remove any part of the main subject, and
+do not change what it is doing. Even if the background description above
+seems to suggest a different viewpoint or action, the original framing and
+the original subject always win.
+
 Photorealistic, natural lighting consistent with the subject. Portrait
 orientation. No text, no captions, no letters or numbers anywhere in the
 image.
@@ -957,8 +987,9 @@ def build_image_prompt(mode: str, story: str) -> str:
         return ERASE_PROMPT
     scene = (story or "").strip()
     if not scene:
-        scene = ("A new, contextually fitting background setting behind the "
-                 "subject, different from the reference image's background.")
+        scene = ("A new, contextually fitting empty location behind the main "
+                 "subject, clearly different from the reference image's "
+                 "background, in sharp focus.")
     return RECREATE_PROMPT.format(scene=scene[:800])
 
 
@@ -1527,7 +1558,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.16 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.17 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():

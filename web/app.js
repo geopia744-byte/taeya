@@ -2027,7 +2027,9 @@ async function transformOne(card) {
         if (maskCv) {
           const cov = maskCoverage(maskCv);
           console.log(`[사진처리] 인물 비율 ${(cov * 100).toFixed(1)}%`);
-          if (cov < 0.02 || cov > 0.92) maskCv = null;   // 인식 실패/동물 등 — 못 믿는다
+          // 사람 분리 모델이라 동물·사물은 잡히지 않는다(=너무 적음). 화면
+          // 전체가 사람으로 잡히는 경우도 못 믿는다. 둘 다 마스크를 버린다.
+          if (cov < 0.02 || cov > 0.92) maskCv = null;
         }
       } catch (err) {
         console.warn('인물 마스크 준비 중 오류 — 예전 방식으로 처리합니다.', err);
@@ -2041,6 +2043,10 @@ async function transformOne(card) {
         return;
       }
 
+      if (!maskCv) {
+        console.log('[사진처리] 주인공을 오려내지 못했습니다(사람이 아니거나 인식 실패) '
+                  + '— 보존은 AI 지시문에만 의존합니다');
+      }
       console.log('[사진처리] 2단계 — 배경 교체 시작');
       try {
       const out = await api('/api/erase', {
@@ -2054,12 +2060,12 @@ async function transformOne(card) {
       let finalImg = await loadImage(`data:${out.media_type};base64,${out.image_b64}`);
 
       if (maskCv) {
-        // 글자 지워진 원본 인물 픽셀을 새 배경 위에 그대로 얹는다.
+        // 글자 지워진 원본 주인공 픽셀을 새 배경 위에 그대로 얹는다.
         const composed = compositeSubjectOntoBackground(
           finalImg, erasedCv, maskCv, erasedCv.width, erasedCv.height,
         );
         finalImg = await loadImage(composed.toDataURL('image/png'));
-        console.log('[사진처리] 인물 합성 완료');
+        console.log('[사진처리] 주인공 합성 완료 — 원본 픽셀 그대로');
       }
 
       card.cleanImg = finalImg;
@@ -2520,8 +2526,8 @@ async function copyBody(card) {
 const MODE_HINT = {
   off: '사진을 건드리지 않습니다. 영어는 덮어서 가립니다. 비용이 들지 않습니다.',
   erase: '사진에 박힌 영어를 지우고 그 자리를 주변에 맞게 채웁니다.',
-  recreate: '인물·동물의 생김새는 그대로 두고 장면을 새로 만듭니다. '
-          + '원본 사진을 쓰지 않으므로 글자도 남지 않습니다.',
+  recreate: '주인공(사람·동물·사물)은 그대로 두고 주위 배경만 새로 만듭니다. '
+          + '영어 글자는 먼저 지우므로 남지 않습니다.',
 };
 
 /* 고를 수 있는 글꼴. PC 에 깔려 있는 것만 실제로 보인다.
