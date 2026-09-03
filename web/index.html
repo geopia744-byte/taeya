@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.24</span></em>
+        <em>자동화 <span class="ver">v13.25</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -210,9 +210,16 @@
           <span class="vid-grip vid-grip-b" data-edge="bottom"></span>
         </div>
       </div>
+      <div class="vid-shots">
+        <button type="button" class="mini" id="vid-prev">‹ 앞 장면</button>
+        <span class="vid-at" id="vid-at"></span>
+        <button type="button" class="mini" id="vid-next">뒤 장면 ›</button>
+      </div>
       <p class="hint" id="vid-meta"></p>
       <p class="hint">파란 띠가 <b>자막을 덮도록</b> 위아래 손잡이를 끌어 맞추세요.
-        띠 밖의 글자는 건드리지 않습니다.</p>
+        띠 밖의 글자는 건드리지 않습니다.<br>
+        띠는 <b>영상 전체</b>에 그대로 적용됩니다. 여러 장면을 넘겨보면서
+        자막이 내내 띠 안에 들어오는지 확인하세요.</p>
     </div>
 
     <div id="vid-run" hidden>
@@ -220,10 +227,17 @@
       <p class="hint" id="vid-run-note">준비 중…</p>
     </div>
 
+    <div id="vid-result-box" hidden>
+      <video id="vid-result" controls playsinline preload="metadata"></video>
+      <p class="hint">자막이 잘 지워졌는지 확인해보세요.
+        이미 <b>출력 폴더에 저장</b>되어 있습니다.</p>
+    </div>
+
     <p class="vid-error" id="vid-error" hidden></p>
 
     <div class="dlg-foot">
       <button type="button" class="ghost" id="vid-open" hidden>📂 폴더 열기</button>
+      <button type="button" class="ghost" id="vid-save" hidden>⬇️ 다른 곳에 저장</button>
       <span class="spacer"></span>
       <button type="button" class="primary" id="vid-go" disabled>자막 지우기</button>
       <button type="button" class="ghost" id="vid-close">닫기</button>

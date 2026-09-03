@@ -3495,9 +3495,15 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
   const errBox = $('#vid-error');
   const goBtn = $('#vid-go');
   const openDirBtn = $('#vid-open');
+  const saveBtn = $('#vid-save');
+  const resultBox = $('#vid-result-box');
+  const resultVid = $('#vid-result');
+  const atLabel = $('#vid-at');
 
   let job = null;        // {id, width, height, ...}
   let band = null;       // [y0, y1] — 원본 픽셀 기준
+  let shots = [];        // 영상 곳곳에서 뽑아둔 장면들
+  let shotAt = 0;
   let poll = null;
   let busy = false;
 
@@ -3511,7 +3517,13 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     poll = null;
     job = null;
     band = null;
+    shots = [];
+    shotAt = 0;
     busy = false;
+    resultBox.hidden = true;
+    resultVid.removeAttribute('src');
+    resultVid.load();
+    saveBtn.hidden = true;
     fileIn.value = '';
     label.textContent = '영상 고르기 (mp4)';
     stage.hidden = true;
@@ -3542,6 +3554,30 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
     dlg.close();
   });
   openDirBtn.addEventListener('click', () => api('/api/open-output'));
+  saveBtn.addEventListener('click', () => {
+    // 브라우저의 '다른 이름으로 저장'을 띄운다. 출력 폴더에는 이미 있다.
+    window.location.href = `/api/video/result?id=${job.id}&dl=1`;
+  });
+
+  // 드물게 브라우저가 이 영상 형식을 못 읽는 경우가 있다. 그때 깨진
+  // 재생기를 보여주느니 어디서 확인하면 되는지 알려주는 편이 낫다.
+  resultVid.addEventListener('error', () => {
+    if (!resultVid.getAttribute('src')) return;
+    resultBox.hidden = true;
+    runNote.textContent += ' (이 브라우저에서는 미리보기가 안 됩니다 — '
+                         + '[폴더 열기]로 확인하세요)';
+  });
+
+  // 장면 넘겨보기 — 긴 영상에서 자막이 내내 띠 안에 있는지 확인하는 수단.
+  function showShot(i) {
+    if (!shots.length) return;
+    shotAt = (i + shots.length) % shots.length;
+    const sh = shots[shotAt];
+    shot.src = `data:image/jpeg;base64,${sh.b64}`;
+    atLabel.textContent = `${sh.at}초 (${shotAt + 1}/${shots.length})`;
+  }
+  $('#vid-prev').addEventListener('click', () => showShot(shotAt - 1));
+  $('#vid-next').addEventListener('click', () => showShot(shotAt + 1));
 
   fileIn.addEventListener('change', async () => {
     const f = fileIn.files && fileIn.files[0];
@@ -3561,11 +3597,14 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
 
       job = info;
       job.name = f.name.replace(/\.[^.]+$/, '');
-      shot.src = `data:image/jpeg;base64,${info.preview_b64}`;
+      shots = Array.isArray(info.previews) && info.previews.length
+        ? info.previews
+        : [{ at: 0, b64: info.preview_b64 }];
       // 못 찾았으면 아래쪽에 흔히 있는 자리로 띠를 놓아준다.
       band = info.band && info.band.length === 2
         ? info.band.slice()
         : [Math.round(info.height * 0.78), Math.round(info.height * 0.95)];
+      showShot(0);
       drawBand();
 
       const mb = (f.size / (1024 * 1024)).toFixed(1);
@@ -3653,6 +3692,10 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
       const file = String(st.out || '').split(/[\\/]/).pop();
       runNote.textContent = `완성됐습니다 — ${file}`;
       openDirBtn.hidden = false;
+      saveBtn.hidden = false;
+      // 바로 눈으로 확인하게 해준다. 폴더를 열어 찾아 재생할 필요가 없다.
+      resultVid.src = `/api/video/result?id=${job.id}`;
+      resultBox.hidden = false;
       toast('영상 자막을 지웠습니다. 출력 폴더에 저장했습니다.');
     }, 900);
   });

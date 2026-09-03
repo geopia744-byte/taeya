@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
@@ -339,21 +340,36 @@ def video_info(path: str) -> dict:
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # 자막이 가장 많이 잡히는 장면을 골라 미리보기로 준다. 아무 데나
-        # 뽑으면 하필 자막 없는 순간이 걸려 띠를 맞출 수가 없다.
-        best, best_score = None, -1
+        # 영상 곳곳에서 장면을 뽑아둔다. 한 장만 보여주면 긴 영상에서
+        # 자막이 내내 같은 자리에 있는지 확인할 방법이 없다. 자막이 많이
+        # 잡히는 순서로 골라, 자막 없는 순간만 보여주는 일도 막는다.
+        shots = []
         for i in range(16):
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * i / 16) if total else 0)
             ok, f = cap.read()
             if not ok:
                 continue
-            score = int((subtitle_mask(f) > 0).sum())
-            if score > best_score:
-                best, best_score = f, score
-        if best is None:
+            at = round(total * i / 16 / fps, 1) if fps else 0
+            shots.append((int((subtitle_mask(f) > 0).sum()), at, f))
+        if not shots:
             raise RuntimeError("영상에서 장면을 하나도 읽지 못했습니다.")
-        ok, buf = cv2.imencode(".jpg", best, [cv2.IMWRITE_JPEG_QUALITY, 82])
-        preview = base64.b64encode(buf.tobytes()).decode() if ok else ""
+
+        # 자막이 잡힌 장면들 중에서 고르되, 시간 축에 고르게 퍼뜨린다.
+        # 자막이 많은 순으로만 뽑으면 5장이 한 구간에 몰려서, 긴 영상의
+        # 다른 대목에서도 자막이 띠 안에 있는지 확인할 수가 없다.
+        withtext = [x for x in shots if x[0] > 0] or shots
+        want = min(5, len(withtext))
+        step = len(withtext) / want
+        picked = [withtext[min(len(withtext) - 1, int(i * step))] for i in range(want)]
+        previews = []
+        for _score, at, f in picked:
+            ok, buf = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            if ok:
+                previews.append({
+                    "at": at,
+                    "b64": base64.b64encode(buf.tobytes()).decode(),
+                })
+        preview = previews[0]["b64"] if previews else ""
     finally:
         cap.release()
 
@@ -361,6 +377,7 @@ def video_info(path: str) -> dict:
         "width": w, "height": h, "fps": round(fps, 3),
         "frames": total, "seconds": round(total / fps, 1) if fps else 0,
         "preview_b64": preview,
+        "previews": previews,
         "band": find_subtitle_band(path),
     }
 
@@ -1664,6 +1681,45 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self._send(code, body, "application/json; charset=utf-8", cors=cors)
 
+    def _serve_result(self):
+        """다 만든 영상을 화면에 돌려준다 — 미리 보고, 원하면 내려받는다."""
+        from urllib.parse import parse_qs, urlparse
+        q = parse_qs(urlparse(self.path).query)
+        job = video_job_state((q.get("id") or [""])[0])
+        out = job.get("out")
+        if not out or not Path(out).exists():
+            return self._json(404, {"error": "결과 영상을 찾지 못했습니다."})
+
+        target = Path(out)
+        size = target.stat().st_size
+        extra = {"Accept-Ranges": "bytes"}
+        if (q.get("dl") or [""])[0]:
+            # 파일 이름에 한글이 들어가므로 RFC 5987 형식으로 함께 적는다.
+            quoted = urllib.parse.quote(target.name)
+            extra["Content-Disposition"] = (
+                f"attachment; filename=\"video.mp4\"; filename*=UTF-8''{quoted}")
+
+        # 영상 재생기는 구간(Range)으로 나눠 달라고 한다. 이걸 받아주지
+        # 않으면 재생 막대를 끌어 다른 데로 넘어갈 수가 없다.
+        rng = self.headers.get("Range") or ""
+        m = re.match(r"bytes=(\d*)-(\d*)", rng)
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                end = int(m.group(2)) if m.group(2) else size - 1
+            else:                                    # 끝에서 N 바이트
+                start = max(0, size - int(m.group(2)))
+                end = size - 1
+            start = max(0, min(start, size - 1))
+            end = max(start, min(end, size - 1))
+            with open(target, "rb") as fp:
+                fp.seek(start)
+                chunk = fp.read(end - start + 1)
+            extra["Content-Range"] = f"bytes {start}-{end}/{size}"
+            return self._send(206, chunk, "video/mp4", extra)
+
+        return self._send(200, target.read_bytes(), "video/mp4", extra)
+
     def _take_video(self) -> dict:
         """올라온 영상을 임시 폴더에 받아두고, 크기·길이와 미리보기를 준다."""
         length = int(self.headers.get("Content-Length") or 0)
@@ -1753,6 +1809,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             # 북마크릿이 여러 포트를 두드려보며 "이게 우리 서버 맞나?" 확인할 때 씀.
             return self._json(200, {"ok": True, "app": "hooking-factory"}, cors=True)
+
+        if path == "/api/video/result":
+            return self._serve_result()
 
         if path.startswith("/api/video/status"):
             from urllib.parse import parse_qs, urlparse
@@ -1975,7 +2034,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.24 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.25 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
