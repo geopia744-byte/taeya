@@ -39,6 +39,13 @@ MODEL = "claude-opus-5"
 # 요청 본문 상한 (이미지 여러 장이 base64로 들어오므로 넉넉히)
 MAX_BODY = 64 * 1024 * 1024
 
+# "개인(personal)" 타입 Anthropic 키는 여러 워크스페이스에 걸쳐 쓸 수 있어서
+# 요청마다 "어느 워크스페이스로 실행할지"를 헤더로 알려줘야 한다(안 그러면
+# "anthropic-workspace-id is required..." 400 오류가 난다). 매번 설정 화면에서
+# 입력받는 대신 여기에 고정값으로 박아 둔다 — 이 워크스페이스 자체가 바뀌지
+# 않는 한 다시 손댈 일 없다.
+ANTHROPIC_WORKSPACE_ID = "wrkspc_01Gyh8jcgqKbTtZ1TYTfNYZF"
+
 # 북마크릿이 이 포트 범위를 순서대로 두드려서 지금 켜진 서버를 찾는다.
 # find_port() 가 8790 부터 40개를 시도하는 것과 반드시 같은 범위여야 한다.
 BOOKMARKLET_PORT_START = 8790
@@ -296,63 +303,47 @@ LANG_STYLE = {
 }
 
 # 카테고리마다 사람을 멈추게 하는 지점이 다르다. 여덟 개를 같은 문법으로
-# 쓰면 전부 같은 톤이 된다. hook 은 문구를, scene 은 새로 그릴 배경을 잡는다.
+# 쓰면 전부 같은 톤이 된다. 문구의 관점만 잡고, 사진 쪽은 건드리지 않는다.
 CATEGORY_STYLE = {
     "person": {
         "name": "인물정보",
         "hook": "직함·이름을 앞세우지 마라. 아는 사람만 멈춘다. 그 사람에게 "
                 "닥친 상황을 먼저 던지고 정체는 뒤로 미뤄라.",
-        "scene": "그 사람의 처지를 말해주는 실내 공간. 집무실, 법정 복도, "
-                 "기자회견장, 텅 빈 대기실처럼 '누구인지'가 배경으로 드러나는 곳.",
     },
     "issue": {
         "name": "시사뉴스",
         "hook": "사건의 결말을 감춰라. 무거운 사건은 무겁게. 자극적인 단어보다 "
                 "'말하지 않은 한 줄'이 강하다.",
-        "scene": "사건이 벌어질 법한 실제 장소. 경찰 저지선 너머의 거리, "
-                 "병원 복도, 법원 앞 계단, 비 내리는 주차장.",
     },
     "nature": {
         "name": "자연뉴스",
         "hook": "규모와 시간의 낯섦으로 끌어라. 몇 년, 몇 킬로미터, 몇 도 — "
                 "사람이 가늠 못 하는 숫자가 후킹이 된다.",
-        "scene": "그 현상이 실제로 일어나는 광활한 야외. 빙하, 사막, 폭풍 "
-                 "치는 해안, 안개 낀 침엽수림. 사람이 만든 물건은 넣지 마라.",
     },
     "star": {
         "name": "연예뉴스",
         "hook": "관계와 반전으로 끌어라. 누가 누구에게 무엇을 했는지, "
                 "그 마지막 조각만 가려라.",
-        "scene": "무대 뒤 복도, 레드카펫 옆, 조명 꺼진 스튜디오, 대기실 거울 앞. "
-                 "화려하되 인물보다 튀지 않게.",
     },
     "policy": {
         "name": "정책뉴스",
         "hook": "'나에게 얼마'로 번역해라. 제도 이름이 아니라 내 지갑에 "
                 "무슨 일이 생기는지가 후킹이다.",
-        "scene": "관공서 민원실, 은행 창구, 서류가 쌓인 책상, 지하철 역사 "
-                 "안내판 앞. 일상적이고 공적인 공간.",
     },
     "animal": {
         "name": "동물뉴스",
         "hook": "동물의 행동을 사람의 마음으로 옮겨라. 의도와 감정을 읽어주면 "
                 "사람이 멈춘다. 다만 지어내지는 마라.",
-        "scene": "그 동물의 실제 서식지. 초원, 숲속 물가, 눈 덮인 산비탈, "
-                 "얕은 바다. 동물원 우리나 사람 구조물은 피하라.",
     },
     "city": {
         "name": "도시풍경",
         "hook": "익숙한 도시의 낯선 순간을 잡아라. 매일 보는 곳이 "
                 "달라 보이는 지점이 후킹이다.",
-        "scene": "실제 도시의 거리와 스카이라인. 젖은 아스팔트에 비친 네온, "
-                 "새벽 대교, 골목 계단, 고층 유리벽. 시간대를 분명히 정하라.",
     },
     "general": {
         "name": "기타일반",
         "hook": "일상 속 반전으로 끌어라. 평범해 보이는 것이 평범하지 "
                 "않았다는 구조가 잘 먹힌다.",
-        "scene": "사건에 어울리는 평범한 생활공간. 주방, 편의점, 버스 정류장, "
-                 "동네 골목.",
     },
 }
 
@@ -407,29 +398,18 @@ SYSTEM_PROMPT = """\
 
 4. **source_text** — 원본 이미지에서 읽어낸 문구를 그대로. (검수용)
 
-5. **scene** — 인물 **뒤에 새로 그릴 배경**을 영어로 한 문단.
+5. **scene** — 사진을 새로 만들 때 쓸 **장면 묘사**를 영어로 한 문단.
 
-   ⚠️ 이건 "사진을 새로 찍는" 것이 아니라 **배경 교체**다. 인물(또는 동물)은
-   원본에서 오려내어 그대로 얹는다. 그러니 인물에 관한 것은 한 글자도 쓰지 마라.
+   원본 사진을 흉내내지 말고, **이 사건에 어울리는 다른 장면**을 새로 짜라.
+   - 장소를 바꿔라 (같은 방이 아니라 골목, 병원 복도, 들판…)
+   - 카메라 각도를 정하라 (낮은 각도, 어깨 너머, 정면 클로즈업…)
+   - 시간대와 조명을 정하라 (비 오는 밤의 네온, 새벽 역광, 형광등…)
+   - 분위기를 한 마디로 (차갑고 무겁게, 따뜻하고 아련하게…)
 
-   **쓸 것 — 배경만:**
-   - 어떤 장소인가. **하나의 공간**이어야 한다. 두 장소를 섞지 마라.
-   - 시간대와 조명 (비 오는 밤의 네온, 새벽 역광, 형광등…)
-   - 그 공간에 실제로 있을 사물 (젖은 아스팔트, 낡은 철문, 마른 풀…)
-   - 색조와 분위기 (차갑고 푸르게, 따뜻한 황혼빛으로…)
+   **인물의 생김새는 쓰지 마라.** 얼굴은 원본 사진에서 그대로 가져오므로
+   여기에 적으면 오히려 방해가 된다. 장면만 써라.
 
-   **절대 쓰지 말 것:**
-   - 카메라 각도·구도·프레이밍·클로즈업·줌
-     → 원본의 구도를 그대로 유지하므로, 여기 적으면 지시가 서로 부딪혀
-       결과가 망가진다.
-   - 인물의 얼굴·옷·자세·동작·표정 → 전부 원본에서 가져온다.
-   - 배경에 있는 **다른 사람** → 인물이 둘로 보인다.
-   - 글자·간판 문구·로고.
-
-   **선명하게 써라.** blurred, bokeh, out of focus 같은 말을 넣으면
-   썸네일에서 밋밋해진다. 또렷하고 디테일이 보이는 배경이 훨씬 잘 읽힌다.
-
-   원본이 사물·풍경이라면, 그 대상이 놓일 새로운 주변 환경을 써라.
+   원본에 인물이 없다면(사물·풍경) 그 대상이 놓인 새로운 장면을 써라.
 
 6. **text_area** — 사진에 **박혀 있는 글자**가 차지하는 세로 범위.
    이미지 맨 위를 0.0, 맨 아래를 1.0으로 보고 `top`과 `bottom`을 낸다.
@@ -487,7 +467,6 @@ def build_user_prompt(lang: str, guide: str, style_sample: str,
         parts.append(
             f"## 이 게시물의 분류 — {cat['name']}\n\n"
             f"**문구를 뽑는 관점**\n{cat['hook']}\n\n"
-            f"**scene 에 그릴 배경의 방향**\n{cat['scene']}\n\n"
             "분류에 억지로 끼워 맞추지는 마라. 사진이 이 분류와 안 맞으면 "
             "사진에 보이는 것을 따르되, 어조만 이 방향으로 잡아라."
         )
@@ -515,8 +494,7 @@ def build_user_prompt(lang: str, guide: str, style_sample: str,
         parts.append(
             "## 다시 뽑는 중이다\n\n"
             "앞서 뽑은 것이 마음에 들지 않아 다시 요청한 것이다.\n"
-            "- 제목은 **다른 각도**에서 접근하라. 같은 문장 구조를 반복하지 마라.\n"
-            "- scene 은 **다른 장소**를 골라라. 앞서와 같은 종류의 공간을 또 쓰지 마라."
+            "제목은 **다른 각도**에서 접근하라. 같은 문장 구조를 반복하지 마라."
         )
 
     parts.append("위 이미지를 보고 작업하라.")
@@ -544,14 +522,12 @@ OUTPUT_SCHEMA = {
         "scene": {
             "type": "string",
             "description": (
-                "인물 뒤에 새로 그릴 배경 묘사. 영어로 한 문단. "
-                "하나의 장소, 시간대, 조명, 그 공간에 있을 사물, 색조를 쓴다. "
-                "카메라 각도·구도·인물·다른 사람·글자는 쓰지 마라. "
-                "흐릿함(blur, bokeh)을 주문하지 마라. "
-                "예: 'A rain-soaked city alley at night. Neon signs reflect in "
-                "deep puddles on cracked asphalt. Wet brick walls, a rusted fire "
-                "escape, steam rising from a vent. Cold blue tones, sharp detail "
-                "throughout.'"
+                "사진을 새로 만들 때 쓸 장면 묘사. 영어로 한 문단. "
+                "원본과 '다른' 장소·각도·시간대를 정하고, 조명과 분위기를 "
+                "구체적으로 적어라. 인물의 생김새는 여기 쓰지 마라(원본에서 가져온다). "
+                "예: 'A rain-soaked city alley at night, seen from a low angle. "
+                "Neon signs reflect in puddles. The man walks toward the camera, "
+                "backlit by a streetlamp. Cold blue tones, heavy atmosphere.'"
             ),
         },
         "text_area": {
@@ -613,7 +589,10 @@ def generate_copy(image_b64: str, media_type: str, lang: str,
             "Anthropic 키가 설정되지 않았습니다. 화면 왼쪽 위 '설정'에서 넣어주세요."
         )
 
-    client = anthropic.Anthropic(api_key=api_key, timeout=180.0)
+    client = anthropic.Anthropic(
+        api_key=api_key, timeout=180.0,
+        default_headers={"anthropic-workspace-id": ANTHROPIC_WORKSPACE_ID},
+    )
 
     request = dict(
         model=MODEL,
@@ -701,37 +680,48 @@ Do not add any new text. Do not change anyone's face or appearance.
 # (예전엔 아예 "새로운 사진"을 통째로 다시 찍으라고 시켰더니 사람 자체가
 #  달라지는 문제가 있어서, 지금은 배경 교체로 방향을 바꿨다.)
 RECREATE_PROMPT = """\
-Replace the entire background of this photo with a completely new setting.
+TASK TYPE: Photo editing (inpainting / outpainting), NOT new image
+generation. Treat the person (or animal) in the reference photo as a fixed,
+immovable foreground layer to be copied over unchanged - like a cutout
+pasted onto a new backdrop, not redrawn.
 
-THE NEW BACKGROUND TO PAINT:
+Do not redraw, restyle, reinterpret, or regenerate the subject in any way.
+Their face, facial features, skin tone, hairstyle, exact expression,
+clothing, body pose, body proportions, scale, and exact pixel position in
+the frame must all stay identical to the reference photo. If someone who
+knows this person looked at the result, they must instantly recognize it as
+the very same person in the very same pose - not a similar-looking person,
+not a re-enactment, not a new photoshoot.
+
+Only the pixels behind the subject (the background/environment) should be
+erased and generatively filled in with the new setting described below.
+Blend the new background naturally with the subject's existing edges,
+lighting direction and shadows so there is no cutout or collage look.
+
+The new background must be ONE single, continuous, consistent environment
+that fills the entire area behind and around the subject, from edge to edge
+of the image. Never split the image into two different-looking areas or mix
+two different locations/rooms/settings in the same photo (for example, do
+not show one setting near the subject and a different, unrelated setting
+elsewhere in the frame). It must look like one real, physically coherent
+room or place, photographed in a single shot.
+
+Render the new background in clear, sharp focus with rich, visible detail -
+do NOT apply heavy blur, bokeh, or soft-focus/out-of-focus effects to it,
+even if the original photo's background was blurred. A crisp, detailed
+backdrop reads much better for a news thumbnail than a foggy one. Only the
+thin strip of pixels immediately touching the subject's silhouette may be
+softened slightly, purely to blend the edge seamlessly.
+
+New background to generate:
 
 {scene}
 
-That is the main task. Everything behind and around the subject must become
-that new place. The old background must be gone completely - not dimmed, not
-blurred, not partially kept. If the result still shows the original
-surroundings, the task has failed.
-
-KEEP THE SUBJECT EXACTLY AS IT IS:
-The person (or animal) in the foreground is a fixed cutout pasted onto the new
-backdrop. Their face, facial features, skin tone, hair, expression, clothing,
-body pose, proportions, scale and position in the frame must stay identical to
-the input. Do not redraw, restyle or reinterpret them. Someone who knows this
-person must instantly recognise the very same person in the very same pose.
-
-HOW THE RESULT MUST LOOK:
-- One single, continuous, physically coherent place, edge to edge. Never mix
-  two different rooms or locations in the same image.
-- Sharp and richly detailed, in clear focus. Do NOT apply blur, bokeh or soft
-  focus, even if the original background was blurred. Only the thin strip of
-  pixels touching the subject's outline may be softened, purely to blend the
-  edge so there is no cutout or collage look.
-- Lighting direction and colour temperature must match the subject, so it does
-  not look pasted on.
-- Keep the original camera framing, zoom, angle and crop. Do not move, resize,
-  add to or remove any part of the subject.
-- No other people anywhere in the new background.
-- No text, captions, letters, numbers, logos or watermarks anywhere.
+Do not change the camera framing, zoom, angle, or crop from the original
+photo. Do not add, move, or remove any part of the subject.
+Photorealistic, natural lighting consistent with the subject. Portrait
+orientation. No text, no captions, no letters or numbers anywhere in the
+image.
 """
 
 # 저장 크기(4:5 / 1:1 / 9:16)에 맞춰 여백 없이 확장한다. 사진을 자르거나
@@ -1126,10 +1116,12 @@ def transform_image(image_b64: str, media_type: str,
     models = _order_models(candidate_models(key))
     tried = []
 
-    # 저장(expand)은 사용자가 화면 앞에서 기다리는 동작이다. 여기서 쉬거나
-    # 다시 시도하면 저장이 멈춘 것처럼 보인다. 한 바퀴 돌아 안 되면 바로
-    # 포기하고, 화면 쪽에서 여백을 넣어 즉시 저장한다.
-    quick = mode == "expand"
+    # 저장(expand)과 글자 지우기(erase) 둘 다 사용자가 화면 앞에서 기다리는
+    # 동작이다. 여기서 쉬거나 다시 시도하면 몇십 초~몇 분씩 멈춘 것처럼
+    # 보인다. 한 바퀴 돌아 안 되면 바로 포기하고, 화면 쪽 덮어쓰기 처리로
+    # 즉시 넘어간다. (분당 한도가 실제로 회복되길 기다리는 건 밑에 있는
+    # "2차 — 붐빔(503) 등" 단계에서만, 그것도 한도가 아닌 경우에만 한다.)
+    quick = mode in ("expand", "erase")
 
     def once(model):
         return _call_image_model(model, key, image_b64, media_type, prompt,
@@ -1535,7 +1527,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v11 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.16 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
