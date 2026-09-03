@@ -1775,24 +1775,55 @@ async function buildSubjectMaskCanvasInner(sourceCanvas, w, h) {
   try {
     const masks = result?.confidenceMasks;
     if (!masks || !masks.length) return null;
-    const mask = masks[0];
+
+    // 이 모델은 마스크를 두 장 준다 — 0번이 '배경', 1번이 '사람'이다.
+    // 0번을 쓰면 원본 배경을 새 배경 위에 도로 덮어버려서, 제미니가 배경을
+    // 제대로 새로 그려 보내도 화면에는 원본 배경이 그대로 보인다.
+    // 라벨을 읽어 '배경이 아닌 것'을 고른다. 라벨을 못 읽으면 1번을 쓴다.
+    let idx = masks.length > 1 ? 1 : 0;
+    try {
+      const labels = segmenter.getLabels ? segmenter.getLabels() : null;
+      if (labels && labels.length === masks.length) {
+        const found = labels.findIndex((l) => !/back[\s_-]?ground/i.test(String(l)));
+        if (found >= 0) idx = found;
+        console.log(`[사진처리] 마스크 종류 [${labels.join(', ')}] → `
+                  + `${labels[idx]} 사용`);
+      }
+    } catch { /* 라벨을 못 읽어도 기본값으로 진행한다 */ }
+
+    const mask = masks[idx];
     const mw = mask.width;
     const mh = mask.height;
     const raw = mask.getAsFloat32Array();
 
+    // 확신도를 그대로 투명도로 쓰면 안 된다. 사람이 없는 사진에서는 화면
+    // 곳곳이 0.7 쯤으로 어정쩡하게 나오는데, 그 값을 투명도로 쓰면 원본이
+    // 70% 불투명하게 새 배경을 통째로 덮어버린다. 확실한 곳만 남기고 자른다.
     const small = document.createElement('canvas');
     small.width = mw;
     small.height = mh;
     const sctx = small.getContext('2d');
     const imgData = sctx.createImageData(mw, mh);
+    let vague = 0;
     for (let i = 0; i < mw * mh; i++) {
-      const v = Math.round(Math.min(1, Math.max(0, raw[i])) * 255);
+      const raw1 = raw[i];
+      if (raw1 > 0.25 && raw1 < 0.75) vague++;
+      const v = raw1 > 0.5 ? 255 : 0;
       imgData.data[i * 4 + 0] = v;
       imgData.data[i * 4 + 1] = v;
       imgData.data[i * 4 + 2] = v;
       imgData.data[i * 4 + 3] = 255;
     }
     sctx.putImageData(imgData, 0, 0);
+
+    // 진짜 사람을 찾았다면 경계만 애매하고 나머지는 확실하다. 화면 곳곳이
+    // 애매하다면 사람을 못 찾고 헤맨 것이므로 쓰지 않는다.
+    const vagueRatio = vague / (mw * mh);
+    if (vagueRatio > 0.3) {
+      console.log(`[사진처리] 인물 분리가 불분명합니다(애매한 부분 `
+                + `${(vagueRatio * 100).toFixed(0)}%) — 마스크를 쓰지 않습니다`);
+      return null;
+    }
 
     // 목표 해상도로 확대. 자연스러운 보간 덕에 경계가 부드럽게 이어진다.
     const maskCanvas = document.createElement('canvas');
@@ -1808,8 +1839,8 @@ async function buildSubjectMaskCanvasInner(sourceCanvas, w, h) {
   }
 }
 
-// 마스크에서 "사람"으로 잡힌 비율. 너무 적거나(인식 실패) 너무 많으면
-// (동물처럼 화면 전체가 사람으로 오인되는 등) 신뢰하지 않는다.
+// 마스크에서 "사람"으로 잡힌 비율. 너무 적으면 사람을 못 찾은 것이고,
+// 너무 많으면 새 배경이 거의 다 가려져 배경을 바꾼 의미가 없어진다.
 function maskCoverage(maskCanvas) {
   const { width: w, height: h } = maskCanvas;
   const data = maskCanvas.getContext('2d').getImageData(0, 0, w, h).data;
@@ -2039,10 +2070,17 @@ async function transformOne(card) {
         maskCv = await buildSubjectMaskCanvas(erasedCv, erasedCv.width, erasedCv.height);
         if (maskCv) {
           const cov = maskCoverage(maskCv);
-          console.log(`[사진처리] 인물 비율 ${(cov * 100).toFixed(1)}%`);
-          // 사람 분리 모델이라 동물·사물은 잡히지 않는다(=너무 적음). 화면
-          // 전체가 사람으로 잡히는 경우도 못 믿는다. 둘 다 마스크를 버린다.
-          if (cov < 0.02 || cov > 0.92) maskCv = null;
+          // 사람 분리 모델이라 동물·사물은 잡히지 않는다(=너무 적음). 화면을
+          // 거의 다 덮는 마스크도 버린다 — 그대로 얹으면 제미니가 새로 그린
+          // 배경이 통째로 가려져, 배경이 안 바뀐 것처럼 보인다.
+          if (cov < 0.02 || cov > 0.85) {
+            console.log(`[사진처리] 인물 비율 ${(cov * 100).toFixed(1)}% — `
+                      + '오려붙이기를 쓰지 않습니다');
+            maskCv = null;
+          } else {
+            console.log(`[사진처리] 인물 비율 ${(cov * 100).toFixed(1)}% — `
+                      + '이 부분만 원본을 얹습니다');
+          }
         }
       } catch (err) {
         console.warn('인물 마스크 준비 중 오류 — 예전 방식으로 처리합니다.', err);
