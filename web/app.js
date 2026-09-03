@@ -3628,6 +3628,17 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
   $('#vid-prev').addEventListener('click', () => showShot(shotAt - 1));
   $('#vid-next').addEventListener('click', () => showShot(shotAt + 1));
 
+  // 손대기 전의 장면을 그대로 저장한다. 자막이 원래 어떤 모양·색·두께인지
+  // 봐야 왜 못 잡았는지 알 수 있다. 결과 사진만으로는 알 수 없다.
+  $('#vid-grab-src').addEventListener('click', () => {
+    if (!shots.length) return;
+    const a = document.createElement('a');
+    a.href = `data:image/jpeg;base64,${shots[shotAt].b64}`;
+    a.download = `${job.name}_원본_${shots[shotAt].at}초.jpg`;
+    a.click();
+    toast(`${shots[shotAt].at}초 원본 장면을 저장했습니다.`);
+  });
+
   fileIn.addEventListener('change', async () => {
     const f = fileIn.files && fileIn.files[0];
     if (!f) return;
@@ -3685,6 +3696,14 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
       else band[1] = Math.max(y, band[0] + gap);
       band[0] = Math.max(0, band[0]);
       band[1] = Math.min(job.height, band[1]);
+
+      // 띠가 넓을수록 손댈 곳이 늘어 화면이 상한다. 자막은 아무리 커도
+      // 화면의 3할을 넘지 않는다. 넓게 끌면 그 지점에서 멈춘다.
+      const cap = Math.round(job.height * 0.3);
+      if (band[1] - band[0] > cap) {
+        if (edge === 'top') band[0] = band[1] - cap;
+        else band[1] = band[0] + cap;
+      }
       drawBand();
     };
     const up = () => {
@@ -3740,6 +3759,13 @@ document.querySelectorAll('.collapsible > h2').forEach((h) => {
       }
       const file = String(st.out || '').split(/[\\/]/).pop();
       runNote.textContent = `완성됐습니다 — ${file}`;
+      if (st.skipped > 0 && st.frames > 0) {
+        // 화면이 깨질 것 같아 손대지 않고 지나간 장면이 있으면 알려준다.
+        // 모르면 '왜 여긴 안 지워졌지' 하고 헤매게 된다.
+        const pct = Math.round((st.skipped / st.frames) * 100);
+        runNote.textContent += ` · 화면이 깨질 것 같은 ${pct}% 구간은 `
+                             + '건드리지 않았습니다 (띠를 좁히면 줄어듭니다)';
+      }
       openDirBtn.hidden = false;
       saveBtn.hidden = false;
       // 바로 눈으로 확인하게 해준다. 폴더를 열어 찾아 재생할 필요가 없다.

@@ -277,6 +277,11 @@ def subtitle_mask(frame, band=None, ref=None):
         keep[max(0, y0):min(frame.shape[0], y1), :] = 255
         m = cv2.bitwise_and(m, keep)
 
+    # 획 두께는 '붙이기 전' 상태로 재둔다. 한자처럼 획이 촘촘한 글자는
+    # 붙이고 나면 속이 꽉 찬 덩어리가 되어, 나중에 재면 글자가 아니라고
+    # 걸러진다(실제로 중국어 자막이 통째로 안 잡혔다).
+    core = cv2.erode(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+
     # 흩어진 획을 한 덩어리(글자·단어)로 붙인다.
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
                          cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3)))
@@ -293,7 +298,13 @@ def subtitle_mask(frame, band=None, ref=None):
             continue
         if area < 20:
             continue
-        out[lab == i] = 255
+        here = lab == i
+        # 글자는 획이 얇다. 깎아내도 속이 많이 남는다면 글자가 아니라
+        # 흰 그릇·손·하이라이트 같은 덩어리다. 그걸 지우면 그 자리가
+        # 통째로 뭉개져 화면이 깨진다.
+        if int(core[here].sum()) / 255 > area * 0.30:
+            continue
+        out[here] = 255
     return out
 
 
@@ -321,11 +332,39 @@ def find_subtitle_band(path: str, samples: int = 24):
         return None
     rows /= hit
     thr = max(rows.max() * 0.25, 2.0)
-    ys = np.where(rows > thr)[0]
-    if not len(ys):
+    on = rows > thr
+    if not on.any():
         return None
+
+    # 이어진 구간들을 따로 모은다. 최소~최대로 한 덩어리를 만들면, 위쪽
+    # 자막과 아래쪽 오검출 하나 사이의 화면 전체가 띠가 되어버린다.
+    runs, start = [], None
+    gap = max(4, int(h * 0.01))          # 이만큼 떨어지면 다른 구간
+    miss = 0
+    for y in range(h):
+        if on[y]:
+            if start is None:
+                start = y
+            miss = 0
+        elif start is not None:
+            miss += 1
+            if miss > gap:
+                runs.append((start, y - miss + 1))
+                start = None
+    if start is not None:
+        runs.append((start, h))
+    if not runs:
+        return None
+
+    # 가장 글자가 많이 모인 구간 하나만 쓴다.
+    y0, y1 = max(runs, key=lambda r: rows[r[0]:r[1]].sum())
     pad = int(h * 0.02)
-    return [int(max(0, ys.min() - pad)), int(min(h, ys.max() + pad + 1))]
+    y0 = int(max(0, y0 - pad))
+    y1 = int(min(h, y1 + pad))
+    # 아무리 커도 화면의 3할을 넘기지 않는다. 그 이상은 자막이 아니다.
+    if y1 - y0 > h * 0.3:
+        y1 = y0 + int(h * 0.3)
+    return [y0, y1]
 
 
 def video_info(path: str) -> dict:
@@ -419,7 +458,13 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
     y0, y1 = (band if band else (0, h))
     y0 = max(0, min(y0, h - 1))
     y1 = max(y0 + 1, min(y1, h))
+    # 띠가 넓을수록 손댈 곳이 많아져 화면이 상할 위험이 커진다. 자막은
+    # 아무리 커도 화면의 3할을 넘지 않는다. 화면 쪽에서 잘못 보내와도
+    # 여기서 자른다.
+    if y1 - y0 > h * 0.3:
+        y1 = y0 + int(h * 0.3)
     done = 0
+    skipped = 0          # 화면이 깨질까 봐 손대지 않고 지나간 장면 수
     try:
         while True:
             ok, f = cap.read()
@@ -430,6 +475,17 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
             if m.any():
                 # 글자 가장자리의 흐린 획까지 덮도록 조금 부풀린다.
                 m = cv2.dilate(m, grow, iterations=1)
+
+                # 마지막 안전장치. 띠 안을 이만큼이나 지워야 한다면 그건
+                # 자막이 아니라 화면 자체다(띠를 넓게 잡았거나 밝은 물건이
+                # 들어왔거나). 그대로 메우면 그 대목이 통째로 뭉개진다.
+                # 자막이 남는 것이 화면이 깨지는 것보다 낫다.
+                if (m > 0).mean() > 0.28:
+                    skipped += 1
+                    proc.stdin.write(f.tobytes())
+                    done += 1
+                    continue
+
                 # 메우는 반경은 3이 가장 깨끗했다. 넓게 잡으면 주변 색이
                 # 더 많이 끌려와 오히려 자국이 커진다.
                 f[y0:y1] = cv2.inpaint(strip, m, 3, cv2.INPAINT_TELEA)
@@ -450,6 +506,7 @@ def erase_subtitles(src: str, dst: str, band=None, on_progress=None) -> None:
         raise RuntimeError(f"영상을 저장하지 못했습니다. {err.strip()[:200]}")
     if on_progress:
         on_progress(1.0)
+    return {"frames": done, "skipped": skipped}
 
 
 def video_job_start(job_id: str, src: str, dst: str, band):
@@ -460,9 +517,11 @@ def video_job_start(job_id: str, src: str, dst: str, band):
                 with _video_lock:
                     if job_id in _video_jobs:
                         _video_jobs[job_id]["progress"] = round(p, 3)
-            erase_subtitles(src, dst, band, prog)
+            res = erase_subtitles(src, dst, band, prog) or {}
             with _video_lock:
-                _video_jobs[job_id].update(done=True, progress=1.0, out=dst)
+                _video_jobs[job_id].update(done=True, progress=1.0, out=dst,
+                                           skipped=res.get("skipped", 0),
+                                           frames=res.get("frames", 0))
         except Exception as exc:            # noqa: BLE001 - 화면에 그대로 보여준다
             with _video_lock:
                 _video_jobs[job_id].update(done=True, error=str(exc))
@@ -2046,7 +2105,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.26 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.27 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():
