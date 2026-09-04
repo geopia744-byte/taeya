@@ -1454,7 +1454,16 @@ function drawRulers() {
   if (!box.width || !box.height) return;
   const dpr = window.devicePixelRatio || 1;
   const badge = $('#ed-size-badge');
-  if (badge) badge.textContent = `${cv.width} × ${cv.height} px`;
+  if (badge) {
+    // 확대·축소를 하다 보면 원래 사진이 몇 픽셀이었는지 감을 잃는다.
+    // 잘라낸 크기와 불러온 파일의 크기를 함께 적는다.
+    const src = editing && (editing.cleanImg || editing.img);
+    let t = `${cv.width} × ${cv.height} px`;
+    if (src && (src.naturalWidth !== cv.width || src.naturalHeight !== cv.height)) {
+      t += `  ·  원본 ${src.naturalWidth} × ${src.naturalHeight}`;
+    }
+    badge.textContent = t;
+  }
 
   const paint = (canvas, cssW, cssH, horizontal, scrolled, imgLen) => {
     canvas.style.width = `${cssW}px`;
@@ -1480,10 +1489,9 @@ function drawRulers() {
       if (at < -20 || at > shown + 20) continue;
       const big = Math.abs(v % step) < 0.001;
       const inside = v <= imgLen;                // 사진 안쪽 눈금은 밝게
-      // 눈금자는 흰 바탕이다. 사진 안쪽은 진하게, 밖은 흐리게 그어
-      // 어디까지가 사진인지 보이게 한다.
-      ctx.strokeStyle = inside ? '#1b2028' : '#a9b0bc';
-      ctx.fillStyle = inside ? '#1b2028' : '#a9b0bc';
+      // 회색 자 위에 흰 눈금. 사진 밖은 흐리게 그어 경계가 보인다.
+      ctx.strokeStyle = inside ? '#ffffff' : '#666e7d';
+      ctx.fillStyle = inside ? '#ffffff' : '#79818f';
       ctx.lineWidth = big ? 1.4 : 1;
       const a = Math.round(at) + 0.5;
       ctx.beginPath();

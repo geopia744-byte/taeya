@@ -2274,16 +2274,16 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   place-items: center;
   font-size: 10px;
   font-weight: 800;
-  color: #6b7383;
-  background: #f4f6fa;
-  border-right: 1px solid #c9cfd9;
-  border-bottom: 1px solid #c9cfd9;
+  color: #cfd5e0;
+  background: #262c38;
+  border-right: 1px solid #3a4150;
+  border-bottom: 1px solid #3a4150;
   white-space: nowrap;
   overflow: hidden;
 }
-.ruler { display: block; background: #f4f6fa; }
-#ruler-top  { border-bottom: 1px solid #c9cfd9; }
-#ruler-left { border-right: 1px solid #c9cfd9; }
+.ruler { display: block; background: #262c38; }
+#ruler-top  { border-bottom: 1px solid #3a4150; }
+#ruler-left { border-right: 1px solid #3a4150; }
 
 /* 저장될 사진의 실제 크기. 눈금자 모서리에 넣으면 잘려서 아래에 둔다. */
 .size-badge {
