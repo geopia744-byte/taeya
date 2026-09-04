@@ -95,11 +95,36 @@ body {
 .panel .seg button em { color: #b7c9ff; opacity: .95; font-weight: 700; }  /* "무료" 태그 */
 .panel .check { color: #e6e9ef; font-size: 13px; font-weight: 500; }  /* 체크박스 라벨(인스타 화면 자동으로 잘라내기) */
 .panel .check input { accent-color: #8f78ff; }
+.check-lab-strong { font-size: 14.5px; font-weight: 700; color: #f4f6fa; }
 .panel .hint { color: #d3d7de; }                    /* "이 어조와 리듬을 따라 씁니다" 등 안내문 */
 .panel .opt { color: rgba(255,255,255,.9); }        /* "선택" 표시 */
 .panel ::placeholder { color: #838ba0; }            /* 입력칸 안내 문구(예: 20대 타겟, 감성적인 톤...) */
 .panel select { color: #f5f6f9; font-weight: 600; }
 .panel textarea, .panel input[type="text"], .panel input[type="password"] { color: #f5f6f9; }
+
+/* ── 특정 섹션 제목 가독성 강화 (2026-09) ──────────────────
+   .group h2 공통 스타일은 그대로 두고, 요청받은 섹션만 글자를
+   키우고 선명하게 만든다. 왼쪽 패널 구조/ID는 손대지 않는다. */
+
+/* 1) 작성 언어 — 글자 확대 + 색상을 초록 계열로 교체 */
+.panel .lang-group h2 {
+  font-size: 16px;
+  padding: 11px 14px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 3px 10px rgba(16, 185, 129, .3);
+}
+
+/* 2) 사진처리 방식 — 글자만 확대 (색은 기존 유지) */
+.panel .photo-group h2 { font-size: 16px; }
+
+/* 3) 이미지 넣기 — 제목 확대 */
+.panel .input-group h2 { font-size: 16px; }
+
+/* 4) 콘셉트 · 타깃 — 제목 확대 */
+.panel .concept-group h2 { font-size: 16px; }
+
+/* 5) 문체 샘플 선택 — 제목 확대 */
+.panel .style-group h2 { font-size: 16px; }
 
 /* 파일 고르기 / 폴더 통째로 / 목록 비우기 — 예전엔 흐린 회색이라 눈에 안 띄었던 것을
    또렷한 글자색 + 살짝의 보라 톤 테두리로 다른 버튼들과 통일감 있게 밝힌다. */
@@ -112,10 +137,29 @@ body {
 .panel .filebtn:hover { border-color: #7C5CFF; background: rgba(124, 92, 255, .1); }
 .panel .filebtn.primary-ghost { border-color: #6a5cd6; background: rgba(124, 92, 255, .08); }
 
+/* 4) 파일 고르기 / 폴더 통째로 — 글자 확대 + 선명하게 (이미지 넣기 섹션 전용) */
+.panel .input-group .filebtn {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #f5f7fb;
+}
+
+/* 5) 작성 언어 드롭다운 — 글자 확대 + 굵게 */
+.panel .lang-group select {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* 6) 사진처리 방식 — 글자만 지우기 / 사진 새로 만들기 버튼 글자 확대 + 굵게 */
+.panel .photo-group .seg.col button {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
 .panel .ghost {
   color: #d7dbe4;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14.5px;
+  font-weight: 700;
 }
 .panel .ghost:hover:not(:disabled) { color: #fff; border-color: #4a5164; }
 
@@ -151,7 +195,7 @@ body {
 }
 
 .brand-name b {
-  font-size: 14.5px;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: #fff;
@@ -228,6 +272,11 @@ body {
   line-height: 1.55;
 }
 
+.hint-strong {
+  color: #eef1f6;
+  font-weight: 700;
+}
+
 /* 입력 */
 
 select, textarea, input[type="text"], input[type="password"] {
@@ -286,6 +335,7 @@ button:disabled { cursor: not-allowed; opacity: .4; }
 
 #run {
   margin-top: 10px;
+  margin-bottom: 18px;
   background: #ffc736;
   color: #1a1300;
 }
@@ -1230,7 +1280,7 @@ output {
   color: var(--ink-faint);
 }
 
-.font-pick { flex: 1; min-width: 0; padding: 6px 8px; font-size: 13px; font-weight: 600; }
+.font-pick { flex: 1; min-width: 0; padding: 6px 8px; font-size: 13px; font-weight: 700; color: #f4f6fa; }
 
 input[type="color"] {
   flex: 0 0 34px;
@@ -1343,14 +1393,15 @@ input[type="color"] {
   color: #d7dbe4;
 }
 .ed-style .row { margin-bottom: 9px; }
-.ed-style .row-label { flex: 0 0 34px; font-size: 13px; font-weight: 700; color: #d7dbe4; }
+.ed-style .row-label { flex: 0 0 34px; font-size: 13.5px; font-weight: 800; color: #f4f6fa; }
 
 .w-pick {
   flex: 1;
   min-width: 0;
   padding: 6px 8px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+  color: #f4f6fa;
 }
 
 .ed-foot {
@@ -1390,6 +1441,8 @@ input[type="color"] {
 #ed-word-mark   { background: linear-gradient(135deg, #7C5CFF, #22A8F0); }
 #ed-word-clear  { background: linear-gradient(135deg, #3D4A63, #263041); }
 #ed-line-reset  { background: linear-gradient(135deg, #3D4A63, #263041); }
+#ed-crop-reset      { background: linear-gradient(135deg, #3D4A63, #263041); }
+#ed-crop-apply-all  { background: linear-gradient(135deg, #34D399, #059669); }
 
 .card-body textarea {
   min-height: 78px;
@@ -1603,6 +1656,7 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
 
 .batch-row:last-child { border-bottom: none; }
 .batch-row:hover { background: rgba(255, 255, 255, .03); }
+.batch-row-clickable { cursor: pointer; }
 
 .batch-check {
   flex: 0 0 auto;
@@ -1921,7 +1975,6 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   flex: 1 0 100%;
   background: linear-gradient(135deg, #4F8CFF, #2B6BE0);
 }
-#font-hint { margin: 4px 0 10px; }
 
 /* 저장 크기 직접 지정 */
 .size-row { gap: 8px; }

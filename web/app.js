@@ -356,6 +356,7 @@ function serializeCard(card, inDashboard, inArchive, sortIndex) {
     imgDataUrl: card.dataUrl || null,
     cleanDataUrl: card.cleanImg?.src || null,
     crop: card.crop || null,
+    manualCrop: card.manualCrop || null,
     copy: card.copy || null,
     origTitle: card.origTitle || null,
     category: card.category,
@@ -456,6 +457,7 @@ async function restoreAllCards() {
       dataUrl: rec.imgDataUrl,
       cleanImg: null,
       crop: rec.crop,
+      manualCrop: rec.manualCrop || null,
       copy: rec.copy,
       origTitle: rec.origTitle,
       status: rec.status,
@@ -1227,10 +1229,24 @@ function renderAll() {
 }
 
 // 자동 잘라내기 스위치를 반영한다.
-function cropFor(img) {
+// card.manualCrop 이 있으면(사용자가 위/아래 자름 슬라이더를 만졌으면)
+// 자동 감지 대신 그 값을 그대로 쓴다 — 사진마다 자동 감지 폭이 달라
+// 카드 크기가 들쭉날쭉해지는 문제를 사용자가 직접 맞출 수 있게 한다.
+function cropFor(img, card) {
+  if (card?.manualCrop) return manualCropRect(img, card.manualCrop);
   return state.autoCrop
     ? detectPhotoRegion(img)
     : { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
+}
+
+// 위/아래를 퍼센트(%)로 얼마나 잘라낼지 받아 실제 픽셀 crop 사각형으로 바꾼다.
+function manualCropRect(img, { top = 0, bottom = 0 }) {
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const y0 = Math.round(H * (top / 100));
+  const y1 = Math.round(H * (1 - bottom / 100));
+  const h = Math.max(1, y1 - y0);
+  return { x: 0, y: y0, w: W, h };
 }
 
 /* ── 카드 만들기 ───────────────────────────────────────── */
@@ -1406,7 +1422,7 @@ async function setCardImage(card, idx) {
     card.img = await loadImage(url);
     card.dataUrl = url;
     card.sourceIndex = i;
-    card.crop = cropFor(card.img);
+    card.crop = cropFor(card.img, card);
     render(card);
   } catch (err) {
     console.error('스레드 사진을 불러오지 못했습니다', err);
@@ -1723,6 +1739,11 @@ function openEditor(card) {
   $('#ed-head').value = card.headText || '';
   $('#ed-head').disabled = !card.headOn;
   $('#ed-body').value = (card.copy.title_lines || []).join('\n');
+  const mc = card.manualCrop || { top: 0, bottom: 0 };
+  $('#ed-crop-top').value = mc.top;
+  $('#ed-crop-top-out').textContent = `${mc.top}%`;
+  $('#ed-crop-bottom').value = mc.bottom;
+  $('#ed-crop-bottom-out').textContent = `${mc.bottom}%`;
   lineSel = 'all';
   wordSel = null;
   renderLineSelUI();
@@ -1796,7 +1817,7 @@ function removeCard(card) {
 // 카드는 대시보드에 그대로 남고, 사용자가 카드의 ✕(빼기)를 직접
 // 눌러야만 대시보드에서 없어진다. 완성 목록에는 별개로 계속 남아있다.
 function moveToArchive(card) {
-  if (card.archived) return;   // 이미 보낸 카드는 중복으로 다시 넣지 않는다
+  if (state.archivedCards.includes(card)) return;   // 이미 보낸 카드는 중복으로 다시 넣지 않는다
   card.archived = true;
   state.archivedCards.push(card);
   const archiveBtn = card.el?.querySelector('[data-role="archive"]');
@@ -2553,6 +2574,42 @@ async function runAll() {
 
 /* ── 내보내기 ──────────────────────────────────────────── */
 
+// 완성 창고의 카드를 다시 대시보드로 되돌려 편집을 이어가게 한다.
+// moveToArchive()는 "복사"라서 대부분의 카드는 이미 대시보드에도 남아있지만,
+// 사용자가 대시보드에서 ✕(빼기)로 지운 카드는 완성 창고에만 남아 화면 밖
+// 캔버스만 갖고 있다 — 그런 카드는 restoreAllCards()와 같은 방식으로
+// 실제 그리드에 다시 마운트한 다음 편집창을 연다.
+function resumeFromArchive(card) {
+  // 완성 창고에서 나온 카드는 "이미 보냈다"는 표시가 계속 남아있어서
+  // [완성 목록으로 보내기] 버튼이 안 보였다 — 다시 작업을 이어가는
+  // 것이므로 이 표시를 꺼서 버튼이 다시 나타나게 한다.
+  card.archived = false;
+
+  if (!state.cards.includes(card)) {
+    mountCard(card);
+    state.cards.push(card);
+    if (card.copy) fillCard(card);
+    render(card);
+    applyThreadUI(card);
+    if (card.favorite) {
+      const favBtn = card.el.querySelector('[data-act="fav"]');
+      if (favBtn) { favBtn.textContent = '★'; favBtn.classList.add('on'); }
+    }
+    applyCategory();
+  }
+  // 완성 창고에 들어와 있던 카드는 애초에 [완성 목록으로 보내기]를 눌러야만
+  // 들어올 수 있었으므로 항상 완료 상태였다. 그런데도 상태 판정이 어긋나면
+  // 버튼이 숨은 채로 남는 문제가 있어, 여기서는 무조건 done으로 확정하고
+  // 버튼도 직접 다시 보이게 만든다(둘 다 해두면 어떤 경우에도 안전하다).
+  setStatus(card, 'done');
+  const archiveBtn = card.el?.querySelector('[data-role="archive"]');
+  if (archiveBtn) archiveBtn.hidden = false;
+  schedulePersist();
+  toast('대시보드로 되돌렸습니다 — 이어서 작업하세요');
+  closeArchiveView();
+  openEditor(card);
+}
+
 function doneCards() {
   // "완성 목록" 다이얼로그는 이제 자동으로 done인 걸 다 보여주지 않고,
   // 사용자가 카드에서 직접 "📥 완성 목록으로 보내기"를 눌러 옮긴 것만 보여준다.
@@ -2622,9 +2679,15 @@ function renderBatchList() {
 
     row.querySelector('.batch-title').textContent = batchTitleStr(card);
 
+    // 행을 클릭하면(체크박스·다른 버튼 제외) 대시보드로 되돌려 이어서 작업한다.
+    row.classList.add('batch-row-clickable');
+    row.title = '클릭하면 대시보드로 돌아가 이어서 작업합니다';
+    row.addEventListener('click', () => resumeFromArchive(card));
+
     // 체크칸은 지금은 실행 동작 없이 사용자가 직접 표시해두는 용도(예: 구글시트로 옮긴 것 체크).
     const check = row.querySelector('.batch-check');
     check.checked = !!card.batchChecked;
+    check.addEventListener('click', (ev) => ev.stopPropagation());
     check.addEventListener('change', () => {
       card.batchChecked = check.checked;
       schedulePersist();
@@ -3182,10 +3245,12 @@ function renderLineSelUI() {
 
   if (resetBtn) resetBtn.hidden = (lineSel === 'all');
   if (hint) {
-    hint.hidden = false;
-    hint.textContent = lineSel === 'all'
-      ? '지금은 "전체"가 선택돼 있어서 아래 크기·글꼴·색을 바꾸면 모든 줄이 같이 바뀝니다. 한 줄만 바꾸려면 위에서 "1줄"·"2줄"을 눌러주세요.'
-      : '이 줄만 아래 크기·글꼴·색이 다르게 적용됩니다.';
+    if (lineSel === 'all') {
+      hint.hidden = true;
+    } else {
+      hint.hidden = false;
+      hint.textContent = '이 줄만 아래 크기·글꼴·색이 다르게 적용됩니다.';
+    }
   }
 }
 
@@ -3433,14 +3498,6 @@ function init() {
   });
   $('#pick-clear').addEventListener('click', clearPicks);
 
-  $('#clear-all').addEventListener('click', () => {
-    state.cards.forEach((c) => c.el?.remove());
-    state.cards = [];
-    state.lastSaveDir = null;
-    applyCategory();   // 칩에 붙은 장수도 같이 지워야 한다
-    schedulePersist();
-  });
-
   // 끌어다 놓기
   let dragDepth = 0;
   window.addEventListener('dragenter', (e) => {
@@ -3524,7 +3581,7 @@ function init() {
     state.autoCrop = e.target.checked;
     saveSettings();
     state.cards.forEach((card) => {
-      if (card.img) card.crop = cropFor(card.img);
+      if (card.img) card.crop = cropFor(card.img, card);
     });
     renderAll();
   });
@@ -3647,6 +3704,59 @@ function init() {
   $('#ed-reset-text').addEventListener('click', () => {
     if (editing) resetTitle(editing);
   });
+
+  // 사진 자르기(위/아래) — 슬라이더를 만지면 자동 감지 대신 이 값을 쓴다.
+  function applyManualCrop(card, top, bottom) {
+    card.manualCrop = { top, bottom };
+    card.crop = cropFor(card.img, card);
+    render(card);
+    // 편집 중인 카드는 지금 card.canvas 가 큰 편집창(ed-canvas) 쪽을
+    // 가리키고 있으므로, 대시보드의 작은 카드 썸네일도 같이 갱신해준다.
+    if (card === editing && card.smallCanvas) {
+      const bigCanvas = card.canvas;
+      card.canvas = card.smallCanvas;
+      render(card);
+      card.canvas = bigCanvas;
+    }
+    schedulePersist();
+  }
+  $('#ed-crop-top').addEventListener('input', (e) => {
+    if (!editing) return;
+    const top = +e.target.value;
+    $('#ed-crop-top-out').textContent = `${top}%`;
+    applyManualCrop(editing, top, editing.manualCrop?.bottom || 0);
+  });
+  $('#ed-crop-bottom').addEventListener('input', (e) => {
+    if (!editing) return;
+    const bottom = +e.target.value;
+    $('#ed-crop-bottom-out').textContent = `${bottom}%`;
+    applyManualCrop(editing, editing.manualCrop?.top || 0, bottom);
+  });
+  $('#ed-crop-reset').addEventListener('click', () => {
+    if (!editing) return;
+    editing.manualCrop = null;
+    editing.crop = cropFor(editing.img, editing);
+    $('#ed-crop-top').value = 0;
+    $('#ed-crop-top-out').textContent = '0%';
+    $('#ed-crop-bottom').value = 0;
+    $('#ed-crop-bottom-out').textContent = '0%';
+    render(editing);
+    schedulePersist();
+    toast('자동 잘라내기로 되돌렸습니다');
+  });
+  $('#ed-crop-apply-all').addEventListener('click', () => {
+    if (!editing) return;
+    const top = +$('#ed-crop-top').value;
+    const bottom = +$('#ed-crop-bottom').value;
+    const byId = new Map();
+    [...state.cards, ...state.archivedCards].forEach((c) => byId.set(c.id, c));
+    byId.forEach((card) => {
+      if (!card.img) return;
+      applyManualCrop(card, top, bottom);
+    });
+    toast('모든 카드를 같은 비율로 통일했습니다');
+  });
+
   $('#ed-save').addEventListener('click', () => {
     if (!editing) return;
     openSaveDialog(editing);
