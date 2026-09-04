@@ -1112,15 +1112,7 @@ async function addFiles(fileList, plain = false) {
       if (plain) {
         // 편집·저장이 곧바로 되도록 최소한의 뼈대를 채워둔다. text_area 를
         // 0 으로 두어야 원본 글자를 가리는 덮개가 생기지 않는다.
-        card.copy = {
-          title_lines: ['여기에 제목을 넣으세요'],
-          body: '',
-          hashtags: [],
-          source_text: '',
-          scene: '',
-          text_area: { top: 0, bottom: 0 },
-          overlays: [],
-        };
+        card.copy = blankCopy();
         card.origTitle = [...card.copy.title_lines];
         card.photoDone = true;
         card.madeBy = 'off';
@@ -1536,8 +1528,33 @@ let bodyEditing = null;   // 본문(긴 글) 편집 팝업이 지금 어느 카�
 let archivePage = 1;      // 완성 목록 — 지금 보고 있는 페이지
 const ARCHIVE_PAGE_SIZE = 12;   // 한 페이지에 12개씩
 
+// 아직 변환하지 않은 사진에서도 글자 편집이 열려야 한다. 어느 단추로
+// 올렸는지에 따라 되고 안 되고가 갈리면, 사용자는 그걸 기억하고 있어야
+// 한다. 글상자가 없으면 그 자리에서 빈 것을 만들어 준다 - AI 는 부르지
+// 않으므로 돈이 들지 않는다.
+function blankCopy() {
+  return {
+    title_lines: ['여기에 제목을 넣으세요'],
+    body: '',
+    hashtags: [],
+    source_text: '',
+    scene: '',
+    text_area: { top: 0, bottom: 0 },   // 가릴 원본 글자가 없다
+    overlays: [],
+  };
+}
+
 function openEditor(card) {
-  if (!card.copy) return toast('먼저 변환해주세요', true);
+  if (!card.img) return toast('사진을 아직 읽지 못했습니다', true);
+  if (!card.copy) {
+    card.copy = blankCopy();
+    card.origTitle = [...card.copy.title_lines];
+    card.plain = true;        // AI 를 안 쓰겠다는 뜻이므로 대기열에서 뺀다
+    card.photoDone = true;
+    card.madeBy = 'off';
+    fillCard(card);
+    schedulePersist();
+  }
   editing = card;
   card.smallCanvas = card.canvas;
   card.canvas = $('#ed-canvas');
@@ -1568,7 +1585,17 @@ function closeEditor() {
  * 데이터다. 이건 카드 하단 "본문 보기" 안 글(card.copy.body)을
  * 그대로 편집하는 것뿐이라, 저장돼도 사진에는 아무 변화가 없다. */
 function openBodyEditor(card) {
-  if (!card.copy) return toast('먼저 변환해주세요', true);
+  // 글자 편집과 같은 이유로, 변환 전에도 열려야 한다.
+  if (!card.img) return toast('사진을 아직 읽지 못했습니다', true);
+  if (!card.copy) {
+    card.copy = blankCopy();
+    card.origTitle = [...card.copy.title_lines];
+    card.plain = true;
+    card.photoDone = true;
+    card.madeBy = 'off';
+    fillCard(card);
+    schedulePersist();
+  }
   bodyEditing = card;
   $('#body-edit-text').value = card.copy.body || '';
   $('#body-edit-dlg').showModal();
