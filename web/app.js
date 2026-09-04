@@ -1156,7 +1156,23 @@ function render(card) {
  * 때문이다. 픽셀로 저장하면 창을 옮길 때마다 자리가 어긋난다.
  */
 
-const STAMP_KINDS = ['arrow-r', 'arrow-l', 'arrow-u', 'arrow-d', 'circle', 'rect'];
+// 스티커로 쓸 이모지. 손 모양·표정 같은 것은 선으로 그리면 조잡해지는데
+// 이모지는 컬러로 깔끔하고 크게 키워도 안 깨진다.
+const STAMP_EMOJI = [
+  '👍', '👎', '👉', '👈', '👇', '☝️', '👀', '🙌',
+  '❤️', '🔥', '⭐', '💯', '✅', '❌', '⚠️', '❗',
+  '❓', '💡', '🎯', '💰', '🎁', '🏆', '😱', '😍',
+  '🤔', '😭', '🤣', '👑', '🚨', '📌', '✨', '💥',
+];
+
+// 도형마다 가로세로 비율이 다르다. 밑줄은 납작하고 세로 화살표는 길쭉하다.
+const STAMP_RATIO = {
+  'arrow-r': 0.62, 'arrow-l': 0.62, 'arrow-both': 0.62,
+  'arrow-u': 1 / 0.62, 'arrow-d': 1 / 0.62,
+  'arrow-curve': 0.75, 'arrow-bend': 0.9,
+  underline: 0.16, marker: 0.34,
+  bubble: 0.8,
+};
 
 function stampsOf(card) {
   if (!Array.isArray(card.stamps)) card.stamps = [];
@@ -1167,10 +1183,177 @@ function stampsOf(card) {
 // 가릴 때도 이걸 쓴다.
 function stampBox(st, w, h) {
   const size = st.size * w;                 // 긴 쪽 길이
-  const vertical = st.kind === 'arrow-u' || st.kind === 'arrow-d';
-  const bw = vertical ? size * 0.62 : size;
-  const bh = vertical ? size : size * 0.62;
+  const r = STAMP_RATIO[st.kind] ?? 1;      // 세로 / 가로
+  const bw = r > 1 ? size / r : size;
+  const bh = r > 1 ? size : size * r;
   return { x: st.x * w - bw / 2, y: st.y * h - bh / 2, w: bw, h: bh };
+}
+
+
+// 화살표 촉. 끝점 (x,y) 에서 angle 방향을 향하는 삼각형을 채운다.
+function arrowHead(ctx, x, y, angle, len) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-len, -len * 0.55);
+  ctx.lineTo(-len, len * 0.55);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawOneStamp(ctx, st, b, cx, cy) {
+  const lw = ctx.lineWidth;
+  const long = Math.max(b.w, b.h);
+
+  switch (st.kind) {
+    case 'emoji': {
+      // 이모지는 글자다. 네모 한가운데 꽉 차게 그린다.
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `${b.h * 0.92}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+      ctx.fillText(st.char || '⭐', cx, cy + b.h * 0.04);
+      return;
+    }
+    case 'circle':
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, b.w / 2 - lw / 2, b.h / 2 - lw / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      return;
+
+    case 'rect':
+      ctx.beginPath();
+      ctx.roundRect(b.x + lw / 2, b.y + lw / 2, b.w - lw, b.h - lw,
+                    Math.min(b.w, b.h) * 0.12);
+      ctx.stroke();
+      return;
+
+    case 'underline':      // 글자 밑에 긋는 굵은 줄
+      ctx.lineWidth = Math.max(3, b.h * 0.55);
+      ctx.beginPath();
+      ctx.moveTo(b.x + lw, cy);
+      ctx.lineTo(b.x + b.w - lw, cy);
+      ctx.stroke();
+      return;
+
+    case 'marker':         // 형광펜 — 글자가 비쳐 보이게 반투명
+      ctx.globalAlpha = 0.42;
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = b.h * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(b.x + b.h * 0.2, cy);
+      ctx.lineTo(b.x + b.w - b.h * 0.2, cy);
+      ctx.stroke();
+      return;
+
+    case 'star': {
+      const R = Math.min(b.w, b.h) / 2 - lw / 2;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const rr = i % 2 ? R * 0.44 : R;
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        const fn = i ? 'lineTo' : 'moveTo';
+        ctx[fn](cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+      }
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    case 'heart': {
+      const W = b.w - lw, H = b.h - lw;
+      const top = cy - H * 0.30;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + H * 0.42);
+      ctx.bezierCurveTo(cx - W * 0.78, cy - H * 0.06, cx - W * 0.40, top - H * 0.30, cx, top);
+      ctx.bezierCurveTo(cx + W * 0.40, top - H * 0.30, cx + W * 0.78, cy - H * 0.06, cx, cy + H * 0.42);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    case 'check':
+      ctx.beginPath();
+      ctx.moveTo(b.x + b.w * 0.14, cy + b.h * 0.04);
+      ctx.lineTo(b.x + b.w * 0.40, cy + b.h * 0.30);
+      ctx.lineTo(b.x + b.w * 0.88, cy - b.h * 0.32);
+      ctx.stroke();
+      return;
+
+    case 'xmark':
+      ctx.beginPath();
+      ctx.moveTo(b.x + b.w * 0.16, b.y + b.h * 0.16);
+      ctx.lineTo(b.x + b.w * 0.84, b.y + b.h * 0.84);
+      ctx.moveTo(b.x + b.w * 0.84, b.y + b.h * 0.16);
+      ctx.lineTo(b.x + b.w * 0.16, b.y + b.h * 0.84);
+      ctx.stroke();
+      return;
+
+    case 'bubble': {       // 말풍선 — 아래쪽에 꼬리
+      const r = Math.min(b.w, b.h) * 0.2;
+      const bodyH = b.h * 0.78;
+      ctx.beginPath();
+      ctx.roundRect(b.x + lw / 2, b.y + lw / 2, b.w - lw, bodyH - lw, r);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(b.x + b.w * 0.28, b.y + bodyH - lw / 2);
+      ctx.lineTo(b.x + b.w * 0.22, b.y + b.h - lw);
+      ctx.lineTo(b.x + b.w * 0.46, b.y + bodyH - lw / 2);
+      ctx.stroke();
+      return;
+    }
+
+    case 'arrow-curve': {  // 꼬부랑 — 활처럼 휜 화살표
+      const x0 = b.x + lw, x1 = b.x + b.w - lw;
+      const y0 = b.y + b.h * 0.82, y1 = b.y + b.h * 0.30;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(b.x + b.w * 0.42, b.y + b.h * 0.02, x1, y1);
+      ctx.stroke();
+      // 끝에서의 진행 방향으로 촉을 돌린다
+      const px = b.x + b.w * 0.42, py = b.y + b.h * 0.02;
+      arrowHead(ctx, x1, y1, Math.atan2(y1 - py, x1 - px), long * 0.26);
+      return;
+    }
+
+    case 'arrow-bend': {   // 꺾인 — 오른쪽으로 갔다가 아래로
+      const x0 = b.x + lw, x1 = b.x + b.w * 0.78;
+      const y0 = b.y + b.h * 0.20, y1 = b.y + b.h - lw;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y0);
+      ctx.lineTo(x1, y1 - long * 0.20);
+      ctx.stroke();
+      arrowHead(ctx, x1, y1, Math.PI / 2, long * 0.24);
+      return;
+    }
+
+    case 'arrow-both': {   // 양쪽 화살표
+      const head = long * 0.26;
+      ctx.beginPath();
+      ctx.moveTo(b.x + head * 0.9, cy);
+      ctx.lineTo(b.x + b.w - head * 0.9, cy);
+      ctx.stroke();
+      arrowHead(ctx, b.x + b.w, cy, 0, head);
+      arrowHead(ctx, b.x, cy, Math.PI, head);
+      return;
+    }
+
+    default: {             // 화살표 네 방향 — 오른쪽으로 그리고 돌려 쓴다
+      const turn = { 'arrow-r': 0, 'arrow-d': Math.PI / 2,
+                     'arrow-l': Math.PI, 'arrow-u': -Math.PI / 2 }[st.kind] || 0;
+      const head = long * 0.38;
+      ctx.translate(cx, cy);
+      ctx.rotate(turn);
+      ctx.beginPath();
+      ctx.moveTo(-long / 2, 0);
+      ctx.lineTo(long / 2 - head * 0.35, 0);
+      ctx.stroke();
+      arrowHead(ctx, long / 2, 0, 0, head);
+    }
+  }
 }
 
 function drawStamps(ctx, card, w, h) {
@@ -1190,35 +1373,7 @@ function drawStamps(ctx, card, w, h) {
     const cx = b.x + b.w / 2;
     const cy = b.y + b.h / 2;
 
-    if (st.kind === 'circle') {
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, b.w / 2 - ctx.lineWidth / 2, b.h / 2 - ctx.lineWidth / 2, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (st.kind === 'rect') {
-      const r = Math.min(b.w, b.h) * 0.12;
-      ctx.beginPath();
-      ctx.roundRect(b.x + ctx.lineWidth / 2, b.y + ctx.lineWidth / 2,
-                    b.w - ctx.lineWidth, b.h - ctx.lineWidth, r);
-      ctx.stroke();
-    } else {
-      // 화살표 — 오른쪽을 기준으로 그리고 나머지 방향은 돌려서 쓴다.
-      const turn = { 'arrow-r': 0, 'arrow-d': Math.PI / 2,
-                     'arrow-l': Math.PI, 'arrow-u': -Math.PI / 2 }[st.kind] || 0;
-      const len = Math.max(b.w, b.h);
-      const headLen = len * 0.38;
-      ctx.translate(cx, cy);
-      ctx.rotate(turn);
-      ctx.beginPath();
-      ctx.moveTo(-len / 2, 0);
-      ctx.lineTo(len / 2 - headLen * 0.35, 0);
-      ctx.stroke();
-      ctx.beginPath();                       // 촉은 삼각형으로 채운다
-      ctx.moveTo(len / 2, 0);
-      ctx.lineTo(len / 2 - headLen, -headLen * 0.55);
-      ctx.lineTo(len / 2 - headLen, headLen * 0.55);
-      ctx.closePath();
-      ctx.fill();
-    }
+    drawOneStamp(ctx, st, b, cx, cy);
     ctx.restore();
 
     // 고른 것에는 옅은 테두리를 둘러 어느 것이 선택됐는지 알린다.
@@ -1771,7 +1926,7 @@ function bindDrag(getCard, canvas) {
     canvas.classList.add('dragging');
 
     if (si >= 0) {
-      if (card === editing) { stampSel = si; render(card); }
+      if (card === editing) { stampSel = si; stampSyncUI(); render(card); }
       const st = stampsOf(card)[si];
       const grabX = p.x / canvas.width - st.x;
       const grabY = p.y / canvas.height - st.y;
@@ -1830,7 +1985,7 @@ function bindDrag(getCard, canvas) {
     const st = stampsOf(card)[si];
     const k = ev.deltaY < 0 ? 1.08 : 1 / 1.08;
     st.size = Math.max(0.04, Math.min(1.6, st.size * k));
-    if (card === editing) stampSel = si;
+    if (card === editing) { stampSel = si; stampSyncUI(); }
     render(card);
     schedulePersist();
   }, { passive: false });
@@ -1845,6 +2000,7 @@ function bindDrag(getCard, canvas) {
 
 let editing = null;
 let stampSel = -1;        // 편집창에서 지금 골라 둔 요소(도형) 번호. 없으면 -1
+let stampSyncUI = () => {};   // 요소 팝오버의 칸을 지금 고른 것에 맞추는 함수
 let bodyEditing = null;   // 본문(긴 글) 편집 팝업이 지금 어느 카드를 다루고 있는지
 let archivePage = 1;      // 완성 목록 — 지금 보고 있는 페이지
 const ARCHIVE_PAGE_SIZE = 12;   // 한 페이지에 12개씩
@@ -3839,22 +3995,67 @@ function init() {
       stampPop.hidden = true;
     });
 
+    // 스티커 칸은 이모지가 많아 손으로 적지 않고 코드에서 채운다.
+    const emojiBox = $('#stamp-emoji');
+    STAMP_EMOJI.forEach((ch) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.k = 'emoji';
+      btn.dataset.ch = ch;
+      btn.textContent = ch;
+      emojiBox.appendChild(btn);
+    });
+
+    bindSegment('#stamp-tabs', (t) => {
+      $('#stamp-grid').hidden = t !== 'shape';
+      emojiBox.hidden = t !== 'emoji';
+      // 이모지는 제 색을 갖고 있어 색·굵기를 바꿀 수 없다. 그 칸을
+      // 숨겨서 만졌는데 아무 일도 안 일어나는 일을 막는다.
+      $('#stamp-weight-row').hidden = t === 'emoji';
+      $('#stamp-color-row').hidden = t === 'emoji';
+    });
+
+    // 지금 골라 둔 것의 크기·색·굵기를 칸에 비춘다.
+    function syncStampUI() {
+      const st = editing && stampSel >= 0 ? stampsOf(editing)[stampSel] : null;
+      if (!st) return;
+      $('#stamp-size').value = Math.round(st.size * 100);
+      $('#stamp-size-out').textContent = `${Math.round(st.size * 100)}%`;
+      if (st.kind !== 'emoji') {
+        $('#stamp-color').value = st.color;
+        $('#stamp-weight').value = st.weight;
+        $('#stamp-weight-out').textContent = st.weight;
+      }
+    }
+    stampSyncUI = syncStampUI;   // 사진에서 끌거나 골랐을 때도 칸을 맞춘다
+
     // 도형을 고르면 사진 한가운데에 얹는다. 거기서 끌어 옮기면 된다.
-    $('#stamp-grid').addEventListener('click', (ev) => {
+    const addStamp = (ev) => {
       const btn = ev.target.closest('button[data-k]');
       if (!btn || !editing) return;
       const list = stampsOf(editing);
       list.push({
         kind: btn.dataset.k,
+        char: btn.dataset.ch || null,
         x: 0.5, y: 0.5,
-        size: 0.3,
+        size: +$('#stamp-size').value / 100,
         color: stampColor(),
         weight: stampWeight(),
       });
       stampSel = list.length - 1;
       render(editing);
       schedulePersist();
-      toast('사진 위에서 끌어 옮기고, 휠을 굴려 크기를 바꾸세요');
+      toast('사진 위에서 끌어 옮기고, 크기 막대나 휠로 크기를 바꾸세요');
+    };
+    $('#stamp-grid').addEventListener('click', addStamp);
+    emojiBox.addEventListener('click', addStamp);
+
+    $('#stamp-size').addEventListener('input', (e) => {
+      $('#stamp-size-out').textContent = `${e.target.value}%`;
+      if (!editing || stampSel < 0) return;
+      stampsOf(editing)[stampSel].size = +e.target.value / 100;
+      render(editing);
+      schedulePersist();
     });
 
     // 색·굵기는 골라 둔 것이 있으면 그것에, 없으면 다음에 넣을 것에 쓴다.

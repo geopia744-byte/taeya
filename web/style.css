@@ -2205,3 +2205,28 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
 
 #stamp-del   { background: linear-gradient(135deg, #C0392B, #8E241A); }
 #stamp-clear { background: linear-gradient(135deg, #3D4A63, #263041); }
+
+/* 요소 팝오버 — 화살표·도형 / 스티커 두 칸으로 나눈다 */
+.stamp-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.stamp-tabs button {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  background: #1b2029;
+  border: 1px solid #323846;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.stamp-tabs button.on { color: #fff; background: #2f3a4e; border-color: #4a5468; }
+
+/* 도형이 16개로 늘어 두 줄이 된다. 스티커는 더 촘촘하게. */
+.stamp-grid { grid-template-columns: repeat(8, 1fr); }
+.stamp-grid button { font-size: 17px; }
+.emoji-grid { grid-template-columns: repeat(8, 1fr); }
+.emoji-grid button { font-size: 19px; }

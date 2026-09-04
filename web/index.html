@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.48</span></em>
+        <em>자동화 <span class="ver">v13.49</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -472,17 +472,34 @@
           <button type="button" class="close-pop" id="stamp-pop-close">✕</button>
         </div>
 
+        <div class="stamp-tabs" id="stamp-tabs">
+          <button type="button" data-v="shape" class="on">화살표 · 도형</button>
+          <button type="button" data-v="emoji">스티커</button>
+        </div>
+
         <div class="stamp-grid" id="stamp-grid">
           <button type="button" data-k="arrow-r" title="오른쪽 화살표">➡</button>
           <button type="button" data-k="arrow-l" title="왼쪽 화살표">⬅</button>
           <button type="button" data-k="arrow-u" title="위 화살표">⬆</button>
           <button type="button" data-k="arrow-d" title="아래 화살표">⬇</button>
+          <button type="button" data-k="arrow-curve" title="꼬부랑 화살표">↝</button>
+          <button type="button" data-k="arrow-bend" title="꺾인 화살표">↴</button>
+          <button type="button" data-k="arrow-both" title="양쪽 화살표">↔</button>
           <button type="button" data-k="circle" title="동그라미"><i class="sh-circle"></i></button>
           <button type="button" data-k="rect" title="네모"><i class="sh-rect"></i></button>
+          <button type="button" data-k="bubble" title="말풍선">💬</button>
+          <button type="button" data-k="star" title="별">★</button>
+          <button type="button" data-k="heart" title="하트">♥</button>
+          <button type="button" data-k="check" title="체크">✔</button>
+          <button type="button" data-k="xmark" title="가위표">✘</button>
+          <button type="button" data-k="underline" title="밑줄">▁</button>
+          <button type="button" data-k="marker" title="형광펜">▬</button>
         </div>
 
+        <div class="stamp-grid emoji-grid" id="stamp-emoji" hidden></div>
+
         <div class="ed-style">
-          <div class="row">
+          <div class="row" id="stamp-color-row">
             <span class="row-label">색</span>
             <input type="color" id="stamp-color" value="#FF3B30">
             <div class="seg stamp-colors" id="stamp-preset">
@@ -495,13 +512,18 @@
             </div>
           </div>
           <div class="row">
+            <span class="row-label">크기</span>
+            <input type="range" id="stamp-size" min="5" max="140" step="1" value="30">
+            <output id="stamp-size-out">30%</output>
+          </div>
+          <div class="row" id="stamp-weight-row">
             <span class="row-label">굵기</span>
             <input type="range" id="stamp-weight" min="4" max="20" step="1" value="10">
             <output id="stamp-weight-out">10</output>
           </div>
         </div>
 
-        <p class="hint hint-strong">사진 위에서 <b>끌면 이동</b>, <b>휠을 굴리면 크기</b>가 바뀝니다.</p>
+        <p class="hint hint-strong">사진 위에서 <b>끌면 이동</b>. 크기는 위 <b>크기</b> 막대나 <b>휠</b>로 바꿉니다.</p>
         <div class="row">
           <button type="button" class="mini half" id="stamp-del">🗑 고른 것 지우기</button>
           <button type="button" class="mini half" id="stamp-clear">전부 지우기</button>
