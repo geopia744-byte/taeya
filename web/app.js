@@ -15,8 +15,10 @@ const LINE_HEIGHT = 1.22;   // 제목 줄간격 배수 (기본값)
 
 // 사용자가 조절한 줄 간격까지 반영한 실제 배수.
 // 사진 위 줄 간격이 고정이라 두 줄이 늘 붙어 나왔다.
-function lineMul() {
-  const g = Number(state.lineGap);
+function lineMul(card) {
+  const raw = card && card.style && card.style.lineGap !== undefined
+    ? card.style.lineGap : state.lineGap;
+  const g = Number(raw);
   return LINE_HEIGHT * ((Number.isFinite(g) ? g : 100) / 100);
 }
 const MAX_TITLE_LINES = 4;  // 이보다 많아지면 글자를 줄인다
@@ -367,6 +369,7 @@ function serializeCard(card, inDashboard, inArchive, sortIndex) {
     headText: card.headText || '',
     posHead: card.posHead || null,
     posBody: card.posBody || null,
+    style: card.style || {},
     lineStyle: card.lineStyle || {},
     wordStyle: card.wordStyle || {},
     batchChecked: !!card.batchChecked,
@@ -467,6 +470,7 @@ async function restoreAllCards() {
       headText: rec.headText,
       posHead: rec.posHead,
       posBody: rec.posBody,
+      style: rec.style || {},
       lineStyle: rec.lineStyle || {},
       wordStyle: rec.wordStyle || {},
       batchChecked: rec.batchChecked,
@@ -751,7 +755,7 @@ function wrapTokenLines(ctx, tokenLines, maxWidth) {
   return out;
 }
 
-function fitTitle(ctx, lines, boxW, boxH, startSize, weight = 900, font = '') {
+function fitTitle(ctx, lines, boxW, boxH, startSize, weight = 900, font = '', mul = null) {
   const clean = lines.map((l) => String(l).trim()).filter(Boolean);
   if (!clean.length) return { size: startSize, wrapped: [] };
   const face = fontOf(font);
@@ -760,7 +764,7 @@ function fitTitle(ctx, lines, boxW, boxH, startSize, weight = 900, font = '') {
   const fits = (size, outLines) => {
     ctx.font = `${weight} ${size}px ${face}`;
     return outLines.every((toks) => ctx.measureText(lineText(toks)).width <= boxW)
-        && outLines.length * size * lineMul() <= boxH;
+        && outLines.length * size * (mul || lineMul()) <= boxH;
   };
 
   // 1단계 — AI가 준 줄 구성을 그대로 지키면서 글자만 줄여본다.
@@ -879,8 +883,24 @@ function clampLeft(ctx, fit, weight, font, left, w) {
 
    테두리를 두를 때는 그늘을 끈다. 둘 다 켜면 그늘이 테두리 바깥으로
    또 번져서 글자가 두 겹으로 지저분해진다. */
+// 지금 그리는 카드. paintText 는 캔버스 밑바닥 함수라 카드를 넘겨받기
+// 어려워서, 그리기 시작할 때 여기에 적어두고 쓴다.
+let painting = null;
+
+function strokeColorNow() {
+  const c = painting && painting.style && painting.style.strokeColor !== undefined
+    ? painting.style.strokeColor : state.strokeColor;
+  return c && c !== 'none' ? c : null;
+}
+
+function strokeSizeNow() {
+  const v = painting && painting.style && painting.style.strokeSize !== undefined
+    ? painting.style.strokeSize : state.strokeSize;
+  return Number(v) || 3;
+}
+
 function strokeOn() {
-  return state.strokeColor && state.strokeColor !== 'none';
+  return !!strokeColorNow();
 }
 
 // 글자 하나(또는 한 줄)를 테두리와 함께 그린다.
@@ -889,8 +909,8 @@ function paintText(ctx, text, x, y, size) {
     ctx.save();
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
-    ctx.lineWidth = Math.max(1, size * state.strokeSize * 0.028);
-    ctx.strokeStyle = state.strokeColor;
+    ctx.lineWidth = Math.max(1, size * strokeSizeNow() * 0.028);
+    ctx.strokeStyle = strokeColorNow();
     ctx.lineJoin = 'round';
     ctx.miterLimit = 2;
     ctx.strokeText(text, x, y);
@@ -984,6 +1004,7 @@ function render(card) {
   canvas.height = h;
   const ctx = canvas.getContext('2d');
 
+  painting = card;     // 테두리 등 카드별 값을 밑바닥 함수도 볼 수 있게
   ctx.clearRect(0, 0, w, h);
   ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, w, h);
 
@@ -1011,22 +1032,27 @@ function render(card) {
    * 셋 다 없으면 전부 공통값으로 그려지던 원래 동작 그대로다. */
   let body = null;
   if (lines.length) {
-    const base = h * (state.textSize / 100);
-    ctx.font = `${state.bodyWeight} ${base}px ${fontOf(state.bodyFont)}`;
-    const fit = fitTitle(ctx, lines, boxW, h * 0.44, base, state.bodyWeight,
-                         state.bodyFont);
+    const cWeight = cardStyle(card, 'weight');
+    const cFont = cardStyle(card, 'font');
+    const cColor = cardStyle(card, 'color');
+    const cSize = cardStyle(card, 'size');
+    const mul = lineMul(card);
+
+    const base = h * (cSize / 100);
+    ctx.font = `${cWeight} ${base}px ${fontOf(cFont)}`;
+    const fit = fitTitle(ctx, lines, boxW, h * 0.44, base, cWeight, cFont, mul);
 
     const outLines = fit.wrapped.map((tokens) => {
       const words = tokens.map((tok) => {
         const lineOv = card.lineStyle?.[tok.origin] || {};
         const wordOv = card.wordStyle?.[tok.origin]?.[tok.wordIndex] || {};
-        const weight = wordOv.weight || lineOv.weight || state.bodyWeight;
-        const font = wordOv.font || lineOv.font || state.bodyFont;
-        const color = wordOv.color || lineOv.color || state.bodyColor;
-        const sizePct = wordOv.size || lineOv.size || state.textSize;
+        const weight = wordOv.weight || lineOv.weight || cWeight;
+        const font = wordOv.font || lineOv.font || cFont;
+        const color = wordOv.color || lineOv.color || cColor;
+        const sizePct = wordOv.size || lineOv.size || cSize;
         return { text: tok.text, color, font, weight, size: h * (sizePct / 100) };
       });
-      const lineH = Math.max(...words.map((w) => w.size)) * lineMul();
+      const lineH = Math.max(...words.map((w) => w.size)) * mul;
       return { words, lineH };
     });
 
@@ -1040,7 +1066,7 @@ function render(card) {
       let guard = 0;
       while (widthOf() > boxW && guard < 40) {
         ln.words.forEach((w) => { w.size *= 0.95; });
-        ln.lineH = Math.max(...ln.words.map((w) => w.size)) * lineMul();
+        ln.lineH = Math.max(...ln.words.map((w) => w.size)) * lineMul(card);
         guard++;
       }
     });
@@ -1072,7 +1098,7 @@ function render(card) {
     const base = h * (state.headSize / 100);
     const fit = fitTitle(ctx, headLines, boxW, h * 0.3, base, state.headWeight,
                          state.headFont);
-    const blockH = fit.wrapped.length * fit.size * lineMul();
+    const blockH = fit.wrapped.length * fit.size * lineMul(card);
     let top = card.posHead ? card.posHead.y * h : pad;
     let left = card.posHead ? card.posHead.x * w : pad;
     top = Math.max(0, Math.min(h - blockH, top));
@@ -1228,6 +1254,7 @@ async function addFiles(fileList, plain = false) {
       favorite: false,
       plain: !!plain,
       createdAt: new Date(),
+      style: {},       // 이 카드만의 크기·글꼴·색·줄간격·테두리
       lineStyle: {},   // 본문 특정 줄만 다른 글꼴·크기·색을 줄 때 씀 { [줄번호]: {size,font,color,weight} }
       wordStyle: {},   // 본문 특정 단어만 강조할 때 씀 { [줄번호]: { [단어번호]: {size,font,color,weight} } }
     };
@@ -1700,6 +1727,9 @@ function openEditor(card) {
   wordSel = null;
   renderLineSelUI();
   syncBodyLineUI();
+  // 카드마다 값이 다르므로, 열 때 이 카드 값으로 칸을 다시 채운다.
+  // 이게 없으면 앞서 편집하던 카드의 값이 그대로 남아 보인다.
+  syncStyleUI();
   render(card);
   $('#editor').showModal();
 }
@@ -2972,16 +3002,19 @@ function syncStyleUI() {
   set('#body-color', state.bodyColor);
   set('#head-color', state.headColor); set('#ed-head-color', state.headColor);
 
-  set('#ed-line-gap', state.lineGap);
+  // 편집창 값은 지금 편집 중인 카드 것을 보여준다. 없으면 기본값.
+  const mine = (k) => (editing && editing.style && editing.style[k] !== undefined
+    ? editing.style[k] : state[k]);
+  set('#ed-line-gap', mine('lineGap'));
   const lg = $('#ed-line-gap-out');
-  if (lg) lg.textContent = `${state.lineGap}%`;
+  if (lg) lg.textContent = `${mine('lineGap')}%`;
 
-  seg('#ed-stroke', state.strokeColor);
-  set('#ed-stroke-size', state.strokeSize);
+  seg('#ed-stroke', mine('strokeColor'));
+  set('#ed-stroke-size', mine('strokeSize'));
   const so = $('#ed-stroke-size-out');
-  if (so) so.textContent = state.strokeSize;
+  if (so) so.textContent = mine('strokeSize');
   const swr = $('#ed-stroke-w-row');
-  if (swr) swr.hidden = !strokeOn();     // 안 두를 땐 두께 칸도 숨긴다
+  if (swr) swr.hidden = !(mine('strokeColor') && mine('strokeColor') !== 'none');
 
   seg('#body-weight', state.bodyWeight);
   seg('#head-weight', state.headWeight);  set('#ed-head-weight', state.headWeight);
@@ -3006,15 +3039,27 @@ let wordSel = null;    // { origin, wordIndices, label } | null — 선택된 �
 
 const LINE_KEYMAP = { size: 'textSize', font: 'bodyFont', color: 'bodyColor', weight: 'bodyWeight' };
 
+/* 카드마다 따로 갖는 글자 모양.
+
+   원래는 크기·글꼴·색·줄간격이 프로그램 전체 설정 하나뿐이었다. 그래서
+   한 카드를 편집하면 다른 카드들까지 같이 바뀌었다. 카드가 제 값을
+   가지면 그 카드만 바뀐다.
+
+   찾는 순서: 단어 강조 > 줄 스타일 > 이 카드 > 전체 기본값 */
+function cardStyle(card, key) {
+  const v = card && card.style ? card.style[key] : undefined;
+  return v !== undefined ? v : state[LINE_KEYMAP[key] || key];
+}
+
 function bodyLineValue(key) {
   if (wordSel && editing) {
     const wordOv = editing.wordStyle?.[wordSel.origin]?.[wordSel.wordIndices[0]] || {};
     if (wordOv[key] !== undefined) return wordOv[key];
     const lineOv = editing.lineStyle?.[wordSel.origin] || {};
-    return lineOv[key] !== undefined ? lineOv[key] : state[LINE_KEYMAP[key]];
+    return lineOv[key] !== undefined ? lineOv[key] : cardStyle(editing, key);
   }
   const ov = (lineSel !== 'all' && editing?.lineStyle?.[lineSel]) || {};
-  return ov[key] !== undefined ? ov[key] : state[LINE_KEYMAP[key]];
+  return ov[key] !== undefined ? ov[key] : cardStyle(editing, key);
 }
 
 function setBodyStyle(key, value) {
@@ -3028,8 +3073,18 @@ function setBodyStyle(key, value) {
     render(editing);
     return;
   }
-  if (lineSel === 'all' || !editing) {
-    setStyle(LINE_KEYMAP[key], value);
+  if (lineSel === 'all') {
+    // '전체'는 '이 카드의 모든 줄'이라는 뜻이다. 다른 카드까지 바뀌면
+    // 한 장을 손보다 나머지 장을 전부 망친다.
+    if (editing) {
+      editing.style ||= {};
+      editing.style[key] = value;
+      syncStyleUI();
+      render(editing);
+      schedulePersist();
+    } else {
+      setStyle(LINE_KEYMAP[key], value);
+    }
     return;
   }
   editing.lineStyle ||= {};
@@ -3135,6 +3190,21 @@ function renderLineSelUI() {
 }
 
 // 값 하나를 바꾸고, 두 화면을 맞추고, 모든 카드를 다시 그린다.
+/* 편집창에서 만지는 값은 그 카드에만 넣는다. 편집창을 안 열고 왼쪽
+   패널에서 만졌다면 갈 데가 없으므로 전체 기본값으로 넣는다. */
+function setCardOrGlobal(key, value) {
+  if (editing) {
+    editing.style ||= {};
+    editing.style[key] = value;
+    render(editing);
+    schedulePersist();
+    return;
+  }
+  state[key] = value;
+  saveSettings();
+  renderAll();
+}
+
 function setStyle(key, value) {
   state[key] = value;
   syncStyleUI();
@@ -3488,24 +3558,17 @@ function init() {
     });
   });
   $('#ed-line-gap').addEventListener('input', (e) => {
-    state.lineGap = +e.target.value;
     $('#ed-line-gap-out').textContent = `${e.target.value}%`;
-    saveSettings();
-    renderAll();
+    setCardOrGlobal('lineGap', +e.target.value);
   });
 
   bindSegment('#ed-stroke', (v) => {
-    state.strokeColor = v;
-    saveSettings();
-    syncStyleUI();
-    if (editing) render(editing);
-    state.cards.forEach((c) => { if (c !== editing && c.copy) render(c); });
+    setCardOrGlobal('strokeColor', v);
+    syncStyleUI();          // 두께 칸을 켜고 끈다
   });
   $('#ed-stroke-size').addEventListener('input', (e) => {
-    state.strokeSize = +e.target.value;
     $('#ed-stroke-size-out').textContent = e.target.value;
-    saveSettings();
-    if (editing) render(editing);
+    setCardOrGlobal('strokeSize', +e.target.value);
   });
 
   bindSegment('#body-weight', (v) => setStyle('bodyWeight', +v));
