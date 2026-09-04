@@ -325,6 +325,7 @@ function serializeCard(card, inDashboard, inArchive, sortIndex) {
     origTitle: card.origTitle || null,
     category: card.category,
     favorite: !!card.favorite,
+    plain: !!card.plain,
     createdAt: (card.createdAt || new Date()).toISOString(),
     status: card.status === 'done' ? 'done' : 'idle',
     photoDone: !!card.photoDone,
@@ -410,6 +411,7 @@ async function restoreAllCards() {
       error: null,
       category: rec.category,
       favorite: rec.favorite,
+      plain: !!rec.plain,
       createdAt: new Date(rec.createdAt),
       photoDone: rec.photoDone,
       madeBy: rec.madeBy,
@@ -1076,7 +1078,9 @@ function cropFor(img) {
 
 /* ── 카드 만들기 ───────────────────────────────────────── */
 
-async function addFiles(fileList) {
+// plain=true 면 AI 를 한 번도 거치지 않는다. 사진을 그대로 올려두고
+// 글자는 사용자가 [글자 편집] 으로 직접 얹는다. 돈이 들지 않는 길이다.
+async function addFiles(fileList, plain = false) {
   const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'));
   if (!files.length) return;
 
@@ -1091,6 +1095,7 @@ async function addFiles(fileList) {
       error: null,
       category: state.category,   // 넣는 순간의 항목에 담긴다
       favorite: false,
+      plain: !!plain,
       createdAt: new Date(),
       lineStyle: {},   // 본문 특정 줄만 다른 글꼴·크기·색을 줄 때 씀 { [줄번호]: {size,font,color,weight} }
       wordStyle: {},   // 본문 특정 단어만 강조할 때 씀 { [줄번호]: { [단어번호]: {size,font,color,weight} } }
@@ -1103,8 +1108,28 @@ async function addFiles(fileList) {
       card.dataUrl = url;
       card.img = await loadImage(url);
       card.crop = cropFor(card.img);
-      render(card);
-      setStatus(card, 'idle');
+
+      if (plain) {
+        // 편집·저장이 곧바로 되도록 최소한의 뼈대를 채워둔다. text_area 를
+        // 0 으로 두어야 원본 글자를 가리는 덮개가 생기지 않는다.
+        card.copy = {
+          title_lines: ['여기에 제목을 넣으세요'],
+          body: '',
+          hashtags: [],
+          source_text: '',
+          scene: '',
+          text_area: { top: 0, bottom: 0 },
+          overlays: [],
+        };
+        card.origTitle = [...card.copy.title_lines];
+        card.photoDone = true;
+        card.madeBy = 'off';
+        fillCard(card);          // 상태를 'done' 으로 만들어 준다
+        schedulePersist();
+      } else {
+        render(card);
+        setStatus(card, 'idle');
+      }
     } catch (err) {
       setError(card, err.message);
     }
@@ -2256,7 +2281,11 @@ async function runAll() {
   const picked = pickedInCategory();
   const pool = picked.length ? picked : inCategory();
   const queue = pool.filter((c) =>
-    c.img && c.status !== 'working' && (c.status !== 'done' || needsRemake(c)));
+    c.img && c.status !== 'working' && (c.status !== 'done' || needsRemake(c))
+    // '사진만 넣기'로 올린 카드는 AI 를 안 쓰겠다는 뜻이다. 습관적으로
+    // [이미지 변환] 을 눌렀다가 돈이 나가면 안 된다. ✓ 로 콕 집었을
+    // 때만 돈다.
+    && (!c.plain || picked.length));
 
   if (!queue.length) {
     // 조용히 아무 일도 안 일어나면 고장으로 보인다. 왜 안 도는지 말해준다.
@@ -3058,6 +3087,10 @@ function init() {
   // 파일 넣기
   $('#pick-files').addEventListener('change', (e) => {
     addFiles(e.target.files); e.target.value = '';
+  });
+  $('#pick-plain').addEventListener('change', (e) => {
+    addFiles(e.target.files, true);
+    e.target.value = '';
   });
   $('#pick-folder').addEventListener('change', (e) => {
     addFiles(e.target.files); e.target.value = '';

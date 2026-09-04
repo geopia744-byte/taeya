@@ -1897,3 +1897,13 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   cursor: pointer;
 }
 .vid-band .vid-drop:hover { background: rgba(200, 60, 60, .85); color: #fff; }
+
+/* AI 없이 사진만 올리는 단추. 돈이 드는 단추들과 눈으로 구분되게 한다. */
+.filebtn.plain-btn {
+  border-color: rgba(125, 226, 195, .45);
+  color: #bff0dd;
+}
+.filebtn.plain-btn:hover {
+  border-color: rgba(125, 226, 195, .8);
+  background: rgba(125, 226, 195, .1);
+}
