@@ -2138,3 +2138,13 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   padding: 0 4px;
 }
 .close-pop:hover { color: #fff; }
+
+/* ① ② ③ — 누르는 차례. 크고 굵게 해서 눈에 먼저 들어오게 한다.
+   색은 단추 글자색을 그대로 따라간다. 흰색으로 못박으면 노란 단추
+   위에서 오히려 안 보인다. */
+.step {
+  font-size: 1.3em;
+  font-weight: 900;
+  color: inherit;
+  margin-right: 3px;
+}

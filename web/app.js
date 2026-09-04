@@ -3419,8 +3419,10 @@ function syncUI() {
   // 무엇이 돌아갈지 버튼에 적는다. 고른 것과 도는 것이 어긋나면 안 된다.
   const picked = here.filter((c) => c.picked).length;
   const what = state.hasGemini ? MODE_LABEL[state.photoMode] : null;
+  // 앞의 ③ 은 누르는 차례를 알려주는 것이라 늘 붙어 있어야 한다. 그래서
+  // 단추 글자를 통째로 갈아끼우지 않고, 번호 옆의 칸만 바꾼다.
   const head = picked ? `선택한 ${picked}장 변환` : '이미지 변환';
-  $('#run').textContent = state.running
+  $('#run-label').textContent = state.running
     ? '변환 중…'
     : (what ? `${head} — ${what}` : head);
 
