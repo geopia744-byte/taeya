@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.49</span></em>
+        <em>자동화 <span class="ver">v13.50</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -404,8 +404,14 @@
 <dialog id="editor">
   <div class="ed">
     <div class="ed-stage">
-      <canvas id="ed-canvas"></canvas>
-      <p class="ed-tip">사진 위 글자를 <b>손으로 끌어서</b> 원하는 자리로 옮기세요.</p>
+      <!-- 눈금자 — 실제 사진의 픽셀 자리를 보여준다 -->
+      <div class="ruler-wrap">
+        <div class="ruler-corner">px</div>
+        <canvas id="ruler-top" class="ruler"></canvas>
+        <canvas id="ruler-left" class="ruler"></canvas>
+        <canvas id="ed-canvas"></canvas>
+      </div>
+      <p class="ed-tip"><b id="ed-size-badge" class="size-badge">—</b>사진 위 글자를 <b>손으로 끌어서</b> 원하는 자리로 옮기세요.</p>
     </div>
     <div class="ed-side">
       <div class="ed-head-row">

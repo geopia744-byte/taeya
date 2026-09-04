@@ -2230,3 +2230,40 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
 .stamp-grid button { font-size: 17px; }
 .emoji-grid { grid-template-columns: repeat(8, 1fr); }
 .emoji-grid button { font-size: 19px; }
+
+/* ── 눈금자 ───────────────────────────────────────────────
+   사진의 실제 픽셀 자리를 위·왼쪽에 표시한다. 눈금은 화면에
+   보이는 크기가 아니라 저장될 사진의 크기를 가리킨다. */
+.ruler-wrap {
+  display: grid;
+  grid-template-columns: 30px auto;
+  grid-template-rows: 18px auto;
+  gap: 0;
+}
+.ruler-corner {
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--ink-faint);
+  background: #101319;
+  border-right: 1px solid #262c38;
+  border-bottom: 1px solid #262c38;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ruler { display: block; background: #101319; }
+#ruler-top  { border-bottom: 1px solid #262c38; }
+#ruler-left { border-right: 1px solid #262c38; }
+
+/* 저장될 사진의 실제 크기. 눈금자 모서리에 넣으면 잘려서 아래에 둔다. */
+.size-badge {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  background: #2f3a4e;
+  border-radius: 999px;
+}

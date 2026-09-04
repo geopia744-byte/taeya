@@ -1143,6 +1143,10 @@ function render(card) {
 
   drawStamps(ctx, card, w, h);
   if (hasLogo()) drawLogo(ctx, w);
+
+  // 편집창에 그린 것이면 눈금자도 그 크기에 맞춘다. 캔버스가 화면에
+  // 자리를 잡은 뒤라야 길이를 잴 수 있어 다음 칸에서 그린다.
+  if (card === editing && canvas.id === 'ed-canvas') requestAnimationFrame(drawRulers);
 }
 
 
@@ -1354,6 +1358,81 @@ function drawOneStamp(ctx, st, b, cx, cy) {
       arrowHead(ctx, long / 2, 0, 0, head);
     }
   }
+}
+
+
+/* ── 눈금자 ──────────────────────────────────────────────
+ *
+ * 사진의 실제 픽셀 자리를 위·왼쪽에 표시한다. 편집창의 캔버스는 화면에
+ * 맞춰 줄여서 보여주므로, 눈금은 화면 크기가 아니라 저장될 사진의 크기를
+ * 가리켜야 한다. 그래서 (보이는 길이 / 실제 픽셀) 비율로 자리를 잡는다.
+ */
+function rulerStep(px) {
+  // 눈금이 너무 촘촘하거나 성기지 않게, 사진 크기에 따라 간격을 고른다.
+  for (const step of [50, 100, 200, 250, 500, 1000]) {
+    if (px / step <= 12) return step;
+  }
+  return 1000;
+}
+
+function drawRulers() {
+  const cv = $('#ed-canvas');
+  const top = $('#ruler-top');
+  const left = $('#ruler-left');
+  if (!cv || !top || !left) return;
+
+  const box = cv.getBoundingClientRect();
+  if (!box.width || !box.height) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.width, H = cv.height;              // 실제 사진 픽셀
+  const badge = $('#ed-size-badge');
+  if (badge) badge.textContent = `${W} × ${H} px`;
+
+  const paint = (canvas, cssW, cssH, total, horizontal) => {
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, cssW, cssH);
+    ctx.fillStyle = '#8a93a6';
+    ctx.strokeStyle = '#5a6478';
+    ctx.lineWidth = 1;
+    ctx.font = '9px system-ui, sans-serif';
+    ctx.textAlign = horizontal ? 'center' : 'right';
+    ctx.textBaseline = horizontal ? 'bottom' : 'middle';
+
+    const shown = horizontal ? cssW : cssH;
+    const step = rulerStep(total);
+    const half = step / 2;
+    for (let v = 0; v <= total; v += half) {
+      const at = (v / total) * shown;
+      const big = v % step === 0;
+      // 0.5 를 더해야 선이 흐리게 번지지 않는다.
+      const a = Math.round(at) + 0.5;
+      ctx.beginPath();
+      if (horizontal) {
+        ctx.moveTo(a, cssH);
+        ctx.lineTo(a, cssH - (big ? 7 : 4));
+      } else {
+        ctx.moveTo(cssW, a);
+        ctx.lineTo(cssW - (big ? 7 : 4), a);
+      }
+      ctx.stroke();
+      if (!big || v === 0) continue;
+      if (horizontal) {
+        // 맨 끝 숫자가 잘리지 않게 안쪽으로 붙인다.
+        const x = Math.min(Math.max(at, 12), cssW - 12);
+        ctx.fillText(String(v), x, cssH - 8);
+      } else {
+        ctx.fillText(String(v), cssW - 9, Math.min(Math.max(at, 6), cssH - 6));
+      }
+    }
+  };
+
+  paint(top, box.width, 18, W, true);
+  paint(left, 30, box.height, H, false);
 }
 
 function drawStamps(ctx, card, w, h) {
@@ -4112,6 +4191,8 @@ function init() {
 
 
   // 큰 편집창
+  window.addEventListener('resize', () => { if (editing) drawRulers(); });
+
   $('#ed-close').addEventListener('click', () => $('#editor').close());
   $('#editor').addEventListener('close', () => {
     ['#title-popover', '#stamp-popover'].forEach((id) => {
