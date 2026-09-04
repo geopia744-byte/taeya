@@ -1183,6 +1183,11 @@ function drawTextLogo(ctx, w) {
 
 // 고른 종류에 맞는 칸만 보여준다. 위치·크기는 로고가 실제로 있을 때만.
 function syncLogoBoxes() {
+  // 편집창 단추에 지금 로고가 켜졌는지 표시한다. 창을 열어보지 않아도
+  // 알 수 있어야 한다.
+  const btn = $('#ed-logo');
+  if (btn) btn.classList.toggle('on', hasLogo());
+
   const box = $('#logo-image-box');
   if (!box) return;
   const text = state.logoMode === 'text';
@@ -3407,6 +3412,11 @@ function init() {
     syncLogoBoxes();
     renderAll();
   });
+  $('#ed-logo').addEventListener('click', () => {
+    syncStyleUI();          // 지금 값이 창에 그대로 보이게
+    $('#logo-dlg').showModal();
+  });
+
   bindSegment('#logo-mode', (v) => {
     state.logoMode = v;
     saveSettings();
