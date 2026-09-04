@@ -1146,7 +1146,7 @@ function render(card) {
 
   // 편집창에 그린 것이면 눈금자도 그 크기에 맞춘다. 캔버스가 화면에
   // 자리를 잡은 뒤라야 길이를 잴 수 있어 다음 칸에서 그린다.
-  if (card === editing && canvas.id === 'ed-canvas') requestAnimationFrame(drawRulers);
+  if (card === editing && canvas.id === 'ed-canvas') requestAnimationFrame(applyZoom);
 }
 
 
@@ -1367,28 +1367,61 @@ function drawOneStamp(ctx, st, b, cx, cy) {
  * 맞춰 줄여서 보여주므로, 눈금은 화면 크기가 아니라 저장될 사진의 크기를
  * 가리켜야 한다. 그래서 (보이는 길이 / 실제 픽셀) 비율로 자리를 잡는다.
  */
-function rulerStep(px) {
-  // 눈금이 너무 촘촘하거나 성기지 않게, 사진 크기에 따라 간격을 고른다.
-  for (const step of [50, 100, 200, 250, 500, 1000]) {
-    if (px / step <= 12) return step;
+let edZoom = 1;          // 편집창 확대 배율 (1 = 실제 크기)
+let edFit = true;        // 화면에 맞춤 상태인가. 창 크기가 바뀌면 다시 맞춘다
+
+// 눈금 간격은 화면에서 눈금 사이가 얼마나 벌어지는지로 정한다.
+// 사진 픽셀 기준으로 정하면, 축소했을 때 숫자가 서로 겹쳐 못 읽는다.
+function rulerStep() {
+  for (const step of [10, 20, 50, 100, 200, 250, 500, 1000, 2000]) {
+    if (step * edZoom >= 55) return step;   // 눈금 사이를 화면 55px 이상으로
   }
-  return 1000;
+  return 5000;
 }
 
+// 사진을 자리 안에 꽉 차게 넣는 배율
+function fitZoom() {
+  const cv = $('#ed-canvas');
+  const vp = $('#ed-viewport');
+  if (!cv || !vp || !cv.width) return 1;
+  const box = vp.getBoundingClientRect();
+  if (!box.width || !box.height) return 1;
+  const pad = 24;
+  return Math.min((box.width - pad) / cv.width, (box.height - pad) / cv.height, 4);
+}
+
+function applyZoom() {
+  const cv = $('#ed-canvas');
+  if (!cv || !cv.width) return;
+  if (edFit) edZoom = fitZoom();
+  edZoom = Math.max(0.05, Math.min(4, edZoom));
+  cv.style.width = `${Math.round(cv.width * edZoom)}px`;
+  cv.style.height = `${Math.round(cv.height * edZoom)}px`;
+  const txt = $('#zoom-out-txt');
+  if (txt) txt.textContent = `${Math.round(edZoom * 100)}%`;
+  drawRulers();
+}
+
+/* ── 눈금자 ──────────────────────────────────────────────
+ *
+ * 사진에 딱 붙이지 않고 자리(viewport) 전체에 긋는다. 그래야 사진보다
+ * 큰 숫자까지 보이고, 사진을 줄이거나 키워도 눈금이 이어진다.
+ * 눈금이 가리키는 값은 화면 길이가 아니라 저장될 사진의 픽셀이다.
+ */
 function drawRulers() {
   const cv = $('#ed-canvas');
+  const vp = $('#ed-viewport');
   const top = $('#ruler-top');
   const left = $('#ruler-left');
-  if (!cv || !top || !left) return;
+  if (!cv || !vp || !top || !left) return;
 
-  const box = cv.getBoundingClientRect();
+  const box = vp.getBoundingClientRect();
   if (!box.width || !box.height) return;
   const dpr = window.devicePixelRatio || 1;
-  const W = cv.width, H = cv.height;              // 실제 사진 픽셀
   const badge = $('#ed-size-badge');
-  if (badge) badge.textContent = `${W} × ${H} px`;
+  if (badge) badge.textContent = `${cv.width} × ${cv.height} px`;
 
-  const paint = (canvas, cssW, cssH, total, horizontal) => {
+  const paint = (canvas, cssW, cssH, horizontal, scrolled, imgLen) => {
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
     canvas.width = Math.round(cssW * dpr);
@@ -1396,20 +1429,25 @@ function drawRulers() {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, cssW, cssH);
-    ctx.fillStyle = '#8a93a6';
-    ctx.strokeStyle = '#5a6478';
-    ctx.lineWidth = 1;
     ctx.font = '9px system-ui, sans-serif';
     ctx.textAlign = horizontal ? 'center' : 'right';
     ctx.textBaseline = horizontal ? 'bottom' : 'middle';
 
-    const shown = horizontal ? cssW : cssH;
-    const step = rulerStep(total);
-    const half = step / 2;
-    for (let v = 0; v <= total; v += half) {
-      const at = (v / total) * shown;
-      const big = v % step === 0;
-      // 0.5 를 더해야 선이 흐리게 번지지 않는다.
+    const shown = horizontal ? cssW : cssH;      // 자리의 화면 길이
+    const total = shown / edZoom;                // 그 안에 들어가는 사진 픽셀 수
+    const step = rulerStep();
+    const from = Math.floor(scrolled / edZoom / step) * step;
+    const upto = (scrolled + shown) / edZoom;
+
+    for (let v = from; v <= upto + step; v += step / 2) {
+      if (v < 0) continue;
+      const at = v * edZoom - scrolled;
+      if (at < -20 || at > shown + 20) continue;
+      const big = Math.abs(v % step) < 0.001;
+      const inside = v <= imgLen;                // 사진 안쪽 눈금은 밝게
+      ctx.strokeStyle = inside ? '#7d8798' : '#3a4150';
+      ctx.fillStyle = inside ? '#9aa4b6' : '#4d5566';
+      ctx.lineWidth = 1;
       const a = Math.round(at) + 0.5;
       ctx.beginPath();
       if (horizontal) {
@@ -1420,19 +1458,26 @@ function drawRulers() {
         ctx.lineTo(cssW - (big ? 7 : 4), a);
       }
       ctx.stroke();
-      if (!big || v === 0) continue;
-      if (horizontal) {
-        // 맨 끝 숫자가 잘리지 않게 안쪽으로 붙인다.
-        const x = Math.min(Math.max(at, 12), cssW - 12);
-        ctx.fillText(String(v), x, cssH - 8);
-      } else {
-        ctx.fillText(String(v), cssW - 9, Math.min(Math.max(at, 6), cssH - 6));
-      }
+      if (!big) continue;
+      const label = String(Math.round(v));
+      if (horizontal) ctx.fillText(label, Math.min(Math.max(at, 13), cssW - 13), cssH - 8);
+      else ctx.fillText(label, cssW - 9, Math.min(Math.max(at, 6), cssH - 6));
+    }
+
+    // 사진이 끝나는 자리에 선을 그어 어디까지가 사진인지 보이게 한다
+    const end = imgLen * edZoom - scrolled;
+    if (end > 0 && end < shown) {
+      ctx.strokeStyle = '#7C5CFF';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      if (horizontal) { ctx.moveTo(end, 0); ctx.lineTo(end, cssH); }
+      else { ctx.moveTo(0, end); ctx.lineTo(cssW, end); }
+      ctx.stroke();
     }
   };
 
-  paint(top, box.width, 18, W, true);
-  paint(left, 30, box.height, H, false);
+  paint(top, box.width, 18, true, vp.scrollLeft, cv.width);
+  paint(left, 30, box.height, false, vp.scrollTop, cv.height);
 }
 
 function drawStamps(ctx, card, w, h) {
@@ -2115,6 +2160,7 @@ function openEditor(card) {
   }
   editing = card;
   stampSel = -1;            // 새 카드를 열면 골라 둔 요소는 없다
+  edFit = true;             // 새 사진은 화면에 맞춰 보여준다
   card.smallCanvas = card.canvas;
   card.canvas = $('#ed-canvas');
 
@@ -4191,7 +4237,17 @@ function init() {
 
 
   // 큰 편집창
-  window.addEventListener('resize', () => { if (editing) drawRulers(); });
+  window.addEventListener('resize', () => { if (editing) applyZoom(); });
+
+  /* 확대·축소. 사진이 작아 보인다는 말이 있어 자리 안에서 키우고 줄인다.
+     눈금자는 사진이 아니라 자리 전체에 그어져 있으므로, 줄이면 사진보다
+     큰 숫자까지 눈금이 이어진다. */
+  const setZoom = (z) => { edFit = false; edZoom = z; applyZoom(); };
+  $('#zoom-in').addEventListener('click', () => setZoom(edZoom * 1.25));
+  $('#zoom-out').addEventListener('click', () => setZoom(edZoom / 1.25));
+  $('#zoom-100').addEventListener('click', () => setZoom(1));
+  $('#zoom-fit').addEventListener('click', () => { edFit = true; applyZoom(); });
+  $('#ed-viewport').addEventListener('scroll', drawRulers);
 
   $('#ed-close').addEventListener('click', () => $('#editor').close());
   $('#editor').addEventListener('close', () => {

@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.50</span></em>
+        <em>자동화 <span class="ver">v13.51</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -409,9 +409,19 @@
         <div class="ruler-corner">px</div>
         <canvas id="ruler-top" class="ruler"></canvas>
         <canvas id="ruler-left" class="ruler"></canvas>
-        <canvas id="ed-canvas"></canvas>
+        <div class="ed-viewport" id="ed-viewport">
+          <canvas id="ed-canvas"></canvas>
+        </div>
       </div>
-      <p class="ed-tip"><b id="ed-size-badge" class="size-badge">—</b>사진 위 글자를 <b>손으로 끌어서</b> 원하는 자리로 옮기세요.</p>
+      <div class="zoom-bar">
+        <b id="ed-size-badge" class="size-badge">—</b>
+        <button type="button" class="mini zoom-btn" id="zoom-out">－</button>
+        <span id="zoom-out-txt">100%</span>
+        <button type="button" class="mini zoom-btn" id="zoom-in">＋</button>
+        <button type="button" class="mini" id="zoom-fit">화면에 맞춤</button>
+        <button type="button" class="mini" id="zoom-100">실제 크기</button>
+      </div>
+      <p class="ed-tip">사진 위 글자를 <b>손으로 끌어서</b> 원하는 자리로 옮기세요.</p>
     </div>
     <div class="ed-side">
       <div class="ed-head-row">
