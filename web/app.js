@@ -988,7 +988,8 @@ function drawBodyLines(ctx, { outLines, x, top }) {
 
 function render(card) {
   const canvas = card.canvas;
-  // 글자를 지운 사진이 있으면 그걸 쓴다. 이미 깨끗하므로 잘라낼 것도 덮을 것도 없다.
+  // 글자를 지운 사진이 있으면 그걸 쓴다. 인스타 테두리를 잘라낸 뒤에
+  // 만든 사진이라 자동 잘라내기는 다시 할 필요가 없다.
   const clean = card.cleanImg;
   // 내가 직접 올린 사진에는 가릴 외국어가 없다. 덮개도 그늘도 깔지
   // 않고 글자만 얹는다 - 사진을 있는 그대로 두는 것이 목적이다.
@@ -996,8 +997,13 @@ function render(card) {
   const img = clean || card.img;
   if (!img || !canvas) return;
   schedulePersist();   // 화면에 뭔가 새로 그려질 때마다 자동 저장을 예약한다
+  // 다만 사용자가 위/아래 자름 슬라이더를 만졌으면 그건 지운 사진에도
+  // 적용해야 한다. 안 그러면 슬라이더를 아무리 움직여도 화면이 그대로다.
+  // 자름 값은 퍼센트라서 지운 사진의 제 크기에 그대로 대면 된다.
   const crop = clean
-    ? { x: 0, y: 0, w: clean.naturalWidth, h: clean.naturalHeight }
+    ? (card.manualCrop
+        ? manualCropRect(clean, card.manualCrop)
+        : { x: 0, y: 0, w: clean.naturalWidth, h: clean.naturalHeight })
     : card.crop;
 
   const w = crop.w;
@@ -3721,18 +3727,24 @@ function init() {
   });
 
   // 사진 자르기(위/아래) — 슬라이더를 만지면 자동 감지 대신 이 값을 쓴다.
-  function applyManualCrop(card, top, bottom) {
-    card.manualCrop = { top, bottom };
-    card.crop = cropFor(card.img, card);
+
+  // 편집 중인 카드는 지금 card.canvas 가 큰 편집창(ed-canvas) 쪽을
+  // 가리키고 있다. 큰 창만 다시 그리면 대시보드의 작은 사진은 옛날
+  // 모습 그대로 남는다. 둘 다 그려준다.
+  function renderBoth(card) {
     render(card);
-    // 편집 중인 카드는 지금 card.canvas 가 큰 편집창(ed-canvas) 쪽을
-    // 가리키고 있으므로, 대시보드의 작은 카드 썸네일도 같이 갱신해준다.
     if (card === editing && card.smallCanvas) {
       const bigCanvas = card.canvas;
       card.canvas = card.smallCanvas;
       render(card);
       card.canvas = bigCanvas;
     }
+  }
+
+  function applyManualCrop(card, top, bottom) {
+    card.manualCrop = { top, bottom };
+    card.crop = cropFor(card.img, card);
+    renderBoth(card);
     schedulePersist();
   }
   $('#ed-crop-top').addEventListener('input', (e) => {
@@ -3755,7 +3767,7 @@ function init() {
     $('#ed-crop-top-out').textContent = '0%';
     $('#ed-crop-bottom').value = 0;
     $('#ed-crop-bottom-out').textContent = '0%';
-    render(editing);
+    renderBoth(editing);
     schedulePersist();
     toast('자동 잘라내기로 되돌렸습니다');
   });
