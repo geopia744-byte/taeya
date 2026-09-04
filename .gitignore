@@ -1,0 +1,13 @@
+# API 키가 여기 저장된다. 절대 올리지 않는다.
+config.json
+
+# 결과물
+출력/
+*.png
+*.zip
+
+# 파이썬
+__pycache__/
+*.py[cod]
+.venv/
+venv/

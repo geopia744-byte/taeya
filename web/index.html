@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이미지 AI 자동화</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%229%22 fill=%22%237C5CFF%22/%3E%3Cpath d=%22M7.5 21.5 13 14l4.2 5.4 2.6-3.2 4.7 5.3z%22 fill=%22%23fff%22/%3E%3Ccircle cx=%2211.4%22 cy=%2210.6%22 r=%222.1%22 fill=%22%23fff%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<aside class="panel">
+  <header class="panel-head">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30">
+          <defs>
+            <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#7C5CFF"/>
+              <stop offset="1" stop-color="#22A8F0"/>
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="32" height="32" rx="9" fill="url(#bg)"/>
+          <path d="M7.5 21.5 13 14l4.2 5.4 2.6-3.2 4.7 5.3z" fill="#fff" opacity=".95"/>
+          <circle cx="11.4" cy="10.6" r="2.1" fill="#fff" opacity=".95"/>
+          <path d="M23.4 7.2l.85 2.15 2.15.85-2.15.85-.85 2.15-.85-2.15-2.15-.85 2.15-.85z" fill="#fff"/>
+        </svg>
+      </span>
+      <span class="brand-name">
+        <b>이미지 AI</b>
+        <em>자동화 <span class="ver">v13.54</span></em>
+      </span>
+    </div>
+    <button id="btn-settings" class="ghost" type="button">설정</button>
+  </header>
+
+  <section class="group lang-group">
+    <h2>🌐 작성 언어</h2>
+    <select id="lang">
+      <option value="ko" selected>한국어</option>
+      <option value="ja">日本語</option>
+      <option value="en">English</option>
+    </select>
+  </section>
+
+  <section class="group input-group">
+    <h2>📥 이미지 넣기</h2>
+    <label class="filebtn primary-ghost">
+      <input type="file" id="pick-files" accept="image/*" multiple hidden>
+      <span>파일 고르기</span>
+    </label>
+    <label class="filebtn">
+      <input type="file" id="pick-folder" webkitdirectory directory multiple hidden>
+      <span>폴더 통째로</span>
+    </label>
+    <label class="filebtn plain-btn">
+      <input type="file" id="pick-plain" accept="image/*" multiple hidden>
+      <span>✍️ 사진 부르기 + 글씨 편집 기능</span>
+    </label>
+    <p class="hint">사진 + 글씨 편집할때만</p>
+    <label class="check">
+      <input type="checkbox" id="auto-crop" checked>
+      <span class="check-lab-strong">인스타 화면 자동으로 잘라내기</span>
+    </label>
+  </section>
+
+  <section class="group photo-group" id="erase-group" hidden>
+    <h2>🎨 사진처리 방식</h2>
+    <div class="seg col" id="photo-mode">
+      <button type="button" data-v="erase" class="on"><b class="step">①</b> ✂ 글자만 지우기</button>
+      <button type="button" data-v="recreate"><b class="step">②</b> ✨ 사진 새로 만들기</button>
+    </div>
+    <p class="hint" id="mode-hint" style="display:none">사진에 박힌 영어를 지우고 그 자리를 채웁니다.</p>
+  </section>
+
+  <button type="button" id="run" class="primary" disabled><b class="step">③</b> <span id="run-label">이미지 변환</span></button>
+
+  <section class="group concept-group">
+    <h2>🎯 콘셉트 · 타깃</h2>
+    <textarea id="guide" rows="3"
+      placeholder="예: 20대 타겟, 감성적인 톤, 짧고 강하게"></textarea>
+    <p class="hint">문구(제목/본문)의 말투에만 적용</p>
+  </section>
+
+  <section class="group" id="bg-group">
+    <h2>🖼️ 배경 지시 <span class="opt">선택</span></h2>
+    <textarea id="bg-note" rows="2"
+      placeholder="예: 비 오는 밤 골목 / 병원 복도 / 눈 덮인 산"></textarea>
+    <p class="hint">주인공은 그대로 두고 <b>이 장소로 배경만</b> 바꿉니다.
+      비워두면 AI가 알아서 정합니다. 문구에는 반영되지 않습니다.</p>
+  </section>
+
+  <section class="group style-group">
+    <h2>🗒️ 문체 샘플 <span class="opt">선택</span></h2>
+    <div class="style-presets" id="style-presets"></div>
+    <textarea id="style-sample" rows="4"
+      placeholder="[제목] 이건 진짜 몰랐다&#10;[본문] 어제 알았는데요... 😳"></textarea>
+    <div class="style-bar">
+      <select id="style-saved"><option value="">내가 저장한 문체…</option></select>
+      <button type="button" class="mini" id="style-save">＋ 저장</button>
+      <button type="button" class="mini" id="style-del">삭제</button>
+    </div>
+    <p class="hint">견본을 누르면 아래 칸에 들어갑니다. 고쳐 쓴 뒤 [＋ 저장]을
+      누르면 이름을 붙여 목록에 남습니다.</p>
+  </section>
+
+
+</aside>
+
+<main class="stage">
+
+  <!-- 카테고리. 이미지를 넣기 전에 여기서 먼저 성격을 고른다. -->
+  <header class="cats">
+    <div class="cats-top">
+      <h2 class="cats-title">🏷️ 카테고리</h2>
+      <div class="top-tools">
+        <button type="button" class="tool-btn" id="btn-batch">📦 완성 창고</button>
+        <button type="button" class="tool-btn" id="btn-logo">🖼️ 로고</button>
+        <button type="button" class="tool-btn" id="btn-video">🎬 영상 자막 지우기</button>
+      </div>
+      <div class="quicklinks">
+        <a class="qlink yt" href="https://youtube.com" target="_blank" rel="noopener">▶️ 유튜브</a>
+        <a class="qlink ig" href="https://instagram.com" target="_blank" rel="noopener">📸 인스타</a>
+        <a class="qlink th" href="https://threads.net" target="_blank" rel="noopener">🧵 스레드</a>
+        <a class="qlink tt" href="https://tiktok.com" target="_blank" rel="noopener">🎵 틱톡</a>
+      </div>
+    </div>
+    <div class="cats-row">
+      <button type="button" id="sort-recent" class="chip sort-toggle">🕒 최신순</button>
+      <button type="button" id="pick-clear" class="chip pick-chip" hidden></button>
+      <div id="category" class="chips"></div>
+    </div>
+  </header>
+
+  <div id="empty" class="empty">
+    <div class="empty-art" aria-hidden="true">⌘</div>
+    <h2>캡쳐 이미지를 넣어주세요</h2>
+    <p>여기로 끌어다 놓거나, 왼쪽에서 파일을 고르세요.</p>
+    <p class="empty-sub" id="empty-sub"></p>
+  </div>
+  <div id="cards" class="cards"></div>
+
+  <section id="archive-view" class="archive-view" hidden>
+    <div class="archive-head">
+      <button type="button" class="ghost" id="archive-back">← 카테고리로</button>
+      <h2>📋 완성 목록</h2>
+      <button type="button" class="primary" id="archive-export-sheet">📊 구글 시트로 보내기</button>
+      <span class="hint">이미지 변환 + 본문 작업이 다 끝난 사진들이 여기에 날짜순으로 쌓입니다.</span>
+    </div>
+    <div id="archive-list" class="archive-list"></div>
+    <div id="archive-pager" class="archive-pager" hidden></div>
+  </section>
+</main>
+
+<div id="drop-veil" class="drop-veil" hidden><span>놓으면 들어갑니다</span></div>
+
+<dialog id="settings">
+  <form method="dialog" class="dlg">
+    <h2>설정</h2>
+
+    <label class="field">
+      <span>Anthropic API 키</span>
+      <input type="password" id="api-key" placeholder="sk-ant-…  (비워두면 그대로 둡니다)" autocomplete="off">
+      <small id="key-state"></small>
+    </label>
+
+    <label class="field">
+      <span>Gemini API 키 <span class="opt">선택 — 원본 영어를 지웁니다</span></span>
+      <input type="password" id="gemini-key" placeholder="AIza…  (비워두면 그대로 둡니다)" autocomplete="off">
+      <small id="gemini-state"></small>
+    </label>
+
+    <label class="field" id="model-field" hidden>
+      <span>사진 처리 모델</span>
+      <select id="gemini-model"></select>
+      <small>위쪽일수록 결과가 좋고 비쌉니다. lite 는 사진을 손대지 않고
+        그대로 돌려주는 일이 있습니다.</small>
+    </label>
+
+    <label class="field">
+      <span>결과물을 저장할 폴더</span>
+      <input type="text" id="out-dir" placeholder="비워두면 프로그램 폴더 안 '출력'">
+      <small>예: C:\Users\내이름\Desktop\이미지결과</small>
+    </label>
+
+    <div class="dlg-foot">
+      <button type="button" class="ghost" id="open-output">폴더 열어보기</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">닫기</button>
+      <button type="button" class="primary" id="save-settings">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="video-dlg">
+  <div class="dlg vid-dlg">
+    <h2>🎬 영상 자막 지우기</h2>
+
+    <label class="filebtn">
+      <input type="file" id="vid-file" accept="video/*" hidden>
+      <span id="vid-label">영상 고르기 (mp4)</span>
+    </label>
+
+    <p class="hint" id="vid-hint">영상에 구워진 자막을 지웁니다.
+      글자만 골라 지우고 그 자리를 주변 화면으로 메우므로, 자막 뒤에
+      있던 배경이 살아납니다. 소리는 그대로 남습니다.</p>
+
+    <div id="vid-stage" hidden>
+      <div class="vid-preview">
+        <img id="vid-shot" alt="영상 장면">
+        <div id="vid-bands"></div>
+      </div>
+      <div class="vid-shots">
+        <button type="button" class="mini" id="vid-prev">‹ 앞 장면</button>
+        <span class="vid-at" id="vid-at"></span>
+        <button type="button" class="mini" id="vid-next">뒤 장면 ›</button>
+        <button type="button" class="mini" id="vid-grab-src">📸 원본 장면 저장</button>
+      </div>
+      <p class="hint" id="vid-meta"></p>
+      <div class="vid-shots">
+        <button type="button" class="mini" id="vid-add-band">＋ 띠 추가</button>
+        <span class="vid-at" id="vid-band-n"></span>
+      </div>
+      <p class="hint">파란 띠의 <b>가운데를 잡아 끌면 통째로 옮겨지고</b>,
+        <b>위아래 손잡이</b>를 끌면 크기가 바뀝니다. 자막을 덮도록 맞추세요.
+        띠 밖의 글자는 건드리지 않습니다.<br>
+        <b>위 제목과 아래 자막이 같이 뜨면 띠를 두 개</b> 만드세요. 하나로
+        묶으면 그 사이의 멀쩡한 화면까지 지워집니다. 띠의 ✕ 로 지웁니다.<br>
+        띠는 <b>영상 전체</b>에 그대로 적용됩니다. 여러 장면을 넘겨보면서
+        자막이 내내 띠 안에 들어오는지 확인하세요.</p>
+    </div>
+
+    <div id="vid-run" hidden>
+      <div class="vid-bar"><i id="vid-bar-fill"></i></div>
+      <p class="hint" id="vid-run-note">준비 중…</p>
+    </div>
+
+    <div id="vid-result-box" hidden>
+      <video id="vid-result" controls playsinline preload="metadata"></video>
+      <div class="vid-step" id="vid-jumps">
+        <button type="button" class="mini" data-jump="-1">◀◀ 1초</button>
+        <button type="button" class="mini" data-jump="-0.1">◀ 한 컷</button>
+        <span class="vid-time" id="vid-time">0.0 / 0.0초</span>
+        <button type="button" class="mini" data-jump="0.1">한 컷 ▶</button>
+        <button type="button" class="mini" data-jump="1">1초 ▶▶</button>
+      </div>
+      <p class="hint" id="vid-inspect-hint">잘 안 지워졌거나 화면이 뭉개진 곳에서 <b>멈추세요.</b>
+        한 컷씩 넘기며 정확한 지점을 찾은 뒤 <b>[이 장면 저장]</b> 을 누르면
+        그 순간이 사진으로 저장됩니다. 그 사진을 저에게 보여주시면
+        무엇이 문제인지 짚어서 고칠 수 있습니다.</p>
+      <div class="vid-step">
+        <button type="button" class="mini" id="vid-grab">📸 이 장면 저장</button>
+        <button type="button" class="mini" id="vid-back">◀ 띠 다시 맞추기</button>
+      </div>
+    </div>
+
+    <p class="vid-error" id="vid-error" hidden></p>
+
+    <div class="dlg-foot">
+      <button type="button" class="ghost" id="vid-open" hidden>📂 폴더 열기</button>
+      <button type="button" class="ghost" id="vid-save" hidden>⬇️ 다른 곳에 저장</button>
+      <span class="spacer"></span>
+      <button type="button" class="primary" id="vid-go" disabled>자막 지우기</button>
+      <button type="button" class="ghost" id="vid-close">닫기</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="logo-dlg">
+  <div class="dlg">
+    <h2>🖼️ 로고</h2>
+
+    <div class="row">
+      <span class="row-label">종류</span>
+      <div class="seg" id="logo-mode">
+        <button type="button" data-v="image" class="on">이미지</button>
+        <button type="button" data-v="text">글자</button>
+      </div>
+    </div>
+
+    <div id="logo-image-box">
+      <label class="filebtn">
+        <input type="file" id="logo-file" accept="image/*" hidden>
+        <span id="logo-label">로고 이미지 업로드</span>
+      </label>
+    </div>
+
+    <div id="logo-text-box" hidden>
+      <label class="field">
+        <span>글자 <em class="opt-sm">채널명을 얇게 박아 둡니다</em></span>
+        <input type="text" id="logo-text" placeholder="예) @내채널  ·  후킹공장">
+      </label>
+      <div class="row">
+        <span class="row-label">글꼴</span>
+        <select id="logo-font" class="font-pick"></select>
+      </div>
+      <div class="row">
+        <span class="row-label">색</span>
+        <input type="color" id="logo-color" value="#ffffff">
+        <span class="row-label">진하기</span>
+        <input type="range" id="logo-alpha" min="5" max="100" step="5" value="35">
+        <output id="logo-alpha-out">35%</output>
+      </div>
+    </div>
+
+    <div id="logo-opts" hidden>
+      <div class="row">
+        <span class="row-label">위치</span>
+        <div class="seg" id="logo-pos">
+          <button type="button" data-v="left">왼쪽</button>
+          <button type="button" data-v="center" class="on">중간</button>
+          <button type="button" data-v="right">오른쪽</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="row-label">크기</span>
+        <input type="range" id="logo-size" min="8" max="60" value="22">
+        <output id="logo-size-out">22%</output>
+      </div>
+      <button type="button" class="ghost wide" id="logo-clear">로고 빼기</button>
+    </div>
+    <div class="dlg-foot">
+      <span class="spacer"></span>
+      <button type="button" class="primary" id="logo-close">닫기</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="preview-dlg">
+  <div class="dlg" id="preview-group">
+    <h2>👁️ 다시보기</h2>
+    <div class="preview-stage">
+      <img id="preview-img" alt="완성 이미지">
+    </div>
+    <p class="hint" id="preview-title"></p>
+    <div class="dlg-foot">
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="preview-close">닫기</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="body-edit-dlg">
+  <div class="dlg" id="body-edit-group">
+    <h2>📝 본문 편집</h2>
+    <textarea id="body-edit-text" placeholder="본문 내용을 입력해주세요"></textarea>
+    <div class="dlg-foot">
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="body-edit-close">닫기</button>
+      <button type="button" class="primary" id="body-edit-save">저장</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="save-dlg">
+  <div class="dlg" id="export-group">
+    <h2>💾 이미지 저장</h2>
+
+    <label class="field">
+      <span>카테고리</span>
+      <select id="save-cat"></select>
+      <small>고른 항목 이름으로 폴더가 만들어집니다.</small>
+    </label>
+
+    <label class="field">
+      <span>크기</span>
+      <select id="save-size">
+        <option value="ig">📷 인스타 4:5 — 1080 × 1350</option>
+        <option value="th">🧵 스레드 1:1 — 1080 × 1080</option>
+        <option value="tt">📱 틱톡 9:16 — 1080 × 1920</option>
+        <option value="custom">✏️ 직접 지정</option>
+      </select>
+    </label>
+
+    <div class="field" id="custom-size-row" hidden>
+      <span>직접 지정 (가로 × 세로)</span>
+      <div class="row size-row">
+        <input type="number" id="save-w" min="100" max="5000" step="10" value="1000">
+        <span class="size-x">×</span>
+        <input type="number" id="save-h" min="100" max="5000" step="10" value="1000">
+        <span class="size-unit">픽셀</span>
+      </div>
+      <p class="hint">100 ~ 5000 사이로 넣으세요. 사진은 여백 없이
+        이 크기를 꽉 채우도록 맞춰집니다.</p>
+    </div>
+
+    <label class="check" id="ai-expand-row" hidden>
+      <input type="checkbox" id="ai-expand" checked>
+      <span>✨ AI로 여백 없이 자연스럽게 채우기 <b>— 느리고 돈이 나갑니다</b></span>
+    </label>
+    <p class="hint" id="ai-expand-hint" hidden>끄면 <b>즉시 저장</b>됩니다(부족한 자리는 여백). 켜면 제미니가 그 자리를 채우는데, 사진마다 몇십 초 걸리고 <b>저장할 때마다 따로 돈이 나갑니다.</b> 한도에 걸리면 더 오래 걸립니다.</p>
+
+    <p class="hint" id="save-note"></p>
+
+    <div class="dlg-foot">
+      <button type="button" class="ghost" id="open-output2">폴더 열기</button>
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="save-close">닫기</button>
+      <button type="button" class="primary" id="save-go">저장</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="editor">
+  <div class="ed">
+    <div class="ed-stage">
+      <!-- 눈금자 — 실제 사진의 픽셀 자리를 보여준다 -->
+      <div class="ruler-wrap">
+        <div class="ruler-corner">px</div>
+        <canvas id="ruler-top" class="ruler"></canvas>
+        <canvas id="ruler-left" class="ruler"></canvas>
+        <div class="ed-viewport" id="ed-viewport">
+          <canvas id="ed-canvas"></canvas>
+        </div>
+      </div>
+      <div class="zoom-bar">
+        <b id="ed-size-badge" class="size-badge">—</b>
+        <button type="button" class="mini zoom-btn" id="zoom-out">－</button>
+        <span id="zoom-out-txt">100%</span>
+        <button type="button" class="mini zoom-btn" id="zoom-in">＋</button>
+        <button type="button" class="mini" id="zoom-fit">화면에 맞춤</button>
+        <button type="button" class="mini" id="zoom-100">원본 크기</button>
+      </div>
+      <p class="ed-tip">사진 위 글자를 <b>손으로 끌어서</b> 원하는 자리로 옮기세요.</p>
+    </div>
+    <div class="ed-side">
+      <div class="ed-head-row">
+        <h2>글자 편집</h2>
+        <div class="ed-head-btns">
+          <button type="button" id="ed-title-pop-btn" class="logo-btn title-pop-btn">✏️ 제목 설정</button>
+          <button type="button" id="ed-logo" class="logo-btn">🖼️ 로고</button>
+        </div>
+      </div>
+
+      <!-- 제목 설정 팝오버 — 칸이 길어지지 않게 접어 두었다가 단추로 편다 -->
+      <div id="title-popover" class="title-popover" hidden>
+        <div class="title-popover-head">
+          <span>제목 설정</span>
+          <button type="button" class="close-pop" id="title-pop-close">✕</button>
+        </div>
+
+        <label class="field">
+          <span class="ed-lab">
+            <input type="checkbox" id="ed-head-on">
+            제목 넣기 <em>안 넣어도 됩니다</em>
+          </span>
+          <input type="text" id="ed-head" placeholder="예) 19세 산모가 낳은 쌍둥이">
+        </label>
+
+        <div class="ed-style">
+          <div class="row">
+            <span class="row-label">크기</span>
+            <input type="range" id="ed-head-size" min="5" max="18" step="0.5">
+            <output id="ed-head-size-out"></output>
+          </div>
+          <div class="row">
+            <span class="row-label">글꼴</span>
+            <select id="ed-head-font" class="font-pick"></select>
+          </div>
+          <div class="row">
+            <span class="row-label">색</span>
+            <input type="color" id="ed-head-color">
+            <select id="ed-head-weight" class="w-pick">
+              <option value="500">얇게</option>
+              <option value="700">굵게</option>
+              <option value="900">아주 굵게</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="row-label">테두리</span>
+            <div class="seg stroke-seg" id="ed-head-stroke">
+              <button type="button" data-v="none" class="on">없음</button>
+              <button type="button" data-v="#000000" class="sw-k">검정</button>
+              <button type="button" data-v="#e02424" class="sw-r">빨강</button>
+              <button type="button" data-v="#f5c518" class="sw-y">노랑</button>
+              <button type="button" data-v="#2563eb" class="sw-b">파랑</button>
+            </div>
+          </div>
+          <div class="row" id="ed-head-stroke-w-row" hidden>
+            <span class="row-label">두께</span>
+            <input type="range" id="ed-head-stroke-size" min="1" max="12" step="1" value="4">
+            <output id="ed-head-stroke-size-out">4</output>
+          </div>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>본문 <em class="opt-sm">엔터를 치면 줄이 나뉩니다</em></span>
+        <textarea id="ed-body" rows="4"
+          placeholder="여기에 글을 쓰면 사진 한가운데에 나타납니다.&#10;끌어서 원하는 자리로 옮기세요."></textarea>
+      </label>
+
+      <div class="row" id="ed-word-row">
+        <button type="button" class="mini half" id="ed-word-mark">🖍 선택한 글자만</button>
+        <button type="button" class="mini half" id="ed-stamp-btn">✨ 요소 항목</button>
+        <button type="button" class="mini" id="ed-word-clear" hidden>해제</button>
+      </div>
+
+      <!-- 요소 항목 팝오버 — 화살표·도형을 사진 위에 얹는다 -->
+      <div id="stamp-popover" class="title-popover stamp-popover" hidden>
+        <div class="title-popover-head">
+          <span>요소 항목</span>
+          <button type="button" class="close-pop" id="stamp-pop-close">✕</button>
+        </div>
+
+        <div class="stamp-tabs" id="stamp-tabs">
+          <button type="button" data-v="shape" class="on">화살표 · 도형</button>
+          <button type="button" data-v="emoji">스티커</button>
+        </div>
+
+        <div class="stamp-grid" id="stamp-grid">
+          <button type="button" data-k="arrow-r" title="오른쪽 화살표">➡</button>
+          <button type="button" data-k="arrow-l" title="왼쪽 화살표">⬅</button>
+          <button type="button" data-k="arrow-u" title="위 화살표">⬆</button>
+          <button type="button" data-k="arrow-d" title="아래 화살표">⬇</button>
+          <button type="button" data-k="arrow-curve" title="꼬부랑 화살표">↝</button>
+          <button type="button" data-k="arrow-bend" title="꺾인 화살표">↴</button>
+          <button type="button" data-k="arrow-both" title="양쪽 화살표">↔</button>
+          <button type="button" data-k="circle" title="동그라미"><i class="sh-circle"></i></button>
+          <button type="button" data-k="rect" title="네모"><i class="sh-rect"></i></button>
+          <button type="button" data-k="bubble" title="말풍선">💬</button>
+          <button type="button" data-k="star" title="별">★</button>
+          <button type="button" data-k="heart" title="하트">♥</button>
+          <button type="button" data-k="check" title="체크">✔</button>
+          <button type="button" data-k="xmark" title="가위표">✘</button>
+          <button type="button" data-k="underline" title="밑줄">▁</button>
+          <button type="button" data-k="marker" title="형광펜">▬</button>
+        </div>
+
+        <div class="stamp-grid emoji-grid" id="stamp-emoji" hidden></div>
+
+        <div class="ed-style">
+          <div class="row" id="stamp-color-row">
+            <span class="row-label">색</span>
+            <input type="color" id="stamp-color" value="#FF3B30">
+            <div class="seg stamp-colors" id="stamp-preset">
+              <button type="button" data-v="#FF3B30" style="--c:#FF3B30"></button>
+              <button type="button" data-v="#FFD24A" style="--c:#FFD24A"></button>
+              <button type="button" data-v="#26D07C" style="--c:#26D07C"></button>
+              <button type="button" data-v="#3B9DFF" style="--c:#3B9DFF"></button>
+              <button type="button" data-v="#FFFFFF" style="--c:#FFFFFF"></button>
+              <button type="button" data-v="#111111" style="--c:#111111"></button>
+            </div>
+          </div>
+          <div class="row">
+            <span class="row-label">크기</span>
+            <input type="range" id="stamp-size" min="5" max="140" step="1" value="30">
+            <output id="stamp-size-out">30%</output>
+          </div>
+          <div class="row" id="stamp-weight-row">
+            <span class="row-label">굵기</span>
+            <input type="range" id="stamp-weight" min="4" max="20" step="1" value="10">
+            <output id="stamp-weight-out">10</output>
+          </div>
+        </div>
+
+        <p class="hint hint-strong">사진 위에서 <b>끌면 이동</b>. 크기는 위 <b>크기</b> 막대나 <b>휠</b>로 바꿉니다.</p>
+        <div class="row">
+          <button type="button" class="mini half" id="stamp-del">🗑 고른 것 지우기</button>
+          <button type="button" class="mini half" id="stamp-clear">전부 지우기</button>
+        </div>
+      </div>
+      <p class="hint hint-strong">드래그로 글자 범위를 지정하세요</p>
+      <p class="hint" id="ed-word-status" hidden></p>
+
+      <div class="ed-style">
+        <div class="row">
+          <span class="row-label">자리</span>
+          <div class="seg" id="text-pos">
+            <button type="button" data-v="auto" class="on">자동</button>
+            <button type="button" data-v="top">위</button>
+            <button type="button" data-v="middle">중간</button>
+            <button type="button" data-v="bottom">아래</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="row-label">적용 줄</span>
+          <div class="seg" id="ed-line-sel"></div>
+          <button type="button" class="mini" id="ed-line-reset" hidden>기본값</button>
+        </div>
+        <p class="hint" id="ed-line-hint" hidden>이 줄만 아래 크기·글꼴·색이 다르게 적용됩니다.</p>
+        <div class="row">
+          <span class="row-label">크기</span>
+          <input type="range" id="ed-body-size" min="4" max="12" step="0.5">
+          <output id="ed-body-size-out"></output>
+        </div>
+        <div class="row">
+          <span class="row-label">줄 간격</span>
+          <input type="range" id="ed-line-gap" min="70" max="240" step="5" value="100">
+          <output id="ed-line-gap-out">100%</output>
+        </div>
+        <div class="row">
+          <span class="row-label">글꼴</span>
+          <select id="ed-body-font" class="font-pick"></select>
+        </div>
+        <div class="row font-more">
+          <button type="button" class="mini" id="font-scan">🔤 내 PC 글꼴 불러오기</button>
+        </div>
+
+        <div class="row">
+          <span class="row-label">테두리</span>
+          <div class="seg stroke-seg" id="ed-stroke">
+            <button type="button" data-v="none" class="on">없음</button>
+            <button type="button" data-v="#000000" class="sw-k">검정</button>
+            <button type="button" data-v="#e02424" class="sw-r">빨강</button>
+            <button type="button" data-v="#f5c518" class="sw-y">노랑</button>
+            <button type="button" data-v="#2563eb" class="sw-b">파랑</button>
+          </div>
+        </div>
+        <div class="row" id="ed-stroke-w-row" hidden>
+          <span class="row-label">두께</span>
+          <input type="range" id="ed-stroke-size" min="1" max="8" step="1" value="3">
+          <output id="ed-stroke-size-out">3</output>
+        </div>
+        <div class="row">
+          <span class="row-label">색</span>
+          <input type="color" id="ed-body-color">
+          <select id="ed-body-weight" class="w-pick">
+            <option value="500">얇게</option>
+            <option value="700">굵게</option>
+            <option value="900">아주 굵게</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ed-style">
+        <div class="row">
+          <span class="row-label">위 자름</span>
+          <input type="range" id="ed-crop-top" min="0" max="40" step="1" value="0">
+          <output id="ed-crop-top-out">0%</output>
+        </div>
+        <div class="row">
+          <span class="row-label">아래 자름</span>
+          <input type="range" id="ed-crop-bottom" min="0" max="40" step="1" value="0">
+          <output id="ed-crop-bottom-out">0%</output>
+        </div>
+        <div class="row">
+          <button type="button" class="mini" id="ed-crop-reset">자동으로</button>
+          <button type="button" class="mini wide" id="ed-crop-apply-all">📐 모든 카드 이 비율로 통일</button>
+        </div>
+      </div>
+
+      <div class="ed-foot">
+        <button type="button" class="ghost" id="ed-reset-pos">위치 되돌리기</button>
+        <button type="button" class="ghost" id="ed-reset-text">글 되돌리기</button>
+      </div>
+      <div class="ed-foot">
+        <button type="button" class="ghost wide" id="ed-save">💾 이 사진 저장</button>
+        <button type="button" class="primary" id="ed-close">닫기</button>
+      </div>
+      <p class="hint" id="ed-save-note"></p>
+    </div>
+  </div>
+</dialog>
+
+<template id="card-tpl">
+  <article class="card">
+    <div class="canvas-wrap">
+      <canvas></canvas>
+      <div class="overlay" data-role="overlay">
+        <div class="spinner"></div>
+        <span data-role="status">기다리는 중</span>
+      </div>
+      <button type="button" class="pick" data-act="pick" title="이 사진만 변환하기">✓</button>
+      <button type="button" class="grip" data-act="grip" draggable="true"
+              title="끌어서 좌우로 순서 옮기기">↔</button>
+      <button type="button" class="cat-tag" data-act="cat-tag" data-role="cat"></button>
+      <div class="cat-picker" data-role="cat-picker" hidden></div>
+      <span class="thread-badge" data-role="thread-badge" hidden>🧵 스레드 원문</span>
+      <span class="warn-badge" data-role="warn" hidden></span>
+      <div class="carousel-nav" data-role="carousel" hidden>
+        <button type="button" class="car-btn" data-act="car-prev" aria-label="이전 사진">‹</button>
+        <span class="car-count" data-role="car-count"></span>
+        <button type="button" class="car-btn" data-act="car-next" aria-label="다음 사진">›</button>
+      </div>
+      <button type="button" class="ja" data-act="ja" title="일본어로 제목 다시 달기">日</button>
+      <button type="button" class="fav" data-act="fav" title="즐겨찾기">☆</button>
+      <button type="button" class="del" data-act="remove" title="빼기">✕</button>
+    </div>
+    <div class="card-body">
+      <div class="source-box" data-role="source-box" hidden>
+        <p class="source-text" data-role="source-text"></p>
+        <a class="source-link" data-role="source-link" target="_blank" rel="noopener" hidden>원문 열기 ↗</a>
+      </div>
+
+      <div class="title-btn-row">
+        <button type="button" class="mini" data-act="edit-body">📝 본문 편집</button>
+        <button type="button" class="mini" data-act="edit-title">✏️ 글자 편집</button>
+      </div>
+
+      <div class="body-head">
+        <button type="button" class="mini fold-btn" data-act="fold">본문 보기 ▾</button>
+        <span class="made-at" data-role="date"></span>
+        <button type="button" class="mini" data-act="copy">복사</button>
+      </div>
+
+      <div class="fold" data-role="fold">
+        <textarea data-role="body" rows="4" placeholder="아직 만들어지지 않았습니다"></textarea>
+        <div class="tags" data-role="tags"></div>
+      </div>
+
+      <div class="card-foot">
+        <button type="button" class="mini wide" data-act="regen">다시 뽑기</button>
+        <button type="button" class="mini wide" data-act="download">이미지 저장</button>
+      </div>
+      <button type="button" class="mini wide archive-btn" data-act="archive" data-role="archive" hidden>📥 완성 목록으로 보내기</button>
+      <p class="card-err" data-role="err" hidden></p>
+    </div>
+  </article>
+</template>
+
+<script src="/app.js"></script>
+</body>
+</html>

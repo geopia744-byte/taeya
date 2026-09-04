@@ -1,0 +1,5 @@
+anthropic>=1.0
+
+# 영상 자막 지우기 (없어도 사진 기능은 그대로 돌아간다)
+opencv-python-headless>=4.9
+imageio-ffmpeg>=0.4

@@ -1,0 +1,2308 @@
+/* 이미지 AI 자동화 — 어두운 작업실 톤. 결과 이미지가 주인공이므로 UI는 뒤로 물러선다. */
+
+:root {
+  --bg: #0c0d10;
+  --panel: #131519;
+  --sunken: #0e1013;
+  --line: #23262d;
+  --line-soft: #1a1d23;
+  --ink: #e8eaee;
+  --ink-dim: #9aa0ab;
+  --ink-faint: #666c78;
+  --accent: #f0f2f5;
+  --accent-ink: #14161a;
+  --danger: #ff6b6b;
+  --radius: 9px;
+  --font: "Pretendard", "Pretendard Variable", -apple-system, BlinkMacSystemFont,
+          "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
+          "Noto Sans KR", "Hiragino Sans", "Meiryo", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+/* hidden 속성은 어떤 display 규칙보다 우선한다.
+   이게 없으면 .drop-veil { display: grid } 같은 선언이 hidden을 덮어써서
+   숨겨야 할 요소가 화면에 떠버린다. */
+[hidden] { display: none !important; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  grid-template-columns: 288px 1fr;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+
+@media (max-width: 860px) {
+  body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow: auto; }
+  .panel { max-height: 46vh; }
+}
+
+/* ── 왼쪽 패널 ─────────────────────────────────────────── */
+
+.panel {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 16px 14px 14px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* ── 왼쪽 패널 글자 선명하게 ────────────────────────────────
+   패널 밖(카드, 팝업 등)은 원래 톤 그대로 두고, 이 안에서만
+   너무 흐렸던 회색 글자들을 읽기 편하게 밝히고, 크기도 살짝 키운다. */
+.panel .seg.col button {
+  color: #dfe3ea;
+  font-size: 13px;
+  font-weight: 600;
+}
+.panel .seg.col button.on {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(124, 92, 255, .32), rgba(34, 168, 240, .28));
+  box-shadow: inset 3px 0 0 #8f78ff;
+}
+
+/* 옵션마다 성격이 다르니(무료 / 부분편집 / AI 재생성) 색으로 구분해서
+   한눈에 무엇을 고르는 건지 알 수 있게 한다. */
+.panel .seg.col button[data-v="off"] { color: #b7bdc9; }
+.panel .seg.col button[data-v="off"].on {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(154, 160, 171, .32), rgba(102, 108, 120, .22));
+  box-shadow: inset 3px 0 0 #9aa0ab;
+}
+
+.panel .seg.col button[data-v="erase"] { color: #7be0d4; }
+.panel .seg.col button[data-v="erase"].on {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(45, 212, 191, .34), rgba(20, 184, 166, .22));
+  box-shadow: inset 3px 0 0 #2dd4bf;
+}
+
+.panel .seg.col button[data-v="recreate"] { color: #e2b6ff; }
+.panel .seg.col button[data-v="recreate"].on {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(124, 92, 255, .38), rgba(236, 72, 201, .28));
+  box-shadow: inset 3px 0 0 #d976ff;
+}
+.panel .seg button em { color: #b7c9ff; opacity: .95; font-weight: 700; }  /* "무료" 태그 */
+.panel .check { color: #e6e9ef; font-size: 13px; font-weight: 500; }  /* 체크박스 라벨(인스타 화면 자동으로 잘라내기) */
+.panel .check input { accent-color: #8f78ff; }
+.check-lab-strong { font-size: 14.5px; font-weight: 700; color: #f4f6fa; }
+.panel .hint { color: #d3d7de; }                    /* "이 어조와 리듬을 따라 씁니다" 등 안내문 */
+.panel .opt { color: rgba(255,255,255,.9); }        /* "선택" 표시 */
+.panel ::placeholder { color: #838ba0; }            /* 입력칸 안내 문구(예: 20대 타겟, 감성적인 톤...) */
+.panel select { color: #f5f6f9; font-weight: 600; }
+.panel textarea, .panel input[type="text"], .panel input[type="password"] { color: #f5f6f9; }
+
+/* ── 특정 섹션 제목 가독성 강화 (2026-09) ──────────────────
+   .group h2 공통 스타일은 그대로 두고, 요청받은 섹션만 글자를
+   키우고 선명하게 만든다. 왼쪽 패널 구조/ID는 손대지 않는다. */
+
+/* 1) 작성 언어 — 글자 확대 + 색상을 초록 계열로 교체 */
+.panel .lang-group h2 {
+  font-size: 16px;
+  padding: 11px 14px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 3px 10px rgba(16, 185, 129, .3);
+}
+
+/* 2) 사진처리 방식 — 글자만 확대 (색은 기존 유지) */
+.panel .photo-group h2 { font-size: 16px; }
+
+/* 3) 이미지 넣기 — 제목 확대 */
+.panel .input-group h2 { font-size: 16px; }
+
+/* 4) 콘셉트 · 타깃 — 제목 확대 */
+.panel .concept-group h2 { font-size: 16px; }
+
+/* 5) 문체 샘플 선택 — 제목 확대 */
+.panel .style-group h2 { font-size: 16px; }
+
+/* 파일 고르기 / 폴더 통째로 / 목록 비우기 — 예전엔 흐린 회색이라 눈에 안 띄었던 것을
+   또렷한 글자색 + 살짝의 보라 톤 테두리로 다른 버튼들과 통일감 있게 밝힌다. */
+.panel .filebtn {
+  color: #e6e9f2;
+  font-size: 13px;
+  font-weight: 600;
+  border-color: #383f52;
+}
+.panel .filebtn:hover { border-color: #7C5CFF; background: rgba(124, 92, 255, .1); }
+.panel .filebtn.primary-ghost { border-color: #6a5cd6; background: rgba(124, 92, 255, .08); }
+
+/* 4) 파일 고르기 / 폴더 통째로 — 글자 확대 + 선명하게 (이미지 넣기 섹션 전용) */
+.panel .input-group .filebtn {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #f5f7fb;
+}
+
+/* 5) 작성 언어 드롭다운 — 글자 확대 + 굵게 */
+.panel .lang-group select {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* 6) 사진처리 방식 — 글자만 지우기 / 사진 새로 만들기 버튼 글자 확대 + 굵게 */
+.panel .photo-group .seg.col button {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.panel .ghost {
+  color: #d7dbe4;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.panel .ghost:hover:not(:disabled) { color: #fff; border-color: #4a5164; }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+/* 로고 — 앱 아이콘처럼 또렷하게. 툴의 얼굴이므로 흐릿하면 안 된다. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  line-height: 0;
+  border-radius: 9px;
+  box-shadow: 0 2px 10px rgba(90, 110, 255, .32);
+}
+
+.brand-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.12;
+  min-width: 0;
+}
+
+.brand-name b {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.brand-name em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  color: #8fa6c8;
+}
+
+/* 어느 판을 쓰고 있는지 한눈에. 파일을 덮어썼는지 확인할 때 쓴다. */
+.brand-name .ver {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #2b6cff;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.group { margin-bottom: 20px; }
+
+.group h2 {
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+  background: linear-gradient(135deg, #7C5CFF, #22A8F0);
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(124, 92, 255, .28);
+}
+
+/* 접이식(아코디언) 섹션. 자주 안 쓰는 항목을 눌러야만 펼쳐지게 한다. */
+.collapsible > h2 {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.collapsible > h2::after {
+  content: '▸';
+  font-size: 12px;
+  transition: transform .15s ease;
+}
+
+.collapsible.open > h2::after {
+  transform: rotate(90deg);
+}
+
+.collapsible:not(.open) > *:not(h2) {
+  display: none;
+}
+
+.opt {
+  color: rgba(255,255,255,.75);
+  font-weight: 400;
+}
+
+.hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #c3c9d4;
+  line-height: 1.55;
+}
+
+.hint-strong {
+  color: #eef1f6;
+  font-weight: 700;
+}
+
+/* 입력 */
+
+select, textarea, input[type="text"], input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
+
+select { cursor: pointer; }
+
+textarea { min-height: 58px; line-height: 1.5; }
+
+select:focus, textarea:focus, input:focus {
+  outline: none;
+  border-color: #3a4049;
+}
+
+::placeholder { color: #4d535d; }
+
+/* 버튼 */
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  transition: background .12s, border-color .12s, opacity .12s;
+}
+
+button:disabled { cursor: not-allowed; opacity: .4; }
+
+.ghost {
+  background: var(--sunken);
+  border-color: var(--line);
+  color: var(--ink-dim);
+  padding: 7px 11px;
+}
+
+.ghost:hover:not(:disabled) { background: #171a1f; color: var(--ink); }
+
+.wide { width: 100%; margin-top: 6px; }
+
+.primary {
+  width: 100%;
+  margin-top: 4px;
+  padding: 11px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+#run {
+  margin-top: 10px;
+  margin-bottom: 18px;
+  background: #ffc736;
+  color: #1a1300;
+}
+
+#run:hover:not(:disabled) { background: #ffd35e; }
+
+/* 이 버튼은 바닥에 붙어 있으므로 절대 투명해지면 안 된다.
+   opacity 로 흐리게 하면 뒤로 스크롤된 글씨가 버튼을 뚫고 비쳐 보인다.
+   흐리게 하는 대신 색을 죽인다. */
+#run:disabled {
+  opacity: 1;
+  background: #262a31;
+  color: #6d737e;
+}
+
+.primary:hover:not(:disabled) { background: #fff; }
+
+.primary-ghost { border-color: #313640; }
+
+.filebtn {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 11px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  text-align: center;
+  cursor: pointer;
+}
+
+.filebtn:hover { background: #171a1f; color: var(--ink); }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.check input { accent-color: #7d8695; cursor: pointer; }
+
+/* 분절 선택 */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.row-label {
+  flex: 0 0 30px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.seg {
+  display: flex;
+  flex: 1;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.seg button {
+  flex: 1;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.seg.col {
+  flex-direction: column;
+}
+
+.seg.col button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+  padding: 10px 34px;
+  text-align: center;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.seg.col button:last-child { border-bottom: none; }
+
+.seg button em {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  float: none;
+  font-style: normal;
+  opacity: .55;
+  font-size: 10.5px;
+}
+
+.seg button.on { background: #2b303a; color: var(--ink); }
+
+.seg button:hover:not(.on) { color: var(--ink-dim); }
+
+input[type="range"] {
+  flex: 1;
+  accent-color: #7d8695;
+  min-width: 0;
+}
+
+output {
+  flex: 0 0 34px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 문체 견본 ─────────────────────────────────────────
+ *
+ * 매번 빈 칸에 문체를 타이핑하게 두면 결국 아무도 안 쓴다. 눌러서
+ * 넣고, 고쳐 쓰고, 이름 붙여 남기는 세 동작으로 끝나게 한다.
+ */
+
+.style-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.style-presets button {
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid #3c4356;
+  background: rgba(124, 92, 255, .1);
+  color: #cbd2e6;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.style-presets button:hover {
+  background: rgba(124, 92, 255, .24);
+  border-color: #7C5CFF;
+  color: #fff;
+}
+
+/* 지금 칸에 들어와 있는 견본은 눌린 상태로 보여준다. */
+.style-presets button.on {
+  background: linear-gradient(135deg, #7C5CFF, #22A8F0);
+  border-color: transparent;
+  color: #fff;
+}
+
+.style-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.style-bar select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.style-bar .mini {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* .mini 는 data-act 가 있는 것만 색을 받는다. 이 둘은 없으므로 직접 준다. */
+#style-save { background: linear-gradient(135deg, #7C5CFF, #22A8F0); }
+#style-del  { background: linear-gradient(135deg, #3D4A63, #263041); }
+
+/* ── 오른쪽 무대 ───────────────────────────────────────── */
+
+.stage {
+  position: relative;
+  overflow-y: auto;
+  /* 위쪽 패딩은 .cats 가 직접 갖는다. 여기 남겨두면 sticky 가 그만큼
+     아래에 붙어서, 머리말 위로 카드가 지나가는 게 보인다. */
+  padding: 0 20px 20px;
+}
+
+/* ── 카테고리 칩 ───────────────────────────────────────
+ *
+ * 항목마다 색을 따로 준다. 일곱 개가 전부 같은 회색이면 눈이 훑어지지
+ * 않아서, 고르는 게 아니라 읽어야 하는 일이 된다. 색은 --c 하나로만
+ * 넘기고 나머지 톤(테두리·바탕·눌린 상태)은 여기서 파생시킨다.
+ */
+
+.cats {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin: 0 -20px 16px;
+  padding: 14px 20px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* 칩 줄 위에 얹는 제목. 이 화면이 무엇을 고르는 자리인지 알려준다. */
+.cats-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 11px;
+}
+
+.cats-title {
+  margin: 0;
+  margin-right: auto;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  color: var(--ink);
+}
+
+/* 바로가기 버튼들. 로고 바로 옆에 붙인다. 오른쪽 끝으로 밀어두면
+   칩 줄과 멀어져서 따로 노는 것처럼 보인다. */
+.quicklinks {
+  display: flex;
+  gap: 7px;
+}
+
+.qlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  color: #fff;
+  transition: filter .12s, transform .12s;
+}
+
+.qlink:hover { filter: brightness(1.12); transform: translateY(-1px); }
+
+.qlink.yt { background: #FF0000; }
+.qlink.ig { background: linear-gradient(135deg, #f9ce34, #ee2a7b, #6228d7); }
+.qlink.tt { background: linear-gradient(135deg, #25F4EE, #0b0d12 48%, #FE2C55); box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset; }
+.qlink.th { background: linear-gradient(135deg, #4a4a4a, #000 60%); box-shadow: 0 0 0 1px rgba(255,255,255,.14) inset; }
+.qlink.bm { background: linear-gradient(135deg, #7C5CFF, #22A8F0); }
+
+/* "최신순" 토글 + 카테고리 칩을 한 줄에 둔다. */
+.cats-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 로고·저장 단추. 자주 쓰는 것이라 왼쪽 패널 맨 아래가 아니라
+   무대 위쪽에 붙여 둔다. 스크롤해도 늘 보인다. */
+.top-tools {
+  display: flex;
+  gap: 7px;
+  /* 완성창고·로고(편집 도구)와 유튜브·인스타 등(바로가기)은 용도가 달라서
+     붙어 보이지 않도록 오른쪽에 넉넉한 여백과 구분선을 둔다. */
+  padding-right: 20px;
+  margin-right: 20px;
+  border-right: 1px solid var(--line);
+}
+
+.tool-btn {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1.5px solid #7C5CFF;
+  background: color-mix(in srgb, #7C5CFF 16%, transparent);
+  color: #C8BBFF;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.tool-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, #7C5CFF 28%, transparent);
+  color: #fff;
+}
+
+.tool-btn.save {
+  background: #ffc736;
+  border-color: #ffc736;
+  color: #1a1300;
+}
+
+.tool-btn.save:hover:not(:disabled) { background: #ffd35e; }
+
+.tool-btn.save:disabled {
+  opacity: 1;
+  background: #262a31;
+  border-color: var(--line);
+  color: #6d737e;
+}
+
+.panel-tip {
+  margin: -6px 0 20px;
+  padding: 9px 11px;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+
+.panel-tip b { color: var(--ink); }
+
+.sort-toggle {
+  flex: 0 0 auto;
+  border: 1.5px solid #2FC9A0;
+  background: color-mix(in srgb, #2FC9A0 14%, transparent);
+  color: #7CEFCE;
+  font-weight: 700;
+}
+
+.sort-toggle:hover { background: color-mix(in srgb, #2FC9A0 24%, transparent); }
+
+/* .chip.on (color-mix + var(--c))이 나중에 정의돼 있어서 이 버튼처럼
+   --c를 안 쓰는 칩은 눌렀을 때 배경이 값을 못 구해 새까맣게 보였다.
+   .chip.sort-toggle.on 으로 더 구체적인 선택자를 써서 확실히 이겨오게 한다. */
+.chip.sort-toggle.on {
+  background: #2FC9A0;
+  border-color: #2FC9A0;
+  color: #06251c;
+  font-weight: 800;
+  box-shadow: 0 2px 12px rgba(47, 201, 160, .35);
+}
+.chip.sort-toggle.on:hover { background: #37dcae; }
+
+.cats h2 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  color: var(--ink);
+}
+
+.cats p {
+  margin: 3px 0 12px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 22px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--c) 42%, transparent);
+  background: color-mix(in srgb, var(--c) 15%, transparent);
+  color: var(--c);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+
+.chip:hover {
+  background: color-mix(in srgb, var(--c) 20%, transparent);
+  border-color: color-mix(in srgb, var(--c) 55%, transparent);
+}
+
+/* 고른 항목은 색을 꽉 채운다. 테두리만 밝아지는 정도로는
+   일곱 개 중 뭘 골랐는지 한눈에 안 들어온다. */
+.chip.on {
+  background: var(--c);
+  border-color: var(--c);
+  color: #10131a;
+  font-weight: 700;
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--c) 32%, transparent);
+}
+
+.chip.on:hover { background: var(--c); }
+
+/* 그 항목에 몇 장 들어 있는지. 0장이면 아예 숨긴다. */
+.chip .n {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 26%, transparent);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.chip.on .n {
+  background: rgba(0, 0, 0, .22);
+  color: #10131a;
+}
+
+/* 사이드바에 들어가는 작은 판. 폭이 좁아 여러 줄로 접힌다. */
+.chips-sm { gap: 5px; }
+
+.chips-sm .chip {
+  padding: 5px 10px;
+  font-size: 11.5px;
+  gap: 5px;
+}
+
+.chips-sm .chip.on { box-shadow: none; }
+
+/* 카드 왼쪽 위에 어느 항목인지 붙인다. 여러 항목을 오가며 작업할 때
+   지금 보는 게 무엇인지 카드만 봐도 알아야 한다. */
+.cat-tag {
+  position: absolute;
+  left: 52px;          /* 선택(✓) 버튼 자리를 비켜준다 */
+  top: 8px;
+  padding: 6px 13px;
+  border-radius: 9px;
+  background: var(--c, #666);
+  color: #10131a;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: .01em;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2px;
+  color: var(--ink-faint);
+  text-align: center;
+  pointer-events: none;
+}
+
+.empty-art {
+  font-size: 34px;
+  opacity: .3;
+  margin-bottom: 10px;
+}
+
+.empty h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-dim);
+}
+
+.empty p { margin: 2px 0 0; font-size: 12px; }
+.empty-sub { opacity: .6; margin-top: 8px !important; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+/* 카드 */
+
+.card {
+  position: relative;      /* 순서 바꾸기 표시선의 기준 */
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* ── 순서 바꾸기(끌어놓기) ──────────────────────────────── */
+
+/* 사진에는 이미 '글자 끌기'가 붙어 있어서, 순서 옮기기는 전용 손잡이로만
+   시작한다. 선택(✓) 버튼 바로 아래에 세로로 붙인다. */
+.grip {
+  position: absolute;
+  left: 8px;
+  top: 54px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(0, 0, 0, .55);
+  border: 2px solid rgba(255, 255, 255, .28);
+  border-radius: 10px;
+  color: #dfe3ea;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: grab;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+.grip:hover { background: rgba(0, 0, 0, .75); border-color: rgba(255, 255, 255, .5); }
+.grip:active { cursor: grabbing; }
+
+.card.card-dragging { opacity: .35; }
+
+/* 어디에 꽂히는지 세로 막대로 보여준다. */
+.card.drop-before::after,
+.card.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #6ea8ff;
+  box-shadow: 0 0 10px rgba(110, 168, 255, .9);
+  z-index: 6;
+  pointer-events: none;
+}
+.card.drop-before::after { left: 0; }
+.card.drop-after::after { right: 0; }
+
+.canvas-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 5;      /* 사진 비율이 제각각이어도 카드 높이는 같게 */
+  background: #08090b;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.canvas-wrap canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;         /* 잘라내지 않고 틀 안에 맞춰 넣는다 */
+  width: auto;
+  height: auto;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  background: rgba(8, 9, 11, .74);
+  color: var(--ink-dim);
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #2f343d;
+  border-top-color: var(--ink-dim);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+.overlay.done .spinner { display: none; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+}
+
+.del {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(206, 58, 58, .88);
+  border: 2px solid rgba(255, 255, 255, .34);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+
+.del:hover { background: #e14b4b; }
+
+/* 즐겨찾기 별. 지우기(✕) 버튼 바로 왼쪽에 나란히 둔다. */
+.fav {
+  position: absolute;
+  top: 10px;
+  right: 54px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(20, 16, 4, .72);
+  border: 2px solid rgba(255, 199, 54, .55);
+  border-radius: 10px;
+  color: #ffc736;
+  font-size: 19px;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+
+.fav:hover { background: rgba(255, 199, 54, .34); }
+
+/* 눌린 별은 노란색을 꽉 채워서 멀리서도 보이게 한다. */
+.fav.on {
+  background: #ffc736;
+  border-color: #ffc736;
+  color: #191200;
+}
+
+/* 일본어로 다시 쓰기. 사진은 그대로 두고 글만 바꾸므로 ☆·✕ 와 나란히 둔다. */
+.ja {
+  position: absolute;
+  top: 10px;
+  right: 98px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(10, 24, 46, .78);
+  border: 2px solid rgba(120, 180, 255, .55);
+  border-radius: 10px;
+  color: #9fc7ff;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+
+.ja:hover:not(:disabled) { background: rgba(60, 120, 220, .55); color: #fff; }
+.ja:disabled { opacity: .45; cursor: progress; }
+
+/* 이미 일본어로 바꾼 카드 */
+.ja.on {
+  background: #3b7bdd;
+  border-color: #3b7bdd;
+  color: #fff;
+}
+
+/* 고를 사진만 골라 돌린다. 20장을 통째로 돌리면 마음에 안 드는 것까지
+   돈이 나간다. 아무것도 안 고르면 예전처럼 전부 돈다. */
+.pick {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(8, 12, 10, .72);
+  border: 2px solid rgba(255, 255, 255, .3);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, .45);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .45);
+}
+
+.pick:hover { border-color: #34d399; color: #9ff3cd; }
+
+.pick.on {
+  background: #34d399;
+  border-color: #34d399;
+  color: #06251c;
+}
+
+/* 고른 카드는 테두리로도 표시한다. 스크롤하며 훑을 때 ✓ 하나로는 약하다. */
+.card.picked {
+  border-color: #34d399;
+  box-shadow: 0 0 0 1px #34d399;
+}
+
+.pick-chip {
+  flex: 0 0 auto;
+  border: 1.5px solid #34d399;
+  background: color-mix(in srgb, #34d399 16%, transparent);
+  color: #7cefcb;
+  font-weight: 700;
+}
+
+.pick-chip:hover { background: color-mix(in srgb, #34d399 28%, transparent); }
+
+/* 생성 날짜/시간. "생성된 본문" 옆에 흐리게 표시. */
+.made-at {
+  flex: 1;
+  font-size: 15px;
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+/* 사진을 실제로 손봤는지 한눈에 보이게 한다.
+   20장씩 돌릴 때 어느 게 지워졌고 어느 게 덮인 것인지 구분이 필요하다. */
+.badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(10, 11, 13, .78);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #cfd3da;
+  font-size: 10.5px;
+  line-height: 1.5;
+  letter-spacing: .01em;
+}
+
+.badge.clean {
+  background: rgba(28, 74, 52, .86);
+  border-color: rgba(120, 220, 170, .3);
+  color: #b8f0d4;
+}
+
+/* ── 카테고리 옮기기 (카드마다) ────────────────────────────
+   cat-tag 를 버튼으로 만들어서, 누르면 8개 항목 칩이 뜨는 작은
+   팝오버로 다른 카테고리로 옮길 수 있게 한다. */
+.cat-tag {
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+}
+
+.cat-tag:hover { filter: brightness(1.08); }
+
+.cat-picker {
+  position: absolute;
+  left: 8px;
+  top: 40px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: rgba(10, 11, 14, .96);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .5);
+}
+
+.cat-picker button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 7px;
+  background: var(--c, #666);
+  color: #10131a;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cat-picker button:hover { filter: brightness(1.1); }
+
+/* ── 스레드에서 가져온 카드 표시 ──────────────────────────── */
+.thread-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, .72);
+  border: 1px solid rgba(255, 255, 255, .16);
+  color: #cfd3da;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+/* 사진 처리가 실패했을 때. 오류 글자는 카드 맨 아래라 스크롤해야 보이는데,
+   사람은 사진을 보고 있다. 실패했다는 사실은 사진 위에서 말해야 한다.
+   화면에만 얹히고 저장되는 이미지에는 들어가지 않는다. */
+.warn-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  right: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(120, 20, 20, .92);
+  border: 1px solid rgba(255, 140, 140, .45);
+  color: #ffd9d9;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+/* ── 사진이 여러 장일 때 넘겨보는 화살표 ───────────────────── */
+.carousel-nav {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: rgba(8, 9, 11, .72);
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 9px;
+}
+
+.car-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.car-btn:hover { background: rgba(255, 255, 255, .22); }
+
+.car-count {
+  min-width: 30px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* ── 스레드 원문 박스 ───────────────────────────────────────
+   가져온 원본 글은 접히는 "본문"과 별개로, 늘 보이는 자리에 둔다.
+   AI가 만든 문구가 아니라 참고용 원문이라는 걸 헷갈리지 않게
+   따로 감싼다. */
+.source-box {
+  margin-bottom: 9px;
+  padding: 8px 10px;
+  background: rgba(124, 92, 255, .08);
+  border: 1px solid rgba(124, 92, 255, .25);
+  border-radius: 9px;
+}
+
+.source-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  max-height: 4.6em;
+  overflow-y: auto;
+}
+
+.source-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: #b79cff;
+  text-decoration: none;
+}
+
+.source-link:hover { text-decoration: underline; }
+
+.card-body { padding: 9px 10px 11px; }
+
+.body-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+/* ── 본문 접기 ────────────────────────────────────────────
+   카드가 세로로 길면 한 화면에 몇 장 안 보인다. 본문과 해시태그는
+   접어두고 [본문 보기] 를 눌렀을 때만 편다. 카드마다 따로 여닫힌다. */
+
+.card .fold { display: none; }
+.card.open-body .fold { display: block; }
+
+.fold-btn { flex: 0 0 auto; }
+
+/* ── 제목 고치기 ──────────────────────────────────────────
+   AI 가 뽑은 제목이 마음에 안 들 때 [다시 뽑기] 말고 직접 고친다.
+   글자는 캔버스에 그리는 것이라 API 를 다시 부르지 않는다. */
+
+.title-btn {
+  margin-top: 0;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+/* 본문 편집 / 글자 편집 — 나란히 두 칸 */
+.title-btn-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.title-btn-row .mini { flex: 1; margin: 0; }
+[data-act="edit-body"]  { background: linear-gradient(135deg, #2FB8C6, #1D8A96); }
+
+/* 본문 편집 팝업 — 큰 화면으로 편하게 고칠 수 있게 넉넉히 키움 */
+#body-edit-dlg { width: 640px; }
+#body-edit-dlg .dlg { padding: 24px; }
+#body-edit-dlg h2 { font-size: 17px; margin-bottom: 16px; }
+#body-edit-text {
+  width: 100%;
+  min-height: 380px;
+  resize: vertical;
+  font-size: 14.5px;
+  line-height: 1.7;
+  padding: 14px;
+}
+
+/* ── 왼쪽 패널: 제목/본문 두 칸 ───────────────────────── */
+
+.sub-box {
+  margin-bottom: 10px;
+  padding: 9px 10px 4px;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.sub-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.opt-sm {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+.font-pick { flex: 1; min-width: 0; padding: 6px 8px; font-size: 13px; font-weight: 700; color: #f4f6fa; }
+
+input[type="color"] {
+  flex: 0 0 34px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* ── 글자 끌기 ─────────────────────────────────────────── */
+
+.canvas-wrap canvas { cursor: default; }
+.card canvas.dragging, #ed-canvas.dragging { cursor: grabbing; }
+
+/* ── 큰 편집창 ─────────────────────────────────────────── */
+
+#editor {
+  width: fit-content;      /* 작업판 크기에 맞춰 줄어든다 */
+  max-width: 98vw;
+  padding: 0;
+}
+
+.ed {
+  display: grid;
+  grid-template-columns: auto 430px;   /* 왼쪽은 작업판이 정한다 */
+  gap: 0;
+  position: relative;      /* 제목 팝오버가 이 안에서 자리를 잡는다 */
+}
+
+@media (max-width: 820px) {
+  .ed { grid-template-columns: 1fr; }
+}
+
+.ed-stage {
+  display: grid;
+  align-content: start;
+  justify-items: stretch;
+  gap: 8px;
+  padding: 12px;
+  background: #08090b;
+  border-right: 1px solid var(--line);
+}
+
+#ed-canvas {
+  display: block;
+  touch-action: none;      /* 손가락으로 끌 때 화면이 같이 밀리지 않게 */
+  border-radius: 4px;
+  /* 크기는 확대 배율에 따라 코드가 정한다. 여기서 못박으면 눈금자와
+     어긋난다. */
+}
+
+/* 사진이 놓이는 자리. 확대하면 이 안에서 스크롤된다. */
+.ed-viewport {
+  position: relative;
+  overflow: auto;
+  background: #0b0d11;
+  background-image:
+    linear-gradient(45deg, #12151b 25%, transparent 25%, transparent 75%, #12151b 75%),
+    linear-gradient(45deg, #12151b 25%, transparent 25%, transparent 75%, #12151b 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
+
+.zoom-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 46px;      /* 왼쪽 눈금자 폭만큼 밀어 사진과 줄을 맞춘다 */
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.zoom-bar .mini { flex: 0 0 auto; padding: 4px 9px; font-size: 12px; }
+.zoom-btn { min-width: 30px; font-weight: 900; }
+#zoom-out, #zoom-in { background: linear-gradient(135deg, #3D4A63, #263041); }
+#zoom-fit  { background: linear-gradient(135deg, #2FB8C6, #1D8A96); }
+#zoom-100  { background: linear-gradient(135deg, #3D4A63, #263041); }
+#zoom-out-txt { min-width: 44px; text-align: center; font-weight: 800; color: #fff; }
+
+.ed-tip {
+  margin: 0;
+  font-size: 13px;
+  color: #d3d7de;
+}
+
+.ed-tip b { color: var(--ink); }
+
+.ed-side { padding: 18px; }
+
+.ed-side h2 { margin: 0 0 14px; font-size: 16px; font-weight: 800; color: #fff; }
+
+.ed-lab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ed-lab input { accent-color: #8f78ff; cursor: pointer; }
+
+.ed-lab em {
+  font-style: normal;
+  font-size: 12px;
+  color: #9aa0ab;
+}
+
+.ed-side .field > span em { font-style: normal; }
+
+/* 이 사이드바 안의 항목 라벨(크기·글꼴·색·자리·적용 줄)은 다이얼로그
+   공통 스타일보다 크고 밝게 — 사진 위에서 바로 보며 조작하는 화면이라
+   작고 흐리면 눈이 피로해진다. */
+.ed-side .field > span {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #d7dbe4;
+}
+
+.ed-side textarea { min-height: 100px; font-size: 15px; line-height: 1.6; font-weight: 500; }
+
+/* 편집창 안의 크기·글꼴·색. 큰 사진을 보면서 바로 만질 수 있어야 한다. */
+.ed-style {
+  margin: -6px 0 16px;
+  padding: 12px 13px 6px;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.ed-side output {
+  flex: 0 0 40px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #d7dbe4;
+}
+.ed-style .row { margin-bottom: 9px; }
+/* 34px 은 글씨를 키운 뒤로 '줄 간격' 같은 세 글자를 담지 못해
+   '줄 간 격' 처럼 쪼개졌다. 넉넉히 주고 줄바꿈을 막는다. */
+.ed-style .row-label {
+  flex: 0 0 56px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #f4f6fa;
+  white-space: nowrap;
+}
+
+.w-pick {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f4f6fa;
+}
+
+.ed-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 16px;
+}
+
+.ed-foot .spacer { flex: 1; }
+.ed-foot .primary { width: auto; margin: 0; padding: 7px 18px; }
+
+.mini {
+  padding: 7px 12px;
+  border: none;
+  border-radius: 9px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  box-shadow: 0 3px 9px rgba(0, 0, 0, .35);
+}
+
+.mini:hover:not(:disabled) { filter: brightness(1.12); }
+
+/* 카드 안 단추마다 색을 달리한다. 다섯 개가 전부 회색이면
+   무엇이 무엇인지 매번 읽어야 한다. */
+[data-act="edit-title"] { background: linear-gradient(135deg, #7C5CFF, #22A8F0); }
+[data-act="fold"]       { background: linear-gradient(135deg, #3D4A63, #263041); }
+[data-act="copy"]       { background: linear-gradient(135deg, #2E9E7E, #1C6B55); }
+[data-act="regen"]      { background: linear-gradient(135deg, #FF8A3D, #E0632A); }
+[data-act="download"]   { background: linear-gradient(135deg, #FFC736, #F0A310); color: #1a1300; }
+[data-act="archive"]    { background: linear-gradient(135deg, #34D399, #059669); margin-top: 8px; width: 100%; }
+
+/* 편집창 안의 "줄/단어 강조" 관련 버튼들 — data-act가 없어서 위 규칙을
+   못 받으니 따로 색을 준다. 안 주면 브라우저 기본(흰색) 버튼으로 보인다. */
+#ed-word-mark   { background: linear-gradient(135deg, #7C5CFF, #22A8F0); }
+#ed-word-clear  { background: linear-gradient(135deg, #3D4A63, #263041); }
+#ed-line-reset  { background: linear-gradient(135deg, #3D4A63, #263041); }
+#ed-crop-reset      { background: linear-gradient(135deg, #3D4A63, #263041);
+                      white-space: nowrap; }   /* '자동으 로' 로 쪼개지지 않게 */
+#ed-crop-apply-all  { background: linear-gradient(135deg, #34D399, #059669); }
+
+.card-body textarea {
+  min-height: 78px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.tags {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: #8fa8cc;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.card-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.card-foot .mini { flex: 1; margin: 0; }
+
+.card-err {
+  margin: 9px 0 0;
+  padding: 9px 11px;
+  background: rgba(255, 107, 107, .09);
+  border: 1px solid rgba(255, 107, 107, .24);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* 끌어다 놓기 */
+
+.drop-veil {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  background: rgba(9, 10, 12, .84);
+  color: var(--ink);
+  font-size: 15px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.drop-veil span {
+  padding: 22px 34px;
+  border: 2px dashed #3b414b;
+  border-radius: 14px;
+}
+
+/* 설정 창 */
+
+dialog {
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--ink);
+  max-width: 92vw;
+  width: 400px;
+}
+
+dialog::backdrop { background: rgba(6, 7, 9, .68); }
+
+.dlg { padding: 18px; }
+
+.dlg h2 { margin: 0 0 16px; font-size: 14px; }
+
+.field { display: block; margin-bottom: 14px; }
+
+.field > span {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.field small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  word-break: break-all;
+}
+
+.dlg-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.dlg-foot .spacer { flex: 1; }
+.dlg-foot .primary { width: auto; margin: 0; padding: 7px 16px; }
+
+/* "이미지 저장" 팝업만 더 크게 — 다른 팝업(로고/다시보기/편집기)엔 영향 없음 */
+#save-dlg { width: 480px; }
+#save-dlg .dlg { padding: 26px; }
+#save-dlg h2 { font-size: 18px; margin-bottom: 20px; }
+#save-dlg .field { margin-bottom: 18px; }
+#save-dlg .field > span { font-size: 13px; margin-bottom: 7px; }
+#save-dlg .field small { font-size: 11.5px; }
+#save-dlg select { font-size: 14px; padding: 11px 12px; }
+#save-dlg .check span { font-size: 13.5px; }
+#save-dlg #ai-expand-hint,
+#save-dlg #save-note { font-size: 12.5px; line-height: 1.55; }
+#save-dlg .dlg-foot { margin-top: 22px; }
+#save-dlg .dlg-foot button { padding: 10px 18px; font-size: 13.5px; }
+
+/* 완성 창고 (카드 그리드 자리를 통째로 대체하는 화면.
+   팝업이 아니라 메인 화면이라 자료가 몇백 장이어도 넉넉하게 스크롤된다.) */
+
+.archive-view {
+  display: block;
+}
+
+.archive-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.archive-head h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  color: var(--ink);
+}
+
+#archive-back {
+  width: auto;
+  margin: 0;
+  padding: 10px 18px;
+  background: #2B3040;
+  border: 1px solid #454C60;
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+#archive-back:hover:not(:disabled) { background: #363c50; border-color: #5a6280; }
+
+#archive-export-sheet {
+  width: auto;
+  margin: 0;
+  padding: 10px 18px;
+  background: #1FA463;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+#archive-export-sheet:hover:not(:disabled) { background: #24bb70; }
+
+.archive-head .hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.archive-list {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+/* 완성 목록 페이지 번호 — 12개 넘으면 아래로 계속 쌓이지 않고 페이지로 나뉜다 */
+.archive-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.archive-pager button {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--sunken);
+  color: var(--ink-dim);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.archive-pager button:hover:not(:disabled):not(.on) { background: #171a1f; color: var(--ink); }
+.archive-pager button:disabled { opacity: .35; cursor: not-allowed; }
+
+.archive-pager .pager-num.on {
+  background: linear-gradient(135deg, #7C5CFF, #22A8F0);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* 12개가 한 화면에 여유 있게 들어오도록 이전보다 아담하게 줄인 크기.
+   그래도 글자·아이콘은 읽고 누르기에 불편하지 않은 선을 유지한다. */
+.batch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.batch-row:last-child { border-bottom: none; }
+.batch-row:hover { background: rgba(255, 255, 255, .03); }
+.batch-row-clickable { cursor: pointer; }
+
+.batch-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: #7C5CFF;
+  cursor: pointer;
+}
+
+.batch-no {
+  flex: 0 0 24px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+/* 날짜는 눈에 확 띄어야 하는 정보라, 색이 있는 알약 배지로 강조한다. */
+.batch-date {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(124, 92, 255, .18);
+  color: #B9A6FF;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.batch-thumb {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #08090b;
+}
+
+.batch-title {
+  flex: 0 1 auto;
+  max-width: 520px;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-view,
+.batch-save-one {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .07);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.batch-view:hover,
+.batch-save-one:hover { background: rgba(255, 255, 255, .14); }
+
+.batch-del {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 90, 90, .14);
+  color: #FF8A8A;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.batch-del:hover { background: rgba(255, 90, 90, .28); }
+
+.batch-empty {
+  padding: 44px 20px;
+  text-align: center;
+  font-size: 15px;
+  color: var(--ink-faint);
+}
+
+/* 다시보기 */
+
+.preview-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 65vh;
+  overflow: auto;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+
+.preview-stage img {
+  max-width: 100%;
+  max-height: 60vh;
+  display: block;
+  border-radius: 6px;
+}
+
+/* 알림 */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  background: #1e222a;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 12px;
+  z-index: 90;
+  animation: rise .18s ease-out;
+}
+
+.toast.bad { border-color: rgba(255, 107, 107, .4); color: #ffbcbc; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+}
+
+/* ── 영상 자막 지우기 ────────────────────────────────────── */
+
+/* dialog 의 기본 너비(400px)는 요소 선택자라 클래스로는 못 이긴다. id 로 잡는다. */
+#video-dlg {
+  width: min(520px, 94vw);
+  max-height: 92vh;
+}
+.vid-dlg {
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+/* 세로 영상(9:16)이면 미리보기가 창을 넘긴다. 높이를 묶고, 틀은 사진에
+   딱 맞게 줄인다 — 그래야 띠의 비율 좌표가 사진과 어긋나지 않는다. */
+.vid-preview {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px auto 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  line-height: 0;
+}
+.vid-preview img {
+  display: block;
+  max-height: 44vh;
+  width: auto;
+  max-width: 100%;
+}
+
+/* 지울 범위. 안이 비쳐야 자막이 덮였는지 눈으로 확인할 수 있다. */
+.vid-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(110, 168, 255, .22);
+  border-top: 2px solid #6ea8ff;
+  border-bottom: 2px solid #6ea8ff;
+  cursor: move;          /* 가운데를 잡으면 통째로 옮긴다 */
+  touch-action: none;    /* 끌 때 화면이 같이 스크롤되지 않게 */
+}
+/* 손잡이는 띠보다 넉넉히 잡아야 마우스로 집기 쉽다. */
+.vid-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 16px;
+  cursor: ns-resize;
+}
+.vid-grip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 5px;
+  margin: -2.5px 0 0 -23px;
+  border-radius: 3px;
+  background: #6ea8ff;
+  box-shadow: 0 0 8px rgba(110, 168, 255, .9);
+}
+.vid-grip-t { top: -9px; }
+.vid-grip-b { bottom: -9px; }
+
+.vid-bar {
+  height: 10px;
+  margin: 14px 0 8px;
+  border-radius: 6px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.vid-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #4f8cff, #7de2c3);
+  transition: width .25s ease;
+}
+
+.vid-error {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, .12);
+  border: 1px solid rgba(255, 107, 107, .4);
+  color: #ffb4b4;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.vid-shots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 4px 0 8px;
+}
+.vid-at {
+  min-width: 64px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+
+#vid-result {
+  display: block;
+  width: 100%;
+  max-height: 44vh;
+  margin: 12px auto 6px;
+  border-radius: 10px;
+  background: #000;
+}
+
+.vid-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.vid-time {
+  min-width: 104px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 띠는 여러 개가 될 수 있다 — 위 제목과 아래 자막이 같이 뜨는 영상 때문이다. */
+.vid-band .vid-no {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #cfe2ff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+  pointer-events: none;
+  line-height: 1;
+}
+.vid-band .vid-drop {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .6);
+  color: #ffd7d7;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.vid-band .vid-drop:hover { background: rgba(200, 60, 60, .85); color: #fff; }
+
+/* AI 없이 사진만 올리는 단추. 돈이 드는 단추들과 눈으로 구분되게 한다. */
+.filebtn.plain-btn {
+  border-color: rgba(125, 226, 195, .45);
+  color: #bff0dd;
+}
+.filebtn.plain-btn:hover {
+  border-color: rgba(125, 226, 195, .8);
+  background: rgba(125, 226, 195, .1);
+}
+
+/* 내 PC 글꼴 불러오기 */
+.font-more {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* 단추 글자가 길어 한 줄을 통째로 준다. 좁은 칸에 밀어 넣으면 두 줄로
+   접혀 읽기 나쁘고 누르기도 어렵다.
+   .mini 는 글자색만 흰색으로 정해두고 배경은 단추마다 따로 준다. 안 주면
+   브라우저 기본 흰 바탕이 깔려 흰 글자가 안 보인다. */
+.font-more #font-scan {
+  flex: 1 0 100%;
+  background: linear-gradient(135deg, #4F8CFF, #2B6BE0);
+}
+
+/* 저장 크기 직접 지정 */
+.size-row { gap: 8px; }
+.size-row input[type="number"] {
+  width: 92px;
+  padding: 7px 9px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.size-x { font-size: 14px; font-weight: 800; color: var(--ink-dim); }
+.size-unit { font-size: 11.5px; color: var(--ink-dim); }
+
+/* 글자 테두리 고르기 — 색을 이름만이 아니라 눈으로도 알 수 있게 한다. */
+.stroke-seg button { position: relative; padding-left: 22px; }
+.stroke-seg button::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .55);
+}
+.stroke-seg button[data-v="none"] { padding-left: 12px; }
+.stroke-seg button[data-v="none"]::before { display: none; }
+.stroke-seg .sw-k::before { background: #000; }
+.stroke-seg .sw-r::before { background: #e02424; }
+.stroke-seg .sw-y::before { background: #f5c518; }
+.stroke-seg .sw-b::before { background: #2563eb; }
+
+/* 글자 로고 */
+#logo-text {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+#logo-text-box .row { gap: 8px; }
+
+/* 편집창 머리줄 — 제목 오른쪽에 로고 단추 */
+.ed-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.ed-head-row h2 { margin: 0; }
+
+.logo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 15px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #7C5CFF, #22A8F0);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: -.01em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(70, 110, 255, .35);
+}
+.logo-btn:hover { filter: brightness(1.12); }
+.logo-btn:active { transform: translateY(1px); }
+
+/* 로고가 켜져 있으면 단추에 표시를 남긴다 — 지금 켜졌는지 매번
+   창을 열어 확인하지 않아도 되게. */
+.logo-btn.on::after {
+  content: '켜짐';
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .22);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+/* ── 제목 설정 팝오버 (오른쪽 빈 공간에 아담하게 뜸) ──────────────── */
+.ed-head-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.title-pop-btn {
+  background: linear-gradient(135deg, #10B981, #059669);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, .35);
+}
+
+.title-popover {
+  position: absolute;
+  top: 60px;
+  right: 15px;
+  width: 410px;
+  background: #161920;
+  border: 1px solid #323846;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .65);
+  z-index: 100;
+  font-size: 14.5px;
+}
+
+.title-popover .field > span,
+.title-popover .ed-lab,
+.title-popover .row-label,
+.title-popover input,
+.title-popover select {
+  font-size: 14.5px !important;
+}
+
+.title-popover input[type="text"] {
+  padding: 10px 12px;
+  font-size: 14.5px;
+}
+
+.title-popover select {
+  padding: 8px 10px;
+}
+
+.title-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.close-pop {
+  background: none;
+  border: none;
+  color: var(--ink-dim);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.close-pop:hover { color: #fff; }
+
+/* ① ② ③ — 누르는 차례. 크고 굵게 해서 눈에 먼저 들어오게 한다.
+   색은 단추 글자색을 그대로 따라간다. 흰색으로 못박으면 노란 단추
+   위에서 오히려 안 보인다. */
+.step {
+  font-size: 1.3em;
+  font-weight: 900;
+  color: inherit;
+  margin-right: 3px;
+}
+
+/* ── 요소 항목(화살표·도형) ─────────────────────────────── */
+
+/* 두 단추가 한 줄을 반씩 나눠 갖는다 */
+.mini.half { flex: 1 1 0; min-width: 0; }
+#ed-word-mark  { background: linear-gradient(135deg, #2FB8C6, #1D8A96); }
+#ed-stamp-btn  { background: linear-gradient(135deg, #7C5CFF, #5B34E8); }
+
+.stamp-popover { top: 60px; right: 15px; max-height: 70vh; overflow-y: auto; }
+
+.stamp-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.stamp-grid button {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  color: #f4f6fa;
+  background: #202634;
+  border: 1px solid #323846;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.stamp-grid button:hover { background: #2b3344; border-color: #4a5468; }
+
+/* 자주 쓰는 색 여섯 개. 칸마다 --c 로 제 색을 받는다. */
+.stamp-colors { gap: 5px; }
+.stamp-colors button {
+  flex: 1;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background: var(--c);
+  cursor: pointer;
+}
+.stamp-colors button.on { border-color: #fff; }
+
+/* 동그라미·네모는 글꼴 문자로는 너무 작게 나온다. 직접 그린다. */
+.stamp-grid i {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid currentColor;
+}
+.stamp-grid i.sh-circle { border-radius: 50%; }
+.stamp-grid i.sh-rect   { border-radius: 3px; }
+
+/* 흰색·검정 칸도 어두운 바탕에서 보이게 테두리를 준다 */
+.stamp-colors button { border: 2px solid rgba(255, 255, 255, .25); }
+.stamp-colors button.on { border-color: #fff; }
+
+#stamp-del   { background: linear-gradient(135deg, #C0392B, #8E241A); }
+#stamp-clear { background: linear-gradient(135deg, #3D4A63, #263041); }
+
+/* 요소 팝오버 — 화살표·도형 / 스티커 두 칸으로 나눈다 */
+.stamp-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.stamp-tabs button {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  background: #1b2029;
+  border: 1px solid #323846;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.stamp-tabs button.on { color: #fff; background: #2f3a4e; border-color: #4a5468; }
+
+/* 도형이 16개로 늘어 두 줄이 된다. 스티커는 더 촘촘하게. */
+.stamp-grid { grid-template-columns: repeat(8, 1fr); }
+.stamp-grid button { font-size: 17px; }
+.emoji-grid { grid-template-columns: repeat(8, 1fr); }
+.emoji-grid button { font-size: 19px; }
+
+/* ── 눈금자 ───────────────────────────────────────────────
+   사진의 실제 픽셀 자리를 위·왼쪽에 표시한다. 눈금은 화면에
+   보이는 크기가 아니라 저장될 사진의 크기를 가리킨다. */
+.ruler-wrap {
+  display: grid;
+  grid-template-columns: 46px auto;   /* 자리는 코드가 정한다 */
+  grid-template-rows: 22px auto;
+  gap: 0;
+  justify-content: start;
+  height: 66vh;
+  min-height: 320px;
+}
+.ruler-corner {
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #cfd5e0;
+  background: #262c38;
+  border-right: 1px solid #3a4150;
+  border-bottom: 1px solid #3a4150;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ruler { display: block; background: #262c38; }
+#ruler-top  { border-bottom: 1px solid #3a4150; }
+#ruler-left { border-right: 1px solid #3a4150; }
+
+/* 저장될 사진의 실제 크기. 눈금자 모서리에 넣으면 잘려서 아래에 둔다. */
+.size-badge {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  background: #2f3a4e;
+  border-radius: 999px;
+}
+
+/* 작업판 아래 줄(확대 단추·안내글)이 무대 폭을 붙잡으면, 사진을 많이
+   줄였을 때 오른쪽에 빈 자리가 남는다. 폭 0 + 최소폭 100% 로 두면
+   자리는 다 쓰되 폭은 작업판이 정하게 된다. */
+.ed-stage > .zoom-bar,
+.ed-stage > .ed-tip {
+  width: 0;
+  min-width: 100%;
+}
+.zoom-bar { flex-wrap: wrap; }
