@@ -1097,14 +1097,16 @@ function render(card) {
   /* ── 제목 자리 잡기 ── */
   let head = null;
   if (headLines.length) {
-    const base = h * (state.headSize / 100);
-    const fit = fitTitle(ctx, headLines, boxW, h * 0.3, base, state.headWeight,
-                         state.headFont);
+    const hSize = cardStyle(card, 'headSize');
+    const hWeight = cardStyle(card, 'headWeight');
+    const hFont = cardStyle(card, 'headFont');
+    const base = h * (hSize / 100);
+    const fit = fitTitle(ctx, headLines, boxW, h * 0.3, base, hWeight, hFont);
     const blockH = fit.wrapped.length * fit.size * lineMul(card);
     let top = card.posHead ? card.posHead.y * h : pad;
     let left = card.posHead ? card.posHead.x * w : pad;
     top = Math.max(0, Math.min(h - blockH, top));
-    left = clampLeft(ctx, fit, state.headWeight, state.headFont, left, w);
+    left = clampLeft(ctx, fit, hWeight, hFont, left, w);
     head = { ...fit, top, left, blockH };
   }
 
@@ -1141,7 +1143,9 @@ function render(card) {
   if (head) {
     card.hit.head = drawBlock(ctx, {
       lines: head.wrapped, x: head.left, top: head.top, size: head.size,
-      color: state.headColor, weight: state.headWeight, font: state.headFont,
+      color: cardStyle(card, 'headColor'),
+      weight: cardStyle(card, 'headWeight'),
+      font: cardStyle(card, 'headFont'),
     });
   }
 
@@ -3056,18 +3060,18 @@ function syncStyleUI() {
       .forEach((b) => b.classList.toggle('on', b.dataset.v === String(v)));
   };
 
-  set('#text-size', state.textSize);      out('#text-size-out', state.textSize);
-  set('#head-size', state.headSize);      out('#head-size-out', state.headSize);
-  set('#ed-head-size', state.headSize);   out('#ed-head-size-out', state.headSize);
-
-  set('#body-font', state.bodyFont);
-  set('#head-font', state.headFont);   set('#ed-head-font', state.headFont);
-  set('#body-color', state.bodyColor);
-  set('#head-color', state.headColor); set('#ed-head-color', state.headColor);
-
   // 편집창 값은 지금 편집 중인 카드 것을 보여준다. 없으면 기본값.
   const mine = (k) => (editing && editing.style && editing.style[k] !== undefined
     ? editing.style[k] : state[k]);
+
+  set('#text-size', state.textSize);      out('#text-size-out', state.textSize);
+  set('#head-size', state.headSize);      out('#head-size-out', state.headSize);
+  set('#ed-head-size', mine('headSize')); out('#ed-head-size-out', mine('headSize'));
+
+  set('#body-font', state.bodyFont);
+  set('#head-font', state.headFont);   set('#ed-head-font', mine('headFont'));
+  set('#body-color', state.bodyColor);
+  set('#head-color', state.headColor); set('#ed-head-color', mine('headColor'));
   set('#ed-line-gap', mine('lineGap'));
   const lg = $('#ed-line-gap-out');
   if (lg) lg.textContent = `${mine('lineGap')}%`;
@@ -3080,7 +3084,7 @@ function syncStyleUI() {
   if (swr) swr.hidden = !(mine('strokeColor') && mine('strokeColor') !== 'none');
 
   seg('#body-weight', state.bodyWeight);
-  seg('#head-weight', state.headWeight);  set('#ed-head-weight', state.headWeight);
+  seg('#head-weight', state.headWeight);  set('#ed-head-weight', mine('headWeight'));
 
   // 본문(ed-body-*) 칸은 "적용 줄" 선택에 따라 값이 달라지므로 따로 채운다.
   syncBodyLineUI();
@@ -3261,6 +3265,7 @@ function setCardOrGlobal(key, value) {
   if (editing) {
     editing.style ||= {};
     editing.style[key] = value;
+    syncStyleUI();          // 옆에 붙은 숫자 표시를 따라오게 한다
     render(editing);
     schedulePersist();
     return;
@@ -3595,25 +3600,32 @@ function init() {
     renderAll();
   });
   // 크기·글꼴·색·굵기는 왼쪽 패널과 편집창 두 군데에 같은 것이 있다.
-  // 어느 쪽을 만져도 같은 값을 바꾸고 두 화면이 함께 따라온다.
-  const pairs = [
-    ['#text-size',   null,               'textSize',   'num'],
-    ['#head-size',   '#ed-head-size',   'headSize',   'num'],
-    ['#body-font',   null,               'bodyFont',   'text'],
-    ['#head-font',   '#ed-head-font',   'headFont',   'text'],
-    ['#body-color',  null,               'bodyColor',  'text'],
-    ['#head-color',  '#ed-head-color',  'headColor',  'text'],
-    ['#ed-head-weight', null, 'headWeight', 'num'],
-  ];
-  pairs.forEach(([a, b, key, kind]) => {
-    [a, b].filter(Boolean).forEach((id) => {
-      const el = $(id);
-      if (!el) return;
-      ['input', 'change'].forEach((evName) =>
-        el.addEventListener(evName, (e) =>
-          setStyle(key, kind === 'num' ? +e.target.value : e.target.value)));
-    });
-  });
+  // 두 곳이 미치는 범위는 다르다.
+  //   왼쪽 패널 = 앞으로 만들 카드까지 포함한 전체 기본값
+  //   편집창    = 지금 열어 놓은 그 카드 한 장
+  // 편집창이 전체를 바꾸면, 한 장을 손보다가 대시보드의 나머지 장을
+  // 전부 망친다.
+  const bindStyle = (id, key, kind, apply) => {
+    const el = $(id);
+    if (!el) return;
+    ['input', 'change'].forEach((evName) =>
+      el.addEventListener(evName, (e) =>
+        apply(key, kind === 'num' ? +e.target.value : e.target.value)));
+  };
+
+  [['#text-size',  'textSize',  'num'],
+   ['#head-size',  'headSize',  'num'],
+   ['#body-font',  'bodyFont',  'text'],
+   ['#head-font',  'headFont',  'text'],
+   ['#body-color', 'bodyColor', 'text'],
+   ['#head-color', 'headColor', 'text'],
+  ].forEach(([id, key, kind]) => bindStyle(id, key, kind, setStyle));
+
+  [['#ed-head-size',   'headSize',   'num'],
+   ['#ed-head-font',   'headFont',   'text'],
+   ['#ed-head-color',  'headColor',  'text'],
+   ['#ed-head-weight', 'headWeight', 'num'],
+  ].forEach(([id, key, kind]) => bindStyle(id, key, kind, setCardOrGlobal));
   $('#ed-line-gap').addEventListener('input', (e) => {
     $('#ed-line-gap-out').textContent = `${e.target.value}%`;
     setCardOrGlobal('lineGap', +e.target.value);
