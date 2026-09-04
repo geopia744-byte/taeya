@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.32</span></em>
+        <em>자동화 <span class="ver">v13.33</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -436,6 +436,13 @@
           <span class="row-label">글꼴</span>
           <select id="ed-body-font" class="font-pick"></select>
         </div>
+        <div class="row font-more">
+          <button type="button" class="mini" id="font-scan">🔤 내 PC 글꼴 불러오기</button>
+          <input type="text" id="font-add-name" placeholder="글꼴 이름 직접 넣기">
+          <button type="button" class="mini" id="font-add">＋</button>
+        </div>
+        <p class="hint" id="font-hint">글꼴을 PC에 설치한 뒤 [내 PC 글꼴 불러오기]를
+          누르면 목록에 들어옵니다. 한 번만 하면 다음부터 기억합니다.</p>
         <div class="row">
           <span class="row-label">색</span>
           <input type="color" id="ed-body-color">

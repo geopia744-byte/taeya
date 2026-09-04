@@ -2726,11 +2726,77 @@ const FONTS = [
   ['BM JUA_TTF', '배달의민족 주아 (설치 시)'],
 ];
 
+/* 내 PC 글꼴 — 새로 추가한 기능. 기존 목록은 건드리지 않는다.
+
+   글꼴을 늘리려면 코드의 FONTS 목록을 고쳐야 했다. 사용자가 글꼴을
+   받아 설치해도 대시보드에는 안 보인다는 뜻이다. 브라우저에게 PC에
+   깔린 글꼴을 물어보고, 그 결과를 목록에 얹는다. */
+const MY_FONTS_KEY = 'hooking-my-fonts';
+
+function loadMyFonts() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MY_FONTS_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMyFonts(list) {
+  try {
+    localStorage.setItem(MY_FONTS_KEY, JSON.stringify(list));
+  } catch { /* 저장 못 해도 이번 판에서는 쓸 수 있다 */ }
+}
+
+let myFonts = [];
+
 function fillFontPicks() {
-  const html = FONTS
+  const rows = [...FONTS];
+  if (myFonts.length) {
+    // 내가 넣은 글꼴은 아래에 따로 모아 둔다. 어느 것이 원래 있던
+    // 것이고 어느 것이 내가 넣은 것인지 구분이 돼야 한다.
+    rows.push(['', '── 내 PC 글꼴 ──']);
+    myFonts.forEach((f) => rows.push([f, f]));
+  }
+  const html = rows
     .map(([v, name]) => `<option value="${v}">${name}</option>`).join('');
   ['#body-font', '#head-font', '#ed-body-font', '#ed-head-font']
     .forEach((id) => { const el = $(id); if (el) el.innerHTML = html; });
+}
+
+function addMyFonts(names) {
+  const have = new Set(myFonts);
+  const known = new Set(FONTS.map(([v]) => v));
+  let added = 0;
+  names.forEach((raw) => {
+    const name = String(raw || '').trim();
+    if (!name || have.has(name) || known.has(name)) return;
+    have.add(name);
+    myFonts.push(name);
+    added += 1;
+  });
+  if (!added) return 0;
+  myFonts.sort((a, b) => a.localeCompare(b, 'ko'));
+  saveMyFonts(myFonts);
+  fillFontPicks();
+  syncStyleUI();          // 고르고 있던 값이 지워지지 않게 다시 칠한다
+  return added;
+}
+
+async function scanLocalFonts() {
+  if (!window.queryLocalFonts) {
+    return toast('이 브라우저는 PC 글꼴을 못 읽습니다. 크롬이나 엣지에서 '
+               + '열거나, 글꼴 이름을 직접 넣어주세요.', true);
+  }
+  try {
+    const got = await window.queryLocalFonts();
+    const n = addMyFonts(got.map((f) => f.family));
+    toast(n ? `PC 글꼴 ${n}개를 목록에 넣었습니다.`
+            : '새로 넣을 글꼴이 없습니다 (이미 다 들어와 있습니다).');
+  } catch (err) {
+    // 권한을 거절했거나 브라우저가 막은 경우다.
+    toast(`글꼴을 읽지 못했습니다 — ${err.message}. 이름을 직접 넣어보세요.`, true);
+  }
 }
 
 /* 같은 값을 왼쪽 패널과 편집창 두 군데서 만진다. 한 곳에서 바꾸면
@@ -3356,7 +3422,23 @@ function init() {
 
   buildChips('#category');
   mountFavChip();
+  myFonts = loadMyFonts();
   fillFontPicks();
+  $('#font-scan').addEventListener('click', scanLocalFonts);
+  const addByName = () => {
+    const box = $('#font-add-name');
+    const n = addMyFonts([box.value]);
+    if (n) {
+      toast(`「${box.value.trim()}」 를 넣었습니다.`);
+      box.value = '';
+    } else {
+      toast('이미 있거나 빈 이름입니다.', true);
+    }
+  };
+  $('#font-add').addEventListener('click', addByName);
+  $('#font-add-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addByName(); }
+  });
   applySettings(loadSettings());
   initStyles();
   applyCategory();
