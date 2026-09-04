@@ -2146,7 +2146,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
-    print(f"\n  이미지 AI 자동화 v13.52 이 열렸습니다.\n\n    {url}\n")
+    print(f"\n  이미지 AI 자동화 v13.53 이 열렸습니다.\n\n    {url}\n")
     print(f"  실행 폴더: {ROOT}")
     print(f"  결과물 저장 위치: {get_output_dir()}")
     if not get_api_key():

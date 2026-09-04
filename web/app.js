@@ -890,16 +890,23 @@ function clampLeft(ctx, fit, weight, font, left, w) {
 // 지금 그리는 카드. paintText 는 캔버스 밑바닥 함수라 카드를 넘겨받기
 // 어려워서, 그리기 시작할 때 여기에 적어두고 쓴다.
 let painting = null;
+/* 지금 그리는 것이 제목인지 본문인지. 테두리는 둘이 따로 갖는다 —
+   본문에 빨간 테두리를 두르려다 제목까지 빨개지면 안 된다. */
+let paintingHead = false;
 
 function strokeColorNow() {
-  const c = painting && painting.style && painting.style.strokeColor !== undefined
-    ? painting.style.strokeColor : state.strokeColor;
+  const st = painting && painting.style ? painting.style : {};
+  const key = paintingHead ? 'headStrokeColor' : 'strokeColor';
+  const c = st[key] !== undefined ? st[key]
+          : (paintingHead ? (st.headStrokeColor ?? 'none') : state.strokeColor);
   return c && c !== 'none' ? c : null;
 }
 
 function strokeSizeNow() {
-  const v = painting && painting.style && painting.style.strokeSize !== undefined
-    ? painting.style.strokeSize : state.strokeSize;
+  const st = painting && painting.style ? painting.style : {};
+  const key = paintingHead ? 'headStrokeSize' : 'strokeSize';
+  const v = st[key] !== undefined ? st[key]
+          : (paintingHead ? 4 : state.strokeSize);
   return Number(v) || 3;
 }
 
@@ -1133,12 +1140,14 @@ function render(card) {
     });
   }
   if (head) {
+    paintingHead = true;
     card.hit.head = drawBlock(ctx, {
       lines: head.wrapped, x: head.left, top: head.top, size: head.size,
       color: cardStyle(card, 'headColor'),
       weight: cardStyle(card, 'headWeight'),
       font: cardStyle(card, 'headFont'),
     });
+    paintingHead = false;
   }
 
   drawStamps(ctx, card, w, h);
@@ -1386,14 +1395,18 @@ const BOARD_H = 2000;
 const RULER_W = 46;      // 왼쪽 눈금자 폭. 1400 같은 네 자리가 안 잘리게
 const RULER_H = 22;      // 위 눈금자 높이
 
-// 눈금자를 뺀, 사진이 쓸 수 있는 자리
+/* 눈금자를 뺀, 사진이 쓸 수 있는 자리.
+   편집창 폭을 재서 구하면 안 된다 — 편집창이 작업판 크기에 맞춰 줄어들게
+   해 놓았기 때문에, 서로 서로를 보고 크기를 정하는 꼴이 된다. 그래서
+   화면 크기에서 바로 계산한다. */
+const SIDE_W = 430;      // 오른쪽 편집 칸 폭 (style.css 의 .ed 와 같아야 한다)
+
 function boardRoom() {
-  const stage = document.querySelector('.ed-stage');
   const wrap = document.querySelector('.ruler-wrap');
-  if (!stage || !wrap) return { w: 600, h: 400 };
-  const sw = stage.clientWidth - 24;              // 좌우 여백
-  const sh = wrap.clientHeight || Math.round(window.innerHeight * 0.66);
-  return { w: Math.max(120, sw - RULER_W), h: Math.max(120, sh - RULER_H) };
+  const w = Math.min(window.innerWidth * 0.98, 1400) - SIDE_W - 26 - RULER_W;
+  const h = (wrap && wrap.clientHeight ? wrap.clientHeight
+             : Math.round(window.innerHeight * 0.66)) - RULER_H;
+  return { w: Math.max(160, w), h: Math.max(160, h) };
 }
 
 // 사진을 자리 안에 꽉 차게 넣는 배율
@@ -1467,9 +1480,10 @@ function drawRulers() {
       if (at < -20 || at > shown + 20) continue;
       const big = Math.abs(v % step) < 0.001;
       const inside = v <= imgLen;                // 사진 안쪽 눈금은 밝게
-      // 사진 안쪽 눈금은 하얗게. 사진 밖은 흐리게 둬서 경계가 보인다.
-      ctx.strokeStyle = inside ? '#ffffff' : '#59616f';
-      ctx.fillStyle = inside ? '#ffffff' : '#6b7383';
+      // 눈금자는 흰 바탕이다. 사진 안쪽은 진하게, 밖은 흐리게 그어
+      // 어디까지가 사진인지 보이게 한다.
+      ctx.strokeStyle = inside ? '#1b2028' : '#a9b0bc';
+      ctx.fillStyle = inside ? '#1b2028' : '#a9b0bc';
       ctx.lineWidth = big ? 1.4 : 1;
       const a = Math.round(at) + 0.5;
       ctx.beginPath();
@@ -1491,7 +1505,7 @@ function drawRulers() {
     const end = imgLen * edZoom - scrolled;
     if (end > 0 && end < shown) {
       ctx.strokeStyle = '#7C5CFF';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       if (horizontal) { ctx.moveTo(end, 0); ctx.lineTo(end, cssH); }
       else { ctx.moveTo(0, end); ctx.lineTo(cssW, end); }
@@ -3531,6 +3545,14 @@ function syncStyleUI() {
   const swr = $('#ed-stroke-w-row');
   if (swr) swr.hidden = !(mine('strokeColor') && mine('strokeColor') !== 'none');
 
+  const hs = mine('headStrokeColor') ?? 'none';
+  seg('#ed-head-stroke', hs);
+  set('#ed-head-stroke-size', mine('headStrokeSize') ?? 4);
+  const hso = $('#ed-head-stroke-size-out');
+  if (hso) hso.textContent = mine('headStrokeSize') ?? 4;
+  const hsr = $('#ed-head-stroke-w-row');
+  if (hsr) hsr.hidden = !(hs && hs !== 'none');
+
   seg('#body-weight', state.bodyWeight);
   seg('#head-weight', state.headWeight);  set('#ed-head-weight', mine('headWeight'));
 
@@ -4070,6 +4092,15 @@ function init() {
    ['#body-color', 'bodyColor', 'text'],
    ['#head-color', 'headColor', 'text'],
   ].forEach(([id, key, kind]) => bindStyle(id, key, kind, setStyle));
+
+  bindSegment('#ed-head-stroke', (v) => {
+    setCardOrGlobal('headStrokeColor', v);
+    syncStyleUI();
+  });
+  $('#ed-head-stroke-size').addEventListener('input', (e) => {
+    $('#ed-head-stroke-size-out').textContent = e.target.value;
+    setCardOrGlobal('headStrokeSize', +e.target.value);
+  });
 
   [['#ed-head-size',   'headSize',   'num'],
    ['#ed-head-font',   'headFont',   'text'],

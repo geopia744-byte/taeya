@@ -1300,14 +1300,14 @@ input[type="color"] {
 /* ── 큰 편집창 ─────────────────────────────────────────── */
 
 #editor {
-  width: min(1320px, 98vw);
-  max-width: none;
+  width: fit-content;      /* 작업판 크기에 맞춰 줄어든다 */
+  max-width: 98vw;
   padding: 0;
 }
 
 .ed {
   display: grid;
-  grid-template-columns: 1fr 430px;
+  grid-template-columns: auto 430px;   /* 왼쪽은 작업판이 정한다 */
   gap: 0;
   position: relative;      /* 제목 팝오버가 이 안에서 자리를 잡는다 */
 }
@@ -2274,16 +2274,16 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   place-items: center;
   font-size: 10px;
   font-weight: 800;
-  color: var(--ink-faint);
-  background: #101319;
-  border-right: 1px solid #262c38;
-  border-bottom: 1px solid #262c38;
+  color: #6b7383;
+  background: #f4f6fa;
+  border-right: 1px solid #c9cfd9;
+  border-bottom: 1px solid #c9cfd9;
   white-space: nowrap;
   overflow: hidden;
 }
-.ruler { display: block; background: #101319; }
-#ruler-top  { border-bottom: 1px solid #262c38; }
-#ruler-left { border-right: 1px solid #262c38; }
+.ruler { display: block; background: #f4f6fa; }
+#ruler-top  { border-bottom: 1px solid #c9cfd9; }
+#ruler-left { border-right: 1px solid #c9cfd9; }
 
 /* 저장될 사진의 실제 크기. 눈금자 모서리에 넣으면 잘려서 아래에 둔다. */
 .size-badge {
@@ -2296,3 +2296,13 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   background: #2f3a4e;
   border-radius: 999px;
 }
+
+/* 작업판 아래 줄(확대 단추·안내글)이 무대 폭을 붙잡으면, 사진을 많이
+   줄였을 때 오른쪽에 빈 자리가 남는다. 폭 0 + 최소폭 100% 로 두면
+   자리는 다 쓰되 폭은 작업판이 정하게 된다. */
+.ed-stage > .zoom-bar,
+.ed-stage > .ed-tip {
+  width: 0;
+  min-width: 100%;
+}
+.zoom-bar { flex-wrap: wrap; }

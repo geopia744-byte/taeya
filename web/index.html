@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.52</span></em>
+        <em>자동화 <span class="ver">v13.53</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -465,6 +465,21 @@
               <option value="700">굵게</option>
               <option value="900">아주 굵게</option>
             </select>
+          </div>
+          <div class="row">
+            <span class="row-label">테두리</span>
+            <div class="seg stroke-seg" id="ed-head-stroke">
+              <button type="button" data-v="none" class="on">없음</button>
+              <button type="button" data-v="#000000" class="sw-k">검정</button>
+              <button type="button" data-v="#e02424" class="sw-r">빨강</button>
+              <button type="button" data-v="#f5c518" class="sw-y">노랑</button>
+              <button type="button" data-v="#2563eb" class="sw-b">파랑</button>
+            </div>
+          </div>
+          <div class="row" id="ed-head-stroke-w-row" hidden>
+            <span class="row-label">두께</span>
+            <input type="range" id="ed-head-stroke-size" min="1" max="12" step="1" value="4">
+            <output id="ed-head-stroke-size-out">4</output>
           </div>
         </div>
       </div>
