@@ -1539,7 +1539,9 @@ const ARCHIVE_PAGE_SIZE = 12;   // 한 페이지에 12개씩
 // 않으므로 돈이 들지 않는다.
 function blankCopy() {
   return {
-    title_lines: ['여기에 제목을 넣으세요'],
+    // 비워 둔다. 사진을 불러오면 사진만 보여야 한다 - 안내 문구가
+    // 사진에 얹혀 나오면 그걸 지우는 것부터 해야 한다.
+    title_lines: [],
     body: '',
     hashtags: [],
     source_text: '',
