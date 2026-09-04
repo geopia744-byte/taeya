@@ -1914,8 +1914,17 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   gap: 6px;
 }
 /* 단추 글자가 길어 한 줄을 통째로 준다. 좁은 칸에 밀어 넣으면 두 줄로
-   접혀 읽기 나쁘고 누르기도 어렵다. */
-.font-more #font-scan { flex: 1 0 100%; }
+   접혀 읽기 나쁘고 누르기도 어렵다.
+   .mini 는 글자색만 흰색으로 정해두고 배경은 단추마다 따로 준다. 안 주면
+   브라우저 기본 흰 바탕이 깔려 흰 글자가 안 보인다. */
+.font-more #font-scan {
+  flex: 1 0 100%;
+  background: linear-gradient(135deg, #4F8CFF, #2B6BE0);
+}
+.font-more #font-add {
+  background: linear-gradient(135deg, #2E9E7E, #1C6B55);
+  padding: 7px 14px;
+}
 .font-more #font-add-name {
   flex: 1;
   min-width: 90px;
@@ -1927,3 +1936,19 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   font-size: 11.5px;
 }
 #font-hint { margin: 4px 0 10px; }
+
+/* 저장 크기 직접 지정 */
+.size-row { gap: 8px; }
+.size-row input[type="number"] {
+  width: 92px;
+  padding: 7px 9px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.size-x { font-size: 14px; font-weight: 800; color: var(--ink-dim); }
+.size-unit { font-size: 11.5px; color: var(--ink-dim); }

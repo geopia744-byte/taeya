@@ -43,7 +43,9 @@ const state = {
   bodyFont: '',
   bodyWeight: 900,
 
-  saveSize: 'orig',    // orig | ig(4:5) | tt(9:16)
+  saveSize: 'orig',    // orig | ig(4:5) | th(1:1) | tt(9:16) | custom
+  customW: 1000,       // '직접 지정'일 때 쓸 크기
+  customH: 1000,
   // 저장할 때마다 제미니를 한 번 더 부른다(돈이 나가고, 한도에 걸리면
   // 저장이 1~2분씩 멈춘다). 저장은 즉시 끝나야 하는 동작이라 기본은 끔.
   aiExpand: false,
@@ -55,6 +57,20 @@ const SAVE_SIZES = {
   th: { w: 1080, h: 1080 },
   tt: { w: 1080, h: 1920 },
 };
+
+// 지금 고른 저장 크기. '직접 지정'이면 사용자가 넣은 값을 쓴다.
+// 크기를 보는 곳이 여럿이라 한 군데로 모았다 - 따로따로 SAVE_SIZES 를
+// 뒤지면 '직접 지정'을 빠뜨리는 곳이 생긴다.
+function sizeSpec(key = state.saveSize) {
+  if (key === 'custom') {
+    const clamp = (v, d) => {
+      const n = Math.round(Number(v));
+      return Number.isFinite(n) ? Math.min(5000, Math.max(100, n)) : d;
+    };
+    return { w: clamp(state.customW, 1000), h: clamp(state.customH, 1000) };
+  }
+  return SAVE_SIZES[key] || null;
+}
 
 let seq = 0;
 
@@ -247,7 +263,8 @@ const REMEMBER = 'hooking-factory/settings';
 const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize',
               'autoCrop', 'category',
               'headSize', 'headColor', 'headFont', 'headWeight',
-              'bodyColor', 'bodyFont', 'bodyWeight', 'saveSize', 'aiExpand'];
+              'bodyColor', 'bodyFont', 'bodyWeight', 'saveSize', 'aiExpand',
+              'customW', 'customH'];
 
 /* ── 작업물 자동 저장 (IndexedDB) ──────────────────────────
  *
@@ -2012,7 +2029,7 @@ function fitCoverCanvas(src, W, H) {
 //  위쪽에 조그맣게 박히고 아래가 텅 비어 나왔다.)
 function plainExportCanvas(card) {
   const src = card.canvas;
-  const spec = SAVE_SIZES[state.saveSize];
+  const spec = sizeSpec();
   if (!spec || !src.width) return src;
   return fitCoverCanvas(src, spec.w, spec.h);
 }
@@ -2042,7 +2059,7 @@ function downscaledForAI(src, maxSide = 1280) {
 // 실패하면 예외를 던지고, 부른 쪽(doSave)이 기존 방식으로 대체한다.
 async function expandCanvasWithAI(card) {
   const src = card.canvas;
-  const spec = SAVE_SIZES[state.saveSize];
+  const spec = sizeSpec();
   if (!spec || !src.width) return src;
   if (ratioAlreadyMatches(src, spec)) return fitCoverCanvas(src, spec.w, spec.h);
 
@@ -2638,14 +2655,24 @@ function openSaveDialog(card) {
     .map((c) => `<option value="${c.v}">${c.name}</option>`).join('');
   sel.value = card.category;
 
-  $('#save-size').value = SAVE_SIZES[state.saveSize] ? state.saveSize : 'ig';
+  $('#save-size').value = sizeSpec() ? state.saveSize : 'ig';
+  $('#save-w').value = state.customW;
+  $('#save-h').value = state.customH;
+  syncCustomSizeRow();
   $('#save-note').textContent = '';
   $('#ai-expand').checked = state.aiExpand;
   syncAiExpandRow();
   $('#save-dlg').showModal();
 }
 
-// AI 확장 체크박스는 Gemini 키가 있고, '원본 그대로'가 아닐 때만 보인다.
+// 직접 지정 칸은 그걸 골랐을 때만 보인다.
+function syncCustomSizeRow() {
+  $('#custom-size-row').hidden = $('#save-size').value !== 'custom';
+}
+
+// AI 확장 체크박스는 Gemini 키가 있고, 정해진 크기일 때만 보인다.
+// '직접 지정'은 어떤 비율이 될지 모르므로 AI 확장을 쓰지 않는다 - 서버는
+// 정해진 세 비율만 알고 있다. 대신 여백 없이 꽉 채워 저장한다.
 function syncAiExpandRow() {
   const show = state.hasGemini && SAVE_SIZES[$('#save-size').value];
   $('#ai-expand-row').hidden = !show;
@@ -2657,6 +2684,15 @@ async function doSave() {
   if (!card) return;
 
   state.saveSize = $('#save-size').value;   // 고른 크기로 그려서 보낸다
+  if (state.saveSize === 'custom') {
+    state.customW = Number($('#save-w').value) || 1000;
+    state.customH = Number($('#save-h').value) || 1000;
+    const spec = sizeSpec();               // 범위 밖 값은 여기서 잘린다
+    state.customW = spec.w;
+    state.customH = spec.h;
+    $('#save-w').value = spec.w;
+    $('#save-h').value = spec.h;
+  }
   state.aiExpand = $('#ai-expand').checked;
   saveSettings();
 
@@ -3381,7 +3417,10 @@ function init() {
   $('#preview-close').addEventListener('click', () => $('#preview-dlg').close());
   $('#save-close').addEventListener('click', () => $('#save-dlg').close());
   $('#save-go').addEventListener('click', doSave);
-  $('#save-size').addEventListener('change', syncAiExpandRow);
+  $('#save-size').addEventListener('change', () => {
+    syncCustomSizeRow();
+    syncAiExpandRow();
+  });
   $('#ai-expand').addEventListener('change', syncAiExpandRow);
   $('#open-output2').addEventListener('click', () => api('/api/open-output'));
 

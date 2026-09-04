@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.35</span></em>
+        <em>자동화 <span class="ver">v13.36</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -341,8 +341,21 @@
         <option value="ig">📷 인스타 4:5 — 1080 × 1350</option>
         <option value="th">🧵 스레드 1:1 — 1080 × 1080</option>
         <option value="tt">📱 틱톡 9:16 — 1080 × 1920</option>
+        <option value="custom">✏️ 직접 지정</option>
       </select>
     </label>
+
+    <div class="field" id="custom-size-row" hidden>
+      <span>직접 지정 (가로 × 세로)</span>
+      <div class="row size-row">
+        <input type="number" id="save-w" min="100" max="5000" step="10" value="1000">
+        <span class="size-x">×</span>
+        <input type="number" id="save-h" min="100" max="5000" step="10" value="1000">
+        <span class="size-unit">픽셀</span>
+      </div>
+      <p class="hint">100 ~ 5000 사이로 넣으세요. 사진은 여백 없이
+        이 크기를 꽉 채우도록 맞춰집니다.</p>
+    </div>
 
     <label class="check" id="ai-expand-row" hidden>
       <input type="checkbox" id="ai-expand" checked>
