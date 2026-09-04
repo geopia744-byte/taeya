@@ -371,30 +371,45 @@ let persistTimer = null;
 
 // 드래그처럼 아주 자주 일어나는 변경까지 매번 저장하면 무겁기만 하니,
 // 마지막 변경 이후 잠깐 쉬면 그때 한 번만 저장한다.
+function persistNow() {
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  // 대시보드 배열과 완성 목록 배열에 같은 카드(같은 id)가 동시에 들어있을 수
+  // 있으므로, id 기준으로 합쳐서 카드당 딱 하나의 저장 레코드만 만든다.
+  const byId = new Map();
+  state.cards.forEach((c, i) => {
+    const rec = byId.get(c.id) || { card: c, inDashboard: false, inArchive: false };
+    rec.inDashboard = true;
+    rec.sortIndex = i;          // 대시보드에 놓인 순서를 그대로 적어둔다
+    byId.set(c.id, rec);
+  });
+  state.archivedCards.forEach((c) => {
+    const rec = byId.get(c.id) || { card: c, inDashboard: false, inArchive: false };
+    rec.inArchive = true;
+    byId.set(c.id, rec);
+  });
+  const records = [...byId.values()].map(
+    ({ card, inDashboard, inArchive, sortIndex }) =>
+      serializeCard(card, inDashboard, inArchive, sortIndex)
+  );
+  dbSaveAll(records).catch((err) => console.error('작업물 자동 저장 실패', err));
+}
+
 function schedulePersist() {
   clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    // 대시보드 배열과 완성 목록 배열에 같은 카드(같은 id)가 동시에 들어있을 수
-    // 있으므로, id 기준으로 합쳐서 카드당 딱 하나의 저장 레코드만 만든다.
-    const byId = new Map();
-    state.cards.forEach((c, i) => {
-      const rec = byId.get(c.id) || { card: c, inDashboard: false, inArchive: false };
-      rec.inDashboard = true;
-      rec.sortIndex = i;          // 대시보드에 놓인 순서를 그대로 적어둔다
-      byId.set(c.id, rec);
-    });
-    state.archivedCards.forEach((c) => {
-      const rec = byId.get(c.id) || { card: c, inDashboard: false, inArchive: false };
-      rec.inArchive = true;
-      byId.set(c.id, rec);
-    });
-    const records = [...byId.values()].map(
-      ({ card, inDashboard, inArchive, sortIndex }) =>
-        serializeCard(card, inDashboard, inArchive, sortIndex)
-    );
-    dbSaveAll(records).catch((err) => console.error('작업물 자동 저장 실패', err));
-  }, 500);
+  persistTimer = setTimeout(persistNow, 500);
 }
+
+/* 창을 닫거나 다른 탭으로 넘어갈 때, 아직 안 쓴 것이 있으면 지금 쓴다.
+
+   저장은 0.5초 뒤에 도는데, 글자를 고치자마자 창을 닫으면 그 사이에
+   꺼져서 마지막 수정이 통째로 날아갔다. 실제로 그렇게 됐다. */
+['visibilitychange', 'pagehide', 'beforeunload'].forEach((ev) => {
+  window.addEventListener(ev, () => {
+    if (ev === 'visibilitychange' && document.visibilityState !== 'hidden') return;
+    if (persistTimer) persistNow();
+  });
+});
 
 // 새로고침 직후, 저장돼 있던 카드들을 원래 모습 그대로 되살린다.
 // - 대시보드에도 있던 카드는 카드 그리드에 (완성목록에도 있었다면 같은 객체를 거기에도 등록)
