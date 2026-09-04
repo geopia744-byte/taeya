@@ -2148,3 +2148,60 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
   color: inherit;
   margin-right: 3px;
 }
+
+/* ── 요소 항목(화살표·도형) ─────────────────────────────── */
+
+/* 두 단추가 한 줄을 반씩 나눠 갖는다 */
+.mini.half { flex: 1 1 0; min-width: 0; }
+#ed-word-mark  { background: linear-gradient(135deg, #2FB8C6, #1D8A96); }
+#ed-stamp-btn  { background: linear-gradient(135deg, #7C5CFF, #5B34E8); }
+
+.stamp-popover { top: 60px; right: 15px; max-height: 70vh; overflow-y: auto; }
+
+.stamp-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.stamp-grid button {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  color: #f4f6fa;
+  background: #202634;
+  border: 1px solid #323846;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.stamp-grid button:hover { background: #2b3344; border-color: #4a5468; }
+
+/* 자주 쓰는 색 여섯 개. 칸마다 --c 로 제 색을 받는다. */
+.stamp-colors { gap: 5px; }
+.stamp-colors button {
+  flex: 1;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background: var(--c);
+  cursor: pointer;
+}
+.stamp-colors button.on { border-color: #fff; }
+
+/* 동그라미·네모는 글꼴 문자로는 너무 작게 나온다. 직접 그린다. */
+.stamp-grid i {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid currentColor;
+}
+.stamp-grid i.sh-circle { border-radius: 50%; }
+.stamp-grid i.sh-rect   { border-radius: 3px; }
+
+/* 흰색·검정 칸도 어두운 바탕에서 보이게 테두리를 준다 */
+.stamp-colors button { border: 2px solid rgba(255, 255, 255, .25); }
+.stamp-colors button.on { border-color: #fff; }
+
+#stamp-del   { background: linear-gradient(135deg, #C0392B, #8E241A); }
+#stamp-clear { background: linear-gradient(135deg, #3D4A63, #263041); }

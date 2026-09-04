@@ -373,6 +373,7 @@ function serializeCard(card, inDashboard, inArchive, sortIndex) {
     style: card.style || {},
     lineStyle: card.lineStyle || {},
     wordStyle: card.wordStyle || {},
+    stamps: card.stamps || [],
     batchChecked: !!card.batchChecked,
 
     // 스레드 북마크릿으로 가져온 카드만 쓰는 값들. 원래 있던 카드는
@@ -475,9 +476,10 @@ async function restoreAllCards() {
       style: rec.style || {},
       lineStyle: rec.lineStyle || {},
       wordStyle: rec.wordStyle || {},
+      stamps: rec.stamps || [],
       batchChecked: rec.batchChecked,
       archived: !!rec.inArchive,
-      hit: { head: null, body: null },
+      hit: { head: null, body: null, stamps: [] },
 
       fromThread: !!rec.fromThread,
       sourceImages: rec.sourceImages || null,
@@ -1016,7 +1018,7 @@ function render(card) {
   ctx.clearRect(0, 0, w, h);
   ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, w, h);
 
-  card.hit = { head: null, body: null };   // 끌어 옮길 때 쓸 자리
+  card.hit = { head: null, body: null, stamps: [] };   // 끌어 옮길 때 쓸 자리
 
   const pad = w * 0.055;
   const boxW = w - pad * 2;
@@ -1030,6 +1032,7 @@ function render(card) {
     ? [String(card.headText).trim()].filter(Boolean) : [];
 
   if (!lines.length && !headLines.length) {
+    drawStamps(ctx, card, w, h);
     if (hasLogo()) drawLogo(ctx, w);
     return;
   }
@@ -1138,7 +1141,96 @@ function render(card) {
     });
   }
 
+  drawStamps(ctx, card, w, h);
   if (hasLogo()) drawLogo(ctx, w);
+}
+
+
+/* ── 요소 항목(화살표·도형) ──────────────────────────────────
+ *
+ * 사진 위에 얹는 작은 그림들이다. 글자와 달리 자리도 크기도
+ * 사용자가 마음대로 정한다. 카드마다 따로 갖고, 새로고침해도 남는다.
+ *
+ * 값은 전부 사진 크기에 대한 비율(0~1)로 둔다. 사진마다 픽셀 크기가
+ * 다르고, 작은 카드와 큰 편집창을 오가며 같은 자리에 그려야 하기
+ * 때문이다. 픽셀로 저장하면 창을 옮길 때마다 자리가 어긋난다.
+ */
+
+const STAMP_KINDS = ['arrow-r', 'arrow-l', 'arrow-u', 'arrow-d', 'circle', 'rect'];
+
+function stampsOf(card) {
+  if (!Array.isArray(card.stamps)) card.stamps = [];
+  return card.stamps;
+}
+
+// 도형 하나가 차지하는 네모(픽셀). 끌기·휠에서 어느 도형을 잡았는지
+// 가릴 때도 이걸 쓴다.
+function stampBox(st, w, h) {
+  const size = st.size * w;                 // 긴 쪽 길이
+  const vertical = st.kind === 'arrow-u' || st.kind === 'arrow-d';
+  const bw = vertical ? size * 0.62 : size;
+  const bh = vertical ? size : size * 0.62;
+  return { x: st.x * w - bw / 2, y: st.y * h - bh / 2, w: bw, h: bh };
+}
+
+function drawStamps(ctx, card, w, h) {
+  const list = stampsOf(card);
+  card.hit.stamps = [];
+  list.forEach((st, i) => {
+    const b = stampBox(st, w, h);
+    card.hit.stamps.push(b);
+
+    ctx.save();
+    ctx.strokeStyle = st.color;
+    ctx.fillStyle = st.color;
+    ctx.lineWidth = Math.max(2, (st.weight || 10) * 0.01 * b.w);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+
+    if (st.kind === 'circle') {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, b.w / 2 - ctx.lineWidth / 2, b.h / 2 - ctx.lineWidth / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (st.kind === 'rect') {
+      const r = Math.min(b.w, b.h) * 0.12;
+      ctx.beginPath();
+      ctx.roundRect(b.x + ctx.lineWidth / 2, b.y + ctx.lineWidth / 2,
+                    b.w - ctx.lineWidth, b.h - ctx.lineWidth, r);
+      ctx.stroke();
+    } else {
+      // 화살표 — 오른쪽을 기준으로 그리고 나머지 방향은 돌려서 쓴다.
+      const turn = { 'arrow-r': 0, 'arrow-d': Math.PI / 2,
+                     'arrow-l': Math.PI, 'arrow-u': -Math.PI / 2 }[st.kind] || 0;
+      const len = Math.max(b.w, b.h);
+      const headLen = len * 0.38;
+      ctx.translate(cx, cy);
+      ctx.rotate(turn);
+      ctx.beginPath();
+      ctx.moveTo(-len / 2, 0);
+      ctx.lineTo(len / 2 - headLen * 0.35, 0);
+      ctx.stroke();
+      ctx.beginPath();                       // 촉은 삼각형으로 채운다
+      ctx.moveTo(len / 2, 0);
+      ctx.lineTo(len / 2 - headLen, -headLen * 0.55);
+      ctx.lineTo(len / 2 - headLen, headLen * 0.55);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 고른 것에는 옅은 테두리를 둘러 어느 것이 선택됐는지 알린다.
+    if (card === editing && i === stampSel) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.9)';
+      ctx.setLineDash([Math.max(4, w * 0.008), Math.max(4, w * 0.008)]);
+      ctx.lineWidth = Math.max(1.5, w * 0.004);
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+      ctx.restore();
+    }
+  });
 }
 
 // 지운 사진 위에 쓸 가벼운 그림자. 사진을 가리지 않으면서 글자만 읽히게 한다.
@@ -1266,6 +1358,7 @@ async function addFiles(fileList, plain = false) {
       style: {},       // 이 카드만의 크기·글꼴·색·줄간격·테두리
       lineStyle: {},   // 본문 특정 줄만 다른 글꼴·크기·색을 줄 때 씀 { [줄번호]: {size,font,color,weight} }
       wordStyle: {},   // 본문 특정 단어만 강조할 때 씀 { [줄번호]: { [단어번호]: {size,font,color,weight} } }
+      stamps: [],      // 사진 위에 얹은 화살표·도형
     };
     state.cards.push(card);
     mountCard(card);
@@ -1636,6 +1729,17 @@ function canvasPoint(canvas, ev) {
   };
 }
 
+// 도형은 글자 위에 그려지므로 먼저 본다. 나중에 얹은 것이 위에 있으니
+// 뒤에서부터 훑는다.
+function stampAt(card, p) {
+  const list = card.hit?.stamps || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const b = list[i];
+    if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) return i;
+  }
+  return -1;
+}
+
 function blockAt(card, p) {
   const pad = card.canvas.width * 0.04;   // 손가락이 조금 빗나가도 잡히게
   for (const key of ['head', 'body']) {   // 제목이 위에 있으니 먼저 본다
@@ -1652,12 +1756,44 @@ function bindDrag(getCard, canvas) {
     const card = getCard();
     if (!card || !card.copy || card.canvas !== canvas) return;
     const p = canvasPoint(canvas, ev);
-    const key = blockAt(card, p);
-    if (!key) return;
+
+    // 도형이 글자 위에 있으므로 먼저 잡는다.
+    const si = stampAt(card, p);
+    const key = si >= 0 ? null : blockAt(card, p);
+    if (si < 0 && !key) {
+      // 빈 곳을 누르면 골라 둔 도형을 놓아준다.
+      if (card === editing && stampSel >= 0) { stampSel = -1; render(card); }
+      return;
+    }
 
     ev.preventDefault();
     canvas.setPointerCapture(ev.pointerId);
     canvas.classList.add('dragging');
+
+    if (si >= 0) {
+      if (card === editing) { stampSel = si; render(card); }
+      const st = stampsOf(card)[si];
+      const grabX = p.x / canvas.width - st.x;
+      const grabY = p.y / canvas.height - st.y;
+      const moveStamp = (e) => {
+        const q = canvasPoint(canvas, e);
+        st.x = Math.max(0, Math.min(1, q.x / canvas.width - grabX));
+        st.y = Math.max(0, Math.min(1, q.y / canvas.height - grabY));
+        render(card);
+      };
+      const upStamp = () => {
+        canvas.classList.remove('dragging');
+        canvas.removeEventListener('pointermove', moveStamp);
+        canvas.removeEventListener('pointerup', upStamp);
+        canvas.removeEventListener('pointercancel', upStamp);
+        schedulePersist();
+      };
+      canvas.addEventListener('pointermove', moveStamp);
+      canvas.addEventListener('pointerup', upStamp);
+      canvas.addEventListener('pointercancel', upStamp);
+      return;
+    }
+
     const b = card.hit[key];
     const grabX = p.x - b.x;
     const grabY = p.y - b.y;
@@ -1681,6 +1817,23 @@ function bindDrag(getCard, canvas) {
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
   });
+
+  // 도형 위에서 휠을 굴리면 크기가 바뀐다. 도형 위가 아니면 화면이
+  // 평소대로 스크롤되게 그냥 넘긴다.
+  canvas.addEventListener('wheel', (ev) => {
+    const card = getCard();
+    if (!card || !card.copy || card.canvas !== canvas) return;
+    const p = canvasPoint(canvas, ev);
+    const si = stampAt(card, p);
+    if (si < 0) return;
+    ev.preventDefault();
+    const st = stampsOf(card)[si];
+    const k = ev.deltaY < 0 ? 1.08 : 1 / 1.08;
+    st.size = Math.max(0.04, Math.min(1.6, st.size * k));
+    if (card === editing) stampSel = si;
+    render(card);
+    schedulePersist();
+  }, { passive: false });
 }
 
 /* ── 큰 편집창 ────────────────────────────────────────────
@@ -1691,6 +1844,7 @@ function bindDrag(getCard, canvas) {
  */
 
 let editing = null;
+let stampSel = -1;        // 편집창에서 지금 골라 둔 요소(도형) 번호. 없으면 -1
 let bodyEditing = null;   // 본문(긴 글) 편집 팝업이 지금 어느 카드를 다루고 있는지
 let archivePage = 1;      // 완성 목록 — 지금 보고 있는 페이지
 const ARCHIVE_PAGE_SIZE = 12;   // 한 페이지에 12개씩
@@ -1725,6 +1879,7 @@ function openEditor(card) {
     schedulePersist();
   }
   editing = card;
+  stampSel = -1;            // 새 카드를 열면 골라 둔 요소는 없다
   card.smallCanvas = card.canvas;
   card.canvas = $('#ed-canvas');
 
@@ -3664,6 +3819,86 @@ function init() {
     syncBodyLineUI();
   });
 
+  /* ── 요소 항목(화살표·도형) 팝오버 ── */
+  const stampPop = $('#stamp-popover');
+  if (stampPop) {
+    const stampColor = () => $('#stamp-color').value;
+    const stampWeight = () => +$('#stamp-weight').value;
+
+    $('#ed-stamp-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      stampPop.hidden = !stampPop.hidden;
+    });
+    $('#stamp-pop-close').addEventListener('click', () => { stampPop.hidden = true; });
+    document.addEventListener('click', (e) => {
+      if (stampPop.hidden) return;
+      if (stampPop.contains(e.target) || e.target.closest('#ed-stamp-btn')) return;
+      // 사진을 누르는 것은 요소를 놓고 끌고 고르는 일이라 이 창을 계속
+      // 열어 둬야 한다. 닫히면 색을 바꾸거나 지울 때마다 다시 열어야 한다.
+      if (e.target.closest('#ed-canvas')) return;
+      stampPop.hidden = true;
+    });
+
+    // 도형을 고르면 사진 한가운데에 얹는다. 거기서 끌어 옮기면 된다.
+    $('#stamp-grid').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-k]');
+      if (!btn || !editing) return;
+      const list = stampsOf(editing);
+      list.push({
+        kind: btn.dataset.k,
+        x: 0.5, y: 0.5,
+        size: 0.3,
+        color: stampColor(),
+        weight: stampWeight(),
+      });
+      stampSel = list.length - 1;
+      render(editing);
+      schedulePersist();
+      toast('사진 위에서 끌어 옮기고, 휠을 굴려 크기를 바꾸세요');
+    });
+
+    // 색·굵기는 골라 둔 것이 있으면 그것에, 없으면 다음에 넣을 것에 쓴다.
+    $('#stamp-color').addEventListener('input', (e) => {
+      if (!editing || stampSel < 0) return;
+      stampsOf(editing)[stampSel].color = e.target.value;
+      render(editing);
+      schedulePersist();
+    });
+    bindSegment('#stamp-preset', (v) => {
+      $('#stamp-color').value = v;
+      if (!editing || stampSel < 0) return;
+      stampsOf(editing)[stampSel].color = v;
+      render(editing);
+      schedulePersist();
+    });
+    $('#stamp-weight').addEventListener('input', (e) => {
+      $('#stamp-weight-out').textContent = e.target.value;
+      if (!editing || stampSel < 0) return;
+      stampsOf(editing)[stampSel].weight = +e.target.value;
+      render(editing);
+      schedulePersist();
+    });
+
+    $('#stamp-del').addEventListener('click', () => {
+      if (!editing) return;
+      const list = stampsOf(editing);
+      if (stampSel < 0 || !list[stampSel]) { toast('사진에서 지울 요소를 먼저 눌러주세요'); return; }
+      list.splice(stampSel, 1);
+      stampSel = -1;
+      render(editing);
+      schedulePersist();
+    });
+    $('#stamp-clear').addEventListener('click', () => {
+      if (!editing) return;
+      if (!stampsOf(editing).length) return;
+      editing.stamps = [];
+      stampSel = -1;
+      render(editing);
+      schedulePersist();
+      toast('요소를 전부 지웠습니다');
+    });
+  }
+
   $('#ed-word-clear').addEventListener('click', () => {
     if (!editing || !wordSel) return;
     const bucket = editing.wordStyle?.[wordSel.origin];
@@ -3678,8 +3913,11 @@ function init() {
   // 큰 편집창
   $('#ed-close').addEventListener('click', () => $('#editor').close());
   $('#editor').addEventListener('close', () => {
-    const pop = $('#title-popover');
-    if (pop) pop.hidden = true;
+    ['#title-popover', '#stamp-popover'].forEach((id) => {
+      const pop = $(id);
+      if (pop) pop.hidden = true;
+    });
+    stampSel = -1;
     closeEditor();
   });
 
