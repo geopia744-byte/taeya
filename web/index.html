@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.43</span></em>
+        <em>자동화 <span class="ver">v13.44</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -410,35 +410,46 @@
     <div class="ed-side">
       <div class="ed-head-row">
         <h2>글자 편집</h2>
-        <button type="button" id="ed-logo" class="logo-btn">🖼️ 로고</button>
+        <div class="ed-head-btns">
+          <button type="button" id="ed-title-pop-btn" class="logo-btn title-pop-btn">✏️ 제목 설정</button>
+          <button type="button" id="ed-logo" class="logo-btn">🖼️ 로고</button>
+        </div>
       </div>
 
-      <label class="field">
-        <span class="ed-lab">
-          <input type="checkbox" id="ed-head-on">
-          제목 넣기 <em>안 넣어도 됩니다</em>
-        </span>
-        <input type="text" id="ed-head" placeholder="예) 19세 산모가 낳은 쌍둥이">
-      </label>
+      <!-- 제목 설정 팝오버 — 칸이 길어지지 않게 접어 두었다가 단추로 편다 -->
+      <div id="title-popover" class="title-popover" hidden>
+        <div class="title-popover-head">
+          <span>제목 설정</span>
+          <button type="button" class="close-pop" id="title-pop-close">✕</button>
+        </div>
 
-      <div class="ed-style">
-        <div class="row">
-          <span class="row-label">크기</span>
-          <input type="range" id="ed-head-size" min="5" max="18" step="0.5">
-          <output id="ed-head-size-out"></output>
-        </div>
-        <div class="row">
-          <span class="row-label">글꼴</span>
-          <select id="ed-head-font" class="font-pick"></select>
-        </div>
-        <div class="row">
-          <span class="row-label">색</span>
-          <input type="color" id="ed-head-color">
-          <select id="ed-head-weight" class="w-pick">
-            <option value="500">얇게</option>
-            <option value="700">굵게</option>
-            <option value="900">아주 굵게</option>
-          </select>
+        <label class="field">
+          <span class="ed-lab">
+            <input type="checkbox" id="ed-head-on">
+            제목 넣기 <em>안 넣어도 됩니다</em>
+          </span>
+          <input type="text" id="ed-head" placeholder="예) 19세 산모가 낳은 쌍둥이">
+        </label>
+
+        <div class="ed-style">
+          <div class="row">
+            <span class="row-label">크기</span>
+            <input type="range" id="ed-head-size" min="5" max="18" step="0.5">
+            <output id="ed-head-size-out"></output>
+          </div>
+          <div class="row">
+            <span class="row-label">글꼴</span>
+            <select id="ed-head-font" class="font-pick"></select>
+          </div>
+          <div class="row">
+            <span class="row-label">색</span>
+            <input type="color" id="ed-head-color">
+            <select id="ed-head-weight" class="w-pick">
+              <option value="500">얇게</option>
+              <option value="700">굵게</option>
+              <option value="900">아주 굵게</option>
+            </select>
+          </div>
         </div>
       </div>
 

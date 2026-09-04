@@ -1024,7 +1024,6 @@ function render(card) {
     ? [String(card.headText).trim()].filter(Boolean) : [];
 
   if (!lines.length && !headLines.length) {
-    if (region) drawCover(ctx, w, h, region.top * h, region.bottom * h);
     if (hasLogo()) drawLogo(ctx, w);
     return;
   }
@@ -1110,29 +1109,13 @@ function render(card) {
     head = { ...fit, top, left, blockH };
   }
 
-  /* ── 덮개 ──
-     원본 영어가 있던 자리와 본문 글자 자리를 모두 감싸야 한다.
-     둘 중 하나만 덮으면 영어가 삐져나오거나 한국어가 사진에 묻힌다. */
-  if (body) {
-    const margin = body.maxSize * 0.55;
-    let y0 = body.top - margin;
-    let y1 = body.top + body.blockH + margin;
-    if (region) {
-      y0 = Math.min(y0, region.top * h);
-      y1 = Math.max(y1, region.bottom * h);
-    }
-    if (bare) { /* 내 사진에는 아무것도 깔지 않는다 */ }
-    else if (clean) drawScrim(ctx, w, h, y0, y1 - y0);
-    else drawCover(ctx, w, h, Math.max(0, y0), Math.min(h, y1));
-  } else if (region) {
-    drawCover(ctx, w, h, region.top * h, region.bottom * h);
-  }
-
-  // 제목은 사진 위 아무 데나 놓이므로, 읽히도록 그 자리에만 옅은 그늘을 깐다.
-  if (head && !bare) {
-    drawScrim(ctx, w, h, head.top - head.size * 0.5,
-              head.blockH + head.size);
-  }
+  /* ── 덮개·그늘 없음 ──
+     예전에는 글자 뒤에 어두운 띠(덮개)와 옅은 그늘을 깔았다. 원본 외국어를
+     가리고 글자를 읽히게 하려던 것인데, 깨끗한 사진에서는 그 띠가 그대로
+     보여서 지저분했다. 사용자 요청으로 둘 다 그리지 않는다.
+     사진에 원본 글자가 남아 있으면 글자를 그 위가 아닌 빈 자리로 끌어서
+     옮기면 된다. drawCover / drawScrim 함수는 그대로 두었다 —
+     되살릴 일이 생기면 여기서 다시 부르면 된다. */
 
   /* ── 글자 ── */
   if (body) {
@@ -3686,7 +3669,27 @@ function init() {
 
   // 큰 편집창
   $('#ed-close').addEventListener('click', () => $('#editor').close());
-  $('#editor').addEventListener('close', closeEditor);
+  $('#editor').addEventListener('close', () => {
+    const pop = $('#title-popover');
+    if (pop) pop.hidden = true;
+    closeEditor();
+  });
+
+  /* 제목 칸은 자주 쓰지 않는데 자리를 많이 차지해서, 접어 두었다가
+     단추를 누를 때만 편다. 바깥을 누르면 닫힌다. */
+  const titlePop = $('#title-popover');
+  if (titlePop) {
+    $('#ed-title-pop-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      titlePop.hidden = !titlePop.hidden;
+    });
+    $('#title-pop-close').addEventListener('click', () => { titlePop.hidden = true; });
+    document.addEventListener('click', (e) => {
+      if (titlePop.hidden) return;
+      if (titlePop.contains(e.target) || e.target.closest('#ed-title-pop-btn')) return;
+      titlePop.hidden = true;
+    });
+  }
   $('#ed-head-on').addEventListener('change', (e) => {
     if (!editing) return;
     editing.headOn = e.target.checked;
