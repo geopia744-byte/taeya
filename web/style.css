@@ -1958,3 +1958,15 @@ dialog::backdrop { background: rgba(6, 7, 9, .68); }
 .stroke-seg .sw-r::before { background: #e02424; }
 .stroke-seg .sw-y::before { background: #f5c518; }
 .stroke-seg .sw-b::before { background: #2563eb; }
+
+/* 글자 로고 */
+#logo-text {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+#logo-text-box .row { gap: 8px; }

@@ -11,7 +11,14 @@ const FONT_STACK =
   '"Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", ' +
   '"Hiragino Sans", "Meiryo", sans-serif';
 
-const LINE_HEIGHT = 1.22;   // 제목 줄간격 배수
+const LINE_HEIGHT = 1.22;   // 제목 줄간격 배수 (기본값)
+
+// 사용자가 조절한 줄 간격까지 반영한 실제 배수.
+// 사진 위 줄 간격이 고정이라 두 줄이 늘 붙어 나왔다.
+function lineMul() {
+  const g = Number(state.lineGap);
+  return LINE_HEIGHT * ((Number.isFinite(g) ? g : 100) / 100);
+}
 const MAX_TITLE_LINES = 4;  // 이보다 많아지면 글자를 줄인다
 const CONCURRENCY = 3;      // 동시에 돌릴 요청 수
 
@@ -21,8 +28,14 @@ const state = {
   cards: [],          // {id, file, img, crop, copy, status, error, el, canvas}
   archivedCards: [],  // 사용자가 직접 "완성 목록으로 보내기"를 눌러 옮긴 카드들
   logo: null,         // Image
+  logoMode: 'image',  // image | text — 글자 로고는 채널명을 얇게 박는 용도
+  logoText: '',
+  logoFont: '',
+  logoColor: '#ffffff',
+  logoAlpha: 35,      // 글자 로고 진하기 %
   logoPos: 'center',
   logoSize: 22,       // 이미지 너비 대비 %
+  lineGap: 100,       // 글자 줄 간격 % (100이 기본)
   textPos: 'auto',    // 원본 글자가 있던 자리
   textSize: 7,        // 이미지 높이 대비 %
   autoCrop: true,     // 인스타 UI 자동 잘라내기
@@ -263,10 +276,11 @@ const catOf = (v) => CATS.find((c) => c.v === v) || CATS[0];
 const REMEMBER = 'hooking-factory/settings';
 
 const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize',
+              'logoMode', 'logoText', 'logoFont', 'logoColor', 'logoAlpha',
               'autoCrop', 'category',
               'headSize', 'headColor', 'headFont', 'headWeight',
               'bodyColor', 'bodyFont', 'bodyWeight', 'saveSize', 'aiExpand',
-              'customW', 'customH', 'strokeColor', 'strokeSize'];
+              'customW', 'customH', 'strokeColor', 'strokeSize', 'lineGap'];
 
 /* ── 작업물 자동 저장 (IndexedDB) ──────────────────────────
  *
@@ -746,7 +760,7 @@ function fitTitle(ctx, lines, boxW, boxH, startSize, weight = 900, font = '') {
   const fits = (size, outLines) => {
     ctx.font = `${weight} ${size}px ${face}`;
     return outLines.every((toks) => ctx.measureText(lineText(toks)).width <= boxW)
-        && outLines.length * size * LINE_HEIGHT <= boxH;
+        && outLines.length * size * lineMul() <= boxH;
   };
 
   // 1단계 — AI가 준 줄 구성을 그대로 지키면서 글자만 줄여본다.
@@ -895,7 +909,7 @@ function drawBlock(ctx, cfg) {
   ctx.shadowColor = strokeOn() ? 'transparent' : 'rgba(0,0,0,.55)';
   ctx.shadowBlur = strokeOn() ? 0 : size * 0.28;
   ctx.fillStyle = color;
-  const lineH = size * LINE_HEIGHT;
+  const lineH = size * lineMul();
   const first = top + size * 0.82;
   let wide = 0;
   lines.forEach((toks, k) => {
@@ -988,7 +1002,7 @@ function render(card) {
 
   if (!lines.length && !headLines.length) {
     if (region) drawCover(ctx, w, h, region.top * h, region.bottom * h);
-    if (state.logo) drawLogo(ctx, w);
+    if (hasLogo()) drawLogo(ctx, w);
     return;
   }
 
@@ -1012,7 +1026,7 @@ function render(card) {
         const sizePct = wordOv.size || lineOv.size || state.textSize;
         return { text: tok.text, color, font, weight, size: h * (sizePct / 100) };
       });
-      const lineH = Math.max(...words.map((w) => w.size)) * LINE_HEIGHT;
+      const lineH = Math.max(...words.map((w) => w.size)) * lineMul();
       return { words, lineH };
     });
 
@@ -1026,7 +1040,7 @@ function render(card) {
       let guard = 0;
       while (widthOf() > boxW && guard < 40) {
         ln.words.forEach((w) => { w.size *= 0.95; });
-        ln.lineH = Math.max(...ln.words.map((w) => w.size)) * LINE_HEIGHT;
+        ln.lineH = Math.max(...ln.words.map((w) => w.size)) * lineMul();
         guard++;
       }
     });
@@ -1058,7 +1072,7 @@ function render(card) {
     const base = h * (state.headSize / 100);
     const fit = fitTitle(ctx, headLines, boxW, h * 0.3, base, state.headWeight,
                          state.headFont);
-    const blockH = fit.wrapped.length * fit.size * LINE_HEIGHT;
+    const blockH = fit.wrapped.length * fit.size * lineMul();
     let top = card.posHead ? card.posHead.y * h : pad;
     let left = card.posHead ? card.posHead.x * w : pad;
     top = Math.max(0, Math.min(h - blockH, top));
@@ -1103,7 +1117,7 @@ function render(card) {
     });
   }
 
-  if (state.logo) drawLogo(ctx, w);
+  if (hasLogo()) drawLogo(ctx, w);
 }
 
 // 지운 사진 위에 쓸 가벼운 그림자. 사진을 가리지 않으면서 글자만 읽히게 한다.
@@ -1121,7 +1135,16 @@ function drawScrim(ctx, w, h, top, height) {
   ctx.fillRect(0, Math.max(0, y0 - fade), w, (y1 - y0) + fade * 1.5);
 }
 
+// 로고가 있느냐. 이미지 로고는 파일이, 글자 로고는 글자가 있어야 한다.
+function hasLogo() {
+  return state.logoMode === 'text'
+    ? !!String(state.logoText || '').trim()
+    : !!state.logo;
+}
+
 function drawLogo(ctx, w) {
+  if (state.logoMode === 'text') return drawTextLogo(ctx, w);
+  if (!state.logo) return;
   const lw = w * (state.logoSize / 100);
   const lh = lw * (state.logo.naturalHeight / state.logo.naturalWidth);
   const margin = w * 0.04;
@@ -1129,6 +1152,43 @@ function drawLogo(ctx, w) {
           : state.logoPos === 'right' ? w - margin - lw
           : (w - lw) / 2;
   ctx.drawImage(state.logo, x, margin, lw, lh);
+}
+
+// 채널명을 얇게 박아 두는 글자 로고. 사진을 가리지 않도록 반투명으로
+// 그리고, 밝은 사진에서도 보이도록 아주 옅은 그늘을 함께 깐다.
+function drawTextLogo(ctx, w) {
+  const text = String(state.logoText || '').trim();
+  if (!text) return;
+  // 크기 %는 이미지 로고에서 '너비 대비'였다. 글자에는 그대로 쓸 수
+  // 없으므로 글자 크기로 환산한다.
+  const size = Math.max(8, w * (state.logoSize / 100) * 0.42);
+  const margin = w * 0.04;
+
+  ctx.save();
+  ctx.font = `800 ${size}px ${fontOf(state.logoFont)}`;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  const tw = ctx.measureText(text).width;
+  const x = state.logoPos === 'left' ? margin
+          : state.logoPos === 'right' ? Math.max(margin, w - margin - tw)
+          : (w - tw) / 2;
+
+  ctx.globalAlpha = Math.min(1, Math.max(0.05, state.logoAlpha / 100));
+  ctx.shadowColor = 'rgba(0,0,0,.45)';
+  ctx.shadowBlur = size * 0.25;
+  ctx.fillStyle = state.logoColor || '#ffffff';
+  ctx.fillText(text, x, margin);
+  ctx.restore();
+}
+
+// 고른 종류에 맞는 칸만 보여준다. 위치·크기는 로고가 실제로 있을 때만.
+function syncLogoBoxes() {
+  const box = $('#logo-image-box');
+  if (!box) return;
+  const text = state.logoMode === 'text';
+  box.hidden = text;
+  $('#logo-text-box').hidden = !text;
+  $('#logo-opts').hidden = !hasLogo();
 }
 
 function renderAll() {
@@ -2847,7 +2907,7 @@ function fillFontPicks() {
   }
   const html = rows
     .map(([v, name]) => `<option value="${v}">${name}</option>`).join('');
-  ['#body-font', '#head-font', '#ed-body-font', '#ed-head-font']
+  ['#body-font', '#head-font', '#ed-body-font', '#ed-head-font', '#logo-font']
     .forEach((id) => { const el = $(id); if (el) el.innerHTML = html; });
 }
 
@@ -2906,6 +2966,10 @@ function syncStyleUI() {
   set('#head-font', state.headFont);   set('#ed-head-font', state.headFont);
   set('#body-color', state.bodyColor);
   set('#head-color', state.headColor); set('#ed-head-color', state.headColor);
+
+  set('#ed-line-gap', state.lineGap);
+  const lg = $('#ed-line-gap-out');
+  if (lg) lg.textContent = `${state.lineGap}%`;
 
   seg('#ed-stroke', state.strokeColor);
   set('#ed-stroke-size', state.strokeSize);
@@ -3245,6 +3309,16 @@ function applySettings(saved) {
   mark('#photo-mode', state.photoMode);
   mark('#text-pos', state.textPos);
   mark('#logo-pos', state.logoPos);
+  mark('#logo-mode', state.logoMode);
+  // 이 함수 안에는 set() 이 없다. 값 넣기는 직접 한다.
+  const put = (id, v) => { const el = $(id); if (el) el.value = v; };
+  put('#logo-text', state.logoText || '');
+  put('#logo-font', state.logoFont);
+  put('#logo-color', state.logoColor);
+  put('#logo-alpha', state.logoAlpha);
+  const la = $('#logo-alpha-out');
+  if (la) la.textContent = `${state.logoAlpha}%`;
+  syncLogoBoxes();
   syncStyleUI();
   $('#logo-size').value = state.logoSize;
   $('#logo-size-out').textContent = `${state.logoSize}%`;
@@ -3315,16 +3389,49 @@ function init() {
     if (!file) return;
     state.logo = await loadImage(await readAsDataURL(file));
     $('#logo-label').textContent = file.name;
-    $('#logo-opts').hidden = false;
+    syncLogoBoxes();
     renderAll();
   });
   $('#logo-clear').addEventListener('click', () => {
-    state.logo = null;
-    $('#logo-file').value = '';
-    $('#logo-label').textContent = '로고 이미지 업로드';
-    $('#logo-opts').hidden = true;
+    // 지금 쓰고 있는 쪽만 지운다. 이미지를 쓰다 글자로 바꿨는데 이미지가
+    // 같이 지워지면 되돌릴 수가 없다.
+    if (state.logoMode === 'text') {
+      state.logoText = '';
+      $('#logo-text').value = '';
+    } else {
+      state.logo = null;
+      $('#logo-file').value = '';
+      $('#logo-label').textContent = '로고 이미지 업로드';
+    }
+    saveSettings();
+    syncLogoBoxes();
     renderAll();
   });
+  bindSegment('#logo-mode', (v) => {
+    state.logoMode = v;
+    saveSettings();
+    syncLogoBoxes();
+    renderAll();
+  });
+  $('#logo-text').addEventListener('input', (e) => {
+    state.logoText = e.target.value;
+    saveSettings();
+    syncLogoBoxes();
+    renderAll();
+  });
+  $('#logo-font').addEventListener('change', (e) => {
+    state.logoFont = e.target.value; saveSettings(); renderAll();
+  });
+  $('#logo-color').addEventListener('input', (e) => {
+    state.logoColor = e.target.value; saveSettings(); renderAll();
+  });
+  $('#logo-alpha').addEventListener('input', (e) => {
+    state.logoAlpha = +e.target.value;
+    $('#logo-alpha-out').textContent = `${e.target.value}%`;
+    saveSettings();
+    renderAll();
+  });
+
   bindSegment('#logo-pos', (v) => { state.logoPos = v; saveSettings(); renderAll(); });
   $('#logo-size').addEventListener('input', (e) => {
     state.logoSize = +e.target.value;
@@ -3370,6 +3477,13 @@ function init() {
           setStyle(key, kind === 'num' ? +e.target.value : e.target.value)));
     });
   });
+  $('#ed-line-gap').addEventListener('input', (e) => {
+    state.lineGap = +e.target.value;
+    $('#ed-line-gap-out').textContent = `${e.target.value}%`;
+    saveSettings();
+    renderAll();
+  });
+
   bindSegment('#ed-stroke', (v) => {
     state.strokeColor = v;
     saveSettings();

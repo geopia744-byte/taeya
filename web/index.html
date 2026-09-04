@@ -28,7 +28,7 @@
       </span>
       <span class="brand-name">
         <b>이미지 AI</b>
-        <em>자동화 <span class="ver">v13.38</span></em>
+        <em>자동화 <span class="ver">v13.39</span></em>
       </span>
     </div>
     <button id="btn-settings" class="ghost" type="button">설정</button>
@@ -272,10 +272,40 @@
 <dialog id="logo-dlg">
   <div class="dlg">
     <h2>🖼️ 로고</h2>
-    <label class="filebtn">
-      <input type="file" id="logo-file" accept="image/*" hidden>
-      <span id="logo-label">로고 이미지 업로드</span>
-    </label>
+
+    <div class="row">
+      <span class="row-label">종류</span>
+      <div class="seg" id="logo-mode">
+        <button type="button" data-v="image" class="on">이미지</button>
+        <button type="button" data-v="text">글자</button>
+      </div>
+    </div>
+
+    <div id="logo-image-box">
+      <label class="filebtn">
+        <input type="file" id="logo-file" accept="image/*" hidden>
+        <span id="logo-label">로고 이미지 업로드</span>
+      </label>
+    </div>
+
+    <div id="logo-text-box" hidden>
+      <label class="field">
+        <span>글자 <em class="opt-sm">채널명을 얇게 박아 둡니다</em></span>
+        <input type="text" id="logo-text" placeholder="예) @내채널  ·  후킹공장">
+      </label>
+      <div class="row">
+        <span class="row-label">글꼴</span>
+        <select id="logo-font" class="font-pick"></select>
+      </div>
+      <div class="row">
+        <span class="row-label">색</span>
+        <input type="color" id="logo-color" value="#ffffff">
+        <span class="row-label">진하기</span>
+        <input type="range" id="logo-alpha" min="5" max="100" step="5" value="35">
+        <output id="logo-alpha-out">35%</output>
+      </div>
+    </div>
+
     <div id="logo-opts" hidden>
       <div class="row">
         <span class="row-label">위치</span>
@@ -445,6 +475,11 @@
           <span class="row-label">크기</span>
           <input type="range" id="ed-body-size" min="4" max="12" step="0.5">
           <output id="ed-body-size-out"></output>
+        </div>
+        <div class="row">
+          <span class="row-label">줄 간격</span>
+          <input type="range" id="ed-line-gap" min="70" max="240" step="5" value="100">
+          <output id="ed-line-gap-out">100%</output>
         </div>
         <div class="row">
           <span class="row-label">글꼴</span>
