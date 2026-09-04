@@ -46,6 +46,8 @@ const state = {
   saveSize: 'orig',    // orig | ig(4:5) | th(1:1) | tt(9:16) | custom
   customW: 1000,       // '직접 지정'일 때 쓸 크기
   customH: 1000,
+  strokeColor: 'none', // 글자 테두리 색 ('none' 이면 안 두름)
+  strokeSize: 3,       // 테두리 두께 1~8
   // 저장할 때마다 제미니를 한 번 더 부른다(돈이 나가고, 한도에 걸리면
   // 저장이 1~2분씩 멈춘다). 저장은 즉시 끝나야 하는 동작이라 기본은 끔.
   aiExpand: false,
@@ -264,7 +266,7 @@ const KEEP = ['photoMode', 'textPos', 'textSize', 'logoPos', 'logoSize',
               'autoCrop', 'category',
               'headSize', 'headColor', 'headFont', 'headWeight',
               'bodyColor', 'bodyFont', 'bodyWeight', 'saveSize', 'aiExpand',
-              'customW', 'customH'];
+              'customW', 'customH', 'strokeColor', 'strokeSize'];
 
 /* ── 작업물 자동 저장 (IndexedDB) ──────────────────────────
  *
@@ -841,6 +843,33 @@ function clampLeft(ctx, fit, weight, font, left, w) {
   return Math.max(0, Math.min(w - wide, left));
 }
 
+/* 글자 테두리.
+
+   흰 글자가 밝은 사진 위에 얹히면 묻혀서 안 읽힌다. 테두리를 두르면
+   어떤 배경에서도 읽힌다.
+
+   테두리를 두를 때는 그늘을 끈다. 둘 다 켜면 그늘이 테두리 바깥으로
+   또 번져서 글자가 두 겹으로 지저분해진다. */
+function strokeOn() {
+  return state.strokeColor && state.strokeColor !== 'none';
+}
+
+// 글자 하나(또는 한 줄)를 테두리와 함께 그린다.
+function paintText(ctx, text, x, y, size) {
+  if (strokeOn()) {
+    ctx.save();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = Math.max(1, size * state.strokeSize * 0.028);
+    ctx.strokeStyle = state.strokeColor;
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    ctx.strokeText(text, x, y);
+    ctx.restore();
+  }
+  ctx.fillText(text, x, y);
+}
+
 // 글자 덩어리 하나를 그린다. 자리를 잡아 돌려주므로 끌어 옮길 때 쓴다.
 // (제목처럼 한 줄 전체가 같은 글꼴·색인 경우에 쓴다)
 function drawBlock(ctx, cfg) {
@@ -848,15 +877,15 @@ function drawBlock(ctx, cfg) {
   ctx.font = `${weight} ${size}px ${fontOf(font)}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.shadowColor = 'rgba(0,0,0,.55)';
-  ctx.shadowBlur = size * 0.28;
+  ctx.shadowColor = strokeOn() ? 'transparent' : 'rgba(0,0,0,.55)';
+  ctx.shadowBlur = strokeOn() ? 0 : size * 0.28;
   ctx.fillStyle = color;
   const lineH = size * LINE_HEIGHT;
   const first = top + size * 0.82;
   let wide = 0;
   lines.forEach((toks, k) => {
     const text = lineText(toks);
-    ctx.fillText(text, x, first + k * lineH);
+    paintText(ctx, text, x, first + k * lineH, size);
     wide = Math.max(wide, ctx.measureText(text).width);
   });
   ctx.shadowColor = 'transparent';
@@ -891,11 +920,11 @@ function drawBodyLines(ctx, { outLines, x, top }) {
     let cursorX = x;
     ln.words.forEach((w, i) => {
       ctx.font = `${w.weight} ${w.size}px ${fontOf(w.font)}`;
-      ctx.shadowColor = 'rgba(0,0,0,.55)';
-      ctx.shadowBlur = w.size * 0.28;
+      ctx.shadowColor = strokeOn() ? 'transparent' : 'rgba(0,0,0,.55)';
+      ctx.shadowBlur = strokeOn() ? 0 : w.size * 0.28;
       ctx.fillStyle = w.color;
       if (i > 0) cursorX += ctx.measureText(' ').width;
-      ctx.fillText(w.text, cursorX, baseline);
+      paintText(ctx, w.text, cursorX, baseline, w.size);
       cursorX += ctx.measureText(w.text).width;
       wide = Math.max(wide, cursorX - x);
     });
@@ -2863,6 +2892,13 @@ function syncStyleUI() {
   set('#body-color', state.bodyColor);
   set('#head-color', state.headColor); set('#ed-head-color', state.headColor);
 
+  seg('#ed-stroke', state.strokeColor);
+  set('#ed-stroke-size', state.strokeSize);
+  const so = $('#ed-stroke-size-out');
+  if (so) so.textContent = state.strokeSize;
+  const swr = $('#ed-stroke-w-row');
+  if (swr) swr.hidden = !strokeOn();     // 안 두를 땐 두께 칸도 숨긴다
+
   seg('#body-weight', state.bodyWeight);
   seg('#head-weight', state.headWeight);  set('#ed-head-weight', state.headWeight);
 
@@ -3319,6 +3355,20 @@ function init() {
           setStyle(key, kind === 'num' ? +e.target.value : e.target.value)));
     });
   });
+  bindSegment('#ed-stroke', (v) => {
+    state.strokeColor = v;
+    saveSettings();
+    syncStyleUI();
+    if (editing) render(editing);
+    state.cards.forEach((c) => { if (c !== editing && c.copy) render(c); });
+  });
+  $('#ed-stroke-size').addEventListener('input', (e) => {
+    state.strokeSize = +e.target.value;
+    $('#ed-stroke-size-out').textContent = e.target.value;
+    saveSettings();
+    if (editing) render(editing);
+  });
+
   bindSegment('#body-weight', (v) => setStyle('bodyWeight', +v));
   bindSegment('#head-weight', (v) => setStyle('headWeight', +v));
 
@@ -3471,20 +3521,6 @@ function init() {
   myFonts = loadMyFonts();
   fillFontPicks();
   $('#font-scan').addEventListener('click', scanLocalFonts);
-  const addByName = () => {
-    const box = $('#font-add-name');
-    const n = addMyFonts([box.value]);
-    if (n) {
-      toast(`「${box.value.trim()}」 를 넣었습니다.`);
-      box.value = '';
-    } else {
-      toast('이미 있거나 빈 이름입니다.', true);
-    }
-  };
-  $('#font-add').addEventListener('click', addByName);
-  $('#font-add-name').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); addByName(); }
-  });
   applySettings(loadSettings());
   initStyles();
   applyCategory();
