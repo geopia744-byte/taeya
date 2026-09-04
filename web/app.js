@@ -1379,24 +1379,46 @@ function rulerStep() {
   return 5000;
 }
 
+/* 작업판이 다룰 수 있는 최대 사진 크기. 이보다 넓게 잡으면 사진
+   오른쪽에 텅 빈 자리가 크게 남아서 작업에 집중이 안 된다. */
+const BOARD_W = 1100;
+const BOARD_H = 2000;
+const RULER_W = 46;      // 왼쪽 눈금자 폭. 1400 같은 네 자리가 안 잘리게
+const RULER_H = 22;      // 위 눈금자 높이
+
+// 눈금자를 뺀, 사진이 쓸 수 있는 자리
+function boardRoom() {
+  const stage = document.querySelector('.ed-stage');
+  const wrap = document.querySelector('.ruler-wrap');
+  if (!stage || !wrap) return { w: 600, h: 400 };
+  const sw = stage.clientWidth - 24;              // 좌우 여백
+  const sh = wrap.clientHeight || Math.round(window.innerHeight * 0.66);
+  return { w: Math.max(120, sw - RULER_W), h: Math.max(120, sh - RULER_H) };
+}
+
 // 사진을 자리 안에 꽉 차게 넣는 배율
 function fitZoom() {
   const cv = $('#ed-canvas');
-  const vp = $('#ed-viewport');
-  if (!cv || !vp || !cv.width) return 1;
-  const box = vp.getBoundingClientRect();
-  if (!box.width || !box.height) return 1;
-  const pad = 24;
-  return Math.min((box.width - pad) / cv.width, (box.height - pad) / cv.height, 4);
+  if (!cv || !cv.width) return 1;
+  const room = boardRoom();
+  const pad = 20;
+  return Math.min((room.w - pad) / cv.width, (room.h - pad) / cv.height, 4);
 }
 
 function applyZoom() {
   const cv = $('#ed-canvas');
-  if (!cv || !cv.width) return;
+  const vp = $('#ed-viewport');
+  if (!cv || !vp || !cv.width) return;
   if (edFit) edZoom = fitZoom();
   edZoom = Math.max(0.05, Math.min(4, edZoom));
   cv.style.width = `${Math.round(cv.width * edZoom)}px`;
   cv.style.height = `${Math.round(cv.height * edZoom)}px`;
+
+  // 작업판은 화면이 허락하는 만큼, 그러나 1100×2000 픽셀을 넘지 않게.
+  const room = boardRoom();
+  vp.style.width = `${Math.round(Math.min(room.w, BOARD_W * edZoom))}px`;
+  vp.style.height = `${Math.round(Math.min(room.h, BOARD_H * edZoom))}px`;
+
   const txt = $('#zoom-out-txt');
   if (txt) txt.textContent = `${Math.round(edZoom * 100)}%`;
   drawRulers();
@@ -1429,7 +1451,7 @@ function drawRulers() {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, cssW, cssH);
-    ctx.font = '9px system-ui, sans-serif';
+    ctx.font = '700 11px system-ui, sans-serif';
     ctx.textAlign = horizontal ? 'center' : 'right';
     ctx.textBaseline = horizontal ? 'bottom' : 'middle';
 
@@ -1445,23 +1467,24 @@ function drawRulers() {
       if (at < -20 || at > shown + 20) continue;
       const big = Math.abs(v % step) < 0.001;
       const inside = v <= imgLen;                // 사진 안쪽 눈금은 밝게
-      ctx.strokeStyle = inside ? '#7d8798' : '#3a4150';
-      ctx.fillStyle = inside ? '#9aa4b6' : '#4d5566';
-      ctx.lineWidth = 1;
+      // 사진 안쪽 눈금은 하얗게. 사진 밖은 흐리게 둬서 경계가 보인다.
+      ctx.strokeStyle = inside ? '#ffffff' : '#59616f';
+      ctx.fillStyle = inside ? '#ffffff' : '#6b7383';
+      ctx.lineWidth = big ? 1.4 : 1;
       const a = Math.round(at) + 0.5;
       ctx.beginPath();
       if (horizontal) {
         ctx.moveTo(a, cssH);
-        ctx.lineTo(a, cssH - (big ? 7 : 4));
+        ctx.lineTo(a, cssH - (big ? 9 : 5));
       } else {
         ctx.moveTo(cssW, a);
-        ctx.lineTo(cssW - (big ? 7 : 4), a);
+        ctx.lineTo(cssW - (big ? 9 : 5), a);
       }
       ctx.stroke();
       if (!big) continue;
       const label = String(Math.round(v));
-      if (horizontal) ctx.fillText(label, Math.min(Math.max(at, 13), cssW - 13), cssH - 8);
-      else ctx.fillText(label, cssW - 9, Math.min(Math.max(at, 6), cssH - 6));
+      if (horizontal) ctx.fillText(label, Math.min(Math.max(at, 16), cssW - 16), cssH - 10);
+      else ctx.fillText(label, cssW - 10, Math.min(Math.max(at, 7), cssH - 7));
     }
 
     // 사진이 끝나는 자리에 선을 그어 어디까지가 사진인지 보이게 한다
@@ -1476,8 +1499,8 @@ function drawRulers() {
     }
   };
 
-  paint(top, box.width, 18, true, vp.scrollLeft, cv.width);
-  paint(left, 30, box.height, false, vp.scrollTop, cv.height);
+  paint(top, box.width, RULER_H, true, vp.scrollLeft, cv.width);
+  paint(left, RULER_W, box.height, false, vp.scrollTop, cv.height);
 }
 
 function drawStamps(ctx, card, w, h) {
