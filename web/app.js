@@ -893,6 +893,9 @@ function render(card) {
   const canvas = card.canvas;
   // 글자를 지운 사진이 있으면 그걸 쓴다. 이미 깨끗하므로 잘라낼 것도 덮을 것도 없다.
   const clean = card.cleanImg;
+  // 내가 직접 올린 사진에는 가릴 외국어가 없다. 덮개도 그늘도 깔지
+  // 않고 글자만 얹는다 - 사진을 있는 그대로 두는 것이 목적이다.
+  const bare = !!card.plain;
   const img = clean || card.img;
   if (!img || !canvas) return;
   schedulePersist();   // 화면에 뭔가 새로 그려질 때마다 자동 저장을 예약한다
@@ -916,7 +919,7 @@ function render(card) {
   const lines = photoPending(card)
     ? []
     : (card.copy?.title_lines?.filter(Boolean) || []);
-  const region = clean ? null : coverRegion(card);
+  const region = (clean || bare) ? null : coverRegion(card);
 
   // 제목은 안 써도 된다. 켜고 글을 넣었을 때만 나온다.
   const headLines = (!photoPending(card) && card.headOn && card.headText)
@@ -978,6 +981,7 @@ function render(card) {
     } else if (state.textPos === 'top') top = pad;
     else if (state.textPos === 'middle') top = (h - blockH) / 2;
     else if (state.textPos === 'bottom') top = h - pad - blockH;
+    else if (bare) top = (h - blockH) / 2;   // 내 사진은 한가운데서 시작
     else top = region
       ? ((region.top + region.bottom) / 2) * h - blockH / 2
       : h - pad - blockH;
@@ -1012,14 +1016,15 @@ function render(card) {
       y0 = Math.min(y0, region.top * h);
       y1 = Math.max(y1, region.bottom * h);
     }
-    if (clean) drawScrim(ctx, w, h, y0, y1 - y0);
+    if (bare) { /* 내 사진에는 아무것도 깔지 않는다 */ }
+    else if (clean) drawScrim(ctx, w, h, y0, y1 - y0);
     else drawCover(ctx, w, h, Math.max(0, y0), Math.min(h, y1));
   } else if (region) {
     drawCover(ctx, w, h, region.top * h, region.bottom * h);
   }
 
   // 제목은 사진 위 아무 데나 놓이므로, 읽히도록 그 자리에만 옅은 그늘을 깐다.
-  if (head) {
+  if (head && !bare) {
     drawScrim(ctx, w, h, head.top - head.size * 0.5,
               head.blockH + head.size);
   }
