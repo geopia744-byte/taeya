@@ -58,3 +58,34 @@ const 화풍목록 = [
    사람이 화면 주인공으로 나왔다.
    그래서 「무엇이 있는지」만 적는다. */
 const 공통규격 = '16:9 widescreen cinematic composition, single clear subject, uncluttered background';
+
+/* 정보 그래픽 층 — 화풍 12가지 **위에** 얹는다.
+   화풍을 새로 만드는 게 아니라, 고른 화풍 그대로에
+   도표·화살표·도형 같은 설명 요소를 섞는 것이다.
+
+   왜 필요한가.
+   뉴스 대본에는 실사로 찍을 수 없는 말이 수두룩하다.
+   「지분 10퍼센트」, 「부채 부담」, 「전력 수요 급증」 같은 것들이다.
+   이것을 장면으로만 그리면 어색해진다.
+   저울 위에 아파트 1만 채를 실사로 올리면 이상한 사진이 될 뿐이다.
+   경제·시사 유튜브가 죄다 모션그래픽을 쓰는 까닭이 이것이다. */
+
+const 그래픽층 = [
+  { id:'', 이름:'안 섞기', 꼬리:'장면만 그린다',
+    영문:'' },
+
+  { id:'light', 이름:'살짝', 꼬리:'장면이 주인공, 도형은 거들기만',
+    영문:'with subtle infographic elements woven into the scene, '
+       + 'a few clean vector arrows and simple geometric indicators, '
+       + 'light data accents' },
+
+  { id:'heavy', 이름:'많이', 꼬리:'도표와 도형이 주인공 (경제·시사에 맞음)',
+    영문:'designed as a motion-graphics infographic, '
+       + 'bold vector bars pie segments and directional arrows as the main visual language, '
+       + 'flat iconography, quantities shown by the size of shapes, '
+       + 'simple flat background, broadcast news graphics quality' },
+];
+
+function 그래픽찾기(id){
+  return 그래픽층.find(x => x.id === (id || '')) || 그래픽층[0];
+}
