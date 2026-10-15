@@ -57,7 +57,10 @@ const 화풍목록 = [
    넣어 버린다. 제미니로 시험했을 때 no people 이라고 적었는데
    사람이 화면 주인공으로 나왔다.
    그래서 「무엇이 있는지」만 적는다. */
-const 공통규격 = '16:9 widescreen cinematic composition, single clear subject, uncluttered background';
+const 공통규격 = '16:9 widescreen cinematic composition, '
+  + 'strong depth with clear foreground midground and background, '
+  + 'dramatic directional lighting with visible light source, '
+  + 'rich atmosphere, haze and depth of field';
 
 /* 정보 그래픽 층 — 화풍 12가지 **위에** 얹는다.
    화풍을 새로 만드는 게 아니라, 고른 화풍 그대로에
