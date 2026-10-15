@@ -157,9 +157,18 @@ def 기사붙이기(질문, 주소들):
 
 
 def 클로드한번(질문, 분=30):
-    """클로드를 한 번 불러 글을 받아온다."""
+    """클로드를 한 번 불러 글을 받아온다.
+
+    질문을 명령줄에 붙이면 안 된다.
+    윈도우에서 claude 는 .cmd 배치 파일이라 cmd.exe 를 거치는데,
+    cmd.exe 는 명령줄을 8,191자에서 잘라 버린다.
+    기사 본문이 들어간 질문은 그걸 쉽게 넘어서 뒷부분이 통째로 날아가고,
+    반쪽짜리 질문을 받은 클로드가 "뭘 쓸까요?" 하고 되묻게 된다.
+    그래서 질문은 표준입력으로 흘려 넣는다. 길이 제한이 없다.
+    """
     p = subprocess.run(
-        [클로드길, '-p', 질문, '--allowedTools', 'WebFetch,WebSearch'],
+        [클로드길, '-p', '--allowedTools', 'WebFetch,WebSearch'],
+        input=질문.encode('utf-8'),
         capture_output=True, timeout=분 * 60,
         creationflags=(subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0),
     )
@@ -305,14 +314,32 @@ class 손(SimpleHTTPRequestHandler):
                     돌고있나 = 생성중.get(jid, {}).get('상태') == '도는중'
                 if 돌고있나:
                     return self._json({'ok': True, '이미': True})
+                def 진단남기기(이름, 글):
+                    """주고받은 것을 파일로 남긴다. 잘못되면 이걸 보면 된다."""
+                    try:
+                        칸 = os.path.join(프로젝트칸, jid, '진단')
+                        os.makedirs(칸, exist_ok=True)
+                        with open(os.path.join(칸, 이름), 'w', encoding='utf-8') as f:
+                            f.write(글)
+                    except Exception:
+                        pass
+
                 def 준비하고부르기():
                     with 생성자물쇠:
                         생성중[jid] = {'상태': '도는중', '글': '', '오류': '',
                                       '시작': time.time(), '단계': '기사 읽는 중'}
                     질문 = 기사붙이기(d['prompt'], d.get('urls', ''))
+                    진단남기기('보낸질문.txt',
+                               '길이: %d자\n클로드: %s\n%s\n\n%s'
+                               % (len(질문), 클로드길, '─' * 50, 질문))
                     with 생성자물쇠:
-                        생성중[jid]['단계'] = '대본 쓰는 중'
+                        생성중[jid]['단계'] = '대본 쓰는 중 (질문 %d자)' % len(질문)
                     클로드부르기(jid, 질문, int(d.get('chars') or 0))
+                    with 생성자물쇠:
+                        끝 = 생성중.get(jid, {})
+                    진단남기기('받은답.txt',
+                               '상태: %s\n오류: %s\n%s\n\n%s'
+                               % (끝.get('상태'), 끝.get('오류', ''), '─' * 50, 끝.get('글', '')))
 
                 threading.Thread(target=준비하고부르기, daemon=True).start()
                 return self._json({'ok': True})

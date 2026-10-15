@@ -452,9 +452,15 @@ async function 생성확인(){
           · 기사 주소를 넣었다면 <b>[🔍 기사 읽어오기]</b> 을 먼저 눌러봐.
             못 읽으면 본문을 직접 붙여넣어야 해<br>
           · <b>말투</b> 칸도 비어 있으면 카테고리를 한 번 다시 골라줘<br><br>
-          <details><summary style="cursor:pointer;color:var(--cy2)">클로드가 되물은 내용 보기</summary>
+          <details open><summary style="cursor:pointer;color:var(--cy2)">클로드가 되물은 내용</summary>
           <div style="margin-top:8px;font-size:12px;color:var(--tx2);white-space:pre-wrap;
-            max-height:160px;overflow:auto">${esc(글)}</div></details>
+            max-height:200px;overflow:auto;background:#0e0e11;padding:10px;border-radius:6px">${esc(글)}</div></details>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #4a3c10">
+            <b>그래도 안 되면 이걸 보내줘</b><br>
+            프로그램 폴더 안에 주고받은 글이 그대로 남아 있어.<br>
+            <code style="font-size:11.5px;color:#e3c988">data\\projects\\${esc(작.id)}\\진단\\</code><br>
+            그 안의 <b>보낸질문.txt</b> 와 <b>받은답.txt</b> 두 개를 보내주면 원인을 찾을 수 있어.
+          </div>
         </div>`;
       toast('대본이 아니라 되묻는 글이 왔어', true);
       return;
