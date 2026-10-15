@@ -51,4 +51,10 @@ const 화풍목록 = [
 ];
 
 /* 모든 프롬프트 끝에 붙는 공통 규격 */
-const 공통규격 = '16:9 widescreen, no text, no watermark, no letters, clean composition';
+/* 모든 프롬프트 뒤에 붙는 공통 문구.
+   부정어("no text", "no people")를 쓰지 않는다.
+   이미지 AI 는 「~하지 마」를 잘 못 알아듣고, 오히려 그 단어를 보고
+   넣어 버린다. 제미니로 시험했을 때 no people 이라고 적었는데
+   사람이 화면 주인공으로 나왔다.
+   그래서 「무엇이 있는지」만 적는다. */
+const 공통규격 = '16:9 widescreen cinematic composition, single clear subject, uncluttered background';
