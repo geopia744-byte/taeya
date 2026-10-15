@@ -186,7 +186,7 @@ function 작업목록(){
   m.innerHTML = `
     <div class="h1">작업 목록</div>
     <div class="h1sub">영상 한 편 = 작업 하나.</div>
-    ${작업들.length ? `<div class="chgrid">${작업들.slice().reverse().map(j=>`
+    ${작업들.length ? `<div class="chgrid">${작업들.map(j=>`
       <div class="chcard" style="cursor:pointer" onclick="열기('${j.id}')">
         <div class="chtop"><div class="chico">🗒</div><div class="chname">${esc(j.name)}</div></div>
         <div class="chlink">${esc(j.created||'')}${j.script?` · ${j.script.length.toLocaleString()}자`:''}${(j.cuts&&j.cuts.length)?` · ${j.cuts.length}컷`:''}</div>
@@ -202,15 +202,19 @@ function 작업목록(){
 }
 
 async function 새작업(){
-  const 이름 = prompt('작업 이름 (예: AI 해킹의 습격)');
-  if(!이름) return;
-  const r = await api('job/new', {name:이름});
+  // 이름을 묻지 않는다. 기사 주소를 넣으면 제목이 들어오므로
+  // 시작부터 이름을 지으라고 하면 걸림돌만 된다.
+  const r = await api('job/new', {name:'새 영상 ' + 오늘()});
   await 불러오기(); 열기(r.id);
+  toast('새 작업을 열었어. 기사 주소를 넣어줘');
 }
 async function 지우기(id){
   const j = 작업들.find(x=>x.id===id);
   if(!confirm(`「${j.name}」 을 지울까? 되돌릴 수 없어.`)) return;
-  await api('job/del',{id}); await 불러오기(); 작업목록(); toast('지웠어');
+  await api('job/del',{id});
+  toast('지웠어');
+  // 빈 목록 화면으로 돌아가지 않는다. 남은 작업으로 바로 간다.
+  await 바로시작();
 }
 function 열기(id){
   작 = 작업들.find(x=>x.id===id);
@@ -231,7 +235,7 @@ function 그리기(){
   document.getElementById('main').innerHTML =
     `<div class="stepno">${i+1}/7 ${단계[i].ko}</div>` + 본문[현재]()
     + (자체이동줄.includes(현재) ? '' : 이동줄(i));
-  if(현재==='script'){ 글자세기(); 본문칸열기(); 어미보기(); 분량안내(); 배율안내(); }
+  if(현재==='script'){ 글자세기(); 본문칸열기(); 어미보기(); 분량안내(); 배율안내(); 다음안내(); }
   if(현재==='voice'){ 펼친음성=false; 대조불러오기(); }
   if(현재==='storyboard'){ 다펼침=false; 컷그리기(); }
 }
@@ -342,7 +346,7 @@ const 본문 = {};
     </div>
     <textarea class="ta" id="script" style="min-height:330px"
       placeholder="영상에 사용할 대본을 입력하세요.&#10;&#10;문단은 줄바꿈으로 구분합니다."
-      oninput="글자세기();저장({script:this.value});기둥그리기()">${esc(작.script||'')}</textarea>
+      oninput="글자세기();저장({script:this.value});기둥그리기();다음안내()">${esc(작.script||'')}</textarea>
     <div style="display:flex;align-items:center;gap:8px;margin-top:9px">
       <button class="btn sm" onclick="대본복사()">📋 대본 복사</button>
       <button class="btn sm" onclick="대본내려받기()">⬇ txt로 저장</button>
@@ -350,7 +354,42 @@ const 본문 = {};
       <div style="margin-left:auto" class="hint" id="글자">0자 / 60,000자</div>
     </div>
     <div style="margin-top:8px;font-size:13px" id="검사">　</div>
+  </div>
+
+  <div class="card" id="다음칸">
+    <h3>다음은 스토리보드</h3>
+    <div class="desc">대본을 12~13초짜리 컷으로 나누고, 컷마다 그림 프롬프트를 만든다.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:13px;flex-wrap:wrap">
+      <button class="btn cy" style="font-size:15px;padding:11px 22px"
+        onclick="스토리보드로()">스토리보드로 가기 →</button>
+      <span class="hint" id="다음글" style="margin:0"></span>
+    </div>
   </div>`;
+
+/* 대본 화면에서 곧장 스토리보드로.
+   [다음] 을 눌러 한 단계씩 넘기지 않아도 되게 한다. */
+function 스토리보드로(){
+  const 글 = (작.script||'').trim();
+  if(글.length < 100){
+    toast('대본부터 채워줘. 아직 ' + 글.length + '자야', true);
+    const t = document.getElementById('script');
+    if(t){ t.focus(); t.scrollIntoView({block:'center'}); }
+    return;
+  }
+  이동('storyboard');
+}
+
+/* 대본이 얼마나 찼는지에 따라 안내가 바뀐다 */
+function 다음안내(){
+  const 칸 = document.getElementById('다음글'); if(!칸) return;
+  const 자 = (작.script||'').trim().length;
+  if(자 < 100){
+    칸.innerHTML = '<span style="color:#fbbf24">대본이 아직 ' + 자 + '자야. 먼저 채워줘</span>';
+  } else {
+    const 컷 = Math.max(1, Math.round(자 / 8.55 / (작.target||13)));
+    칸.innerHTML = `대본 <b>${자.toLocaleString()}자</b> → 장면 <b>약 ${컷}개</b>가 나올 거야`;
+  }
+}
 
 /* 기사 분량 대비 목표 분량이 얼마나 되는지 미리 알려준다.
    레퍼런스 영상 실측: 기사 약 1,800자 → 대본 4,621자 ≈ 2.5배 */
@@ -626,7 +665,7 @@ async function 생성확인(){
     }
 
     document.getElementById('script').value = 글;
-    글자세기(); await 저장({script:글}); await 저장지금(); 기둥그리기();
+    글자세기(); await 저장({script:글}); await 저장지금(); 기둥그리기(); 다음안내();
     판.innerHTML = `<div style="color:#4ade80;font-size:13px">
       ✓ 대본 ${글.length.toLocaleString()}자를 받았어. 아래 편집창에서 다듬으면 돼.</div>`;
     toast(`대본 ${글.length.toLocaleString()}자 생성 완료`);
@@ -832,7 +871,7 @@ function 대본내려받기(){
 async function 대본비우기(){
   if(!confirm('대본을 비울까? 되돌릴 수 없어.')) return;
   document.getElementById('script').value='';
-  글자세기(); await 저장({script:''}); await 저장지금(); 기둥그리기();
+  글자세기(); await 저장({script:''}); await 저장지금(); 기둥그리기(); 다음안내();
   toast('비웠어');
 }
 
@@ -2267,9 +2306,32 @@ function 전체프롬프트복사(){
     </div>
   </div>`;
 
-/* ── 시작 ─────────────────────────────── */
+/* ── 시작 ──────────────────────────────
+   켜면 곧장 대본 화면으로 들어간다.
+   작업 목록을 먼저 보여 주고 [+ 새 작업]을 누르게 하면
+   매번 두 번 더 눌러야 일을 시작할 수 있다. 그게 성가시다.
+
+   마지막에 손댄 작업이 있으면 그걸 열고,
+   하나도 없으면 조용히 하나 만들어서 연다.
+   여러 작업을 오가려면 오른쪽 위 ☰ 를 누르면 된다. */
+async function 바로시작(){
+  await 불러오기();
+  if(작업들 && 작업들.length){
+    열기(작업들[0].id);
+    return;
+  }
+  const r = await api('job/new', {name:'새 영상 ' + 오늘()});
+  await 불러오기();
+  열기(r.id);
+}
+
+function 오늘(){
+  const d = new Date();
+  return `${d.getMonth()+1}월 ${d.getDate()}일`;
+}
+
 (async ()=>{
-  try { await 불러오기(); 작업목록(); }
+  try { await 바로시작(); }
   catch(e){ document.getElementById('main').innerHTML =
     `<div class="empty">서버에 닿지 못했어.<br>검은 창을 닫지 말고 열어둔 채로 다시 열어줘.</div>`; }
 })();

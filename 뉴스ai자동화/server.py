@@ -54,13 +54,23 @@ def 쓰기(경로, 값):
 
 
 def 작업들():
+    """최근에 손댄 것이 맨 앞으로 온다.
+
+    프로그램을 켜면 맨 앞 작업을 바로 연다.
+    폴더 이름(무작위 글자)순으로 두면 엉뚱한 옛날 작업이 열린다.
+    """
     out = []
-    for d in sorted(os.listdir(프로젝트칸)):
+    for d in os.listdir(프로젝트칸):
         p = os.path.join(프로젝트칸, d, 'job.json')
         if os.path.exists(p):
             v = 읽기(p, None)
             if v:
+                try:
+                    v['_손댄때'] = os.path.getmtime(p)
+                except OSError:
+                    v['_손댄때'] = 0
                 out.append(v)
+    out.sort(key=lambda x: x.get('_손댄때', 0), reverse=True)
     return out
 
 
