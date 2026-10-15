@@ -1400,8 +1400,21 @@ function 컷화풍다름(번호){
    그래서 화풍을 바꿔도 클로드를 다시 부를 필요가 없다. */
 function 영문짜기(원문, 번호){
   const s = 화풍찾기(컷화풍(번호));
-  return [원문, 캐릭터문구(), s?s.영문:'', 공통규격]
+  const g = 그래픽찾기(작.graphic);
+  return [원문, 캐릭터문구(), s?s.영문:'', g.영문, 공통규격]
          .filter(Boolean).join(', ');
+}
+
+async function 그래픽고르기(id){
+  작.graphic = id;
+  프롬프트다시짜기();
+  await 저장({graphic:id, prompts:작.prompts||[]});
+  await 저장지금();
+  화풍줄그리기(); 카드그리기();
+  const g = 그래픽찾기(id);
+  const n = (작.prompts||[]).length;
+  toast(n ? `정보 그래픽 ${g.이름} — 프롬프트 ${n}개를 다시 붙였어`
+          : `정보 그래픽: ${g.이름}`);
 }
 
 function 프롬프트다시짜기(){
@@ -1551,6 +1564,7 @@ ${s.영문}, ${공통규격}`).join('\n\n')}`, '예시 프롬프트 12개를 복
       하나를 누르면 아래 장면 전부가 그 화풍의 영문 프롬프트로 바뀐다.
       언제든 다시 눌러 바꿔도 된다.</div>
     <div id="화풍줄"></div>
+    <div id="그래픽줄" style="margin-top:14px"></div>
     <div id="프롬프트줄" style="margin-top:13px"></div>
   </div>
 
@@ -1657,7 +1671,30 @@ function 화풍줄그리기(){
   const h = 화풍목록.find(x=>x.id===지금);
   document.getElementById('화풍고른것').textContent =
     h ? h.이름 : '아직 안 골랐어';
+  그래픽줄그리기();
   프롬프트줄그리기();
+}
+
+/* 정보 그래픽 층 — 고른 화풍 위에 한 겹 더 얹는다.
+   뉴스 대본에는 실사로 못 찍는 말이 많다.
+   「지분 10퍼센트」, 「부채 부담」, 「전력 수요 급증」 같은 것들. */
+function 그래픽줄그리기(){
+  const 줄 = document.getElementById('그래픽줄'); if(!줄) return;
+  const 지금 = 작.graphic || '';
+  줄.innerHTML = `
+    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+      <span style="font-size:13px;color:var(--tx2);font-weight:600;flex:none">
+        정보 그래픽 섞기</span>
+      ${그래픽층.map(g=>`
+        <button class="btn sm ${지금===g.id?'cy':''}" style="padding:5px 13px;font-size:13px"
+          onclick="그래픽고르기('${g.id}')">${g.이름}</button>`).join('')}
+      <span style="font-size:12px;color:var(--tx3)">
+        ${esc(그래픽찾기(지금).꼬리)}</span>
+    </div>
+    <div style="margin-top:7px;font-size:11.5px;color:var(--tx3);line-height:1.65">
+      화풍은 그대로 두고 도표·화살표·도형만 섞는다.
+      숫자나 비율처럼 <b>실사로 못 찍는 말</b>이 많은 대본에 쓴다.
+      경제·시사 영상이 모션그래픽을 쓰는 까닭이다.</div>`;
 }
 
 function 프롬프트줄그리기(){
@@ -1789,7 +1826,7 @@ async function 프롬프트전체(){
 
   const r = await api('prompt/start', {id:작.id,
     cuts:미리컷.map(c=>({번호:c.번호, 대본:c.대본, 종류:컷종류(c.번호)})),
-    styleEn:s?s.영문:'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
+    styleEn:s?s.영문:'', graphic:작.graphic||'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
   if(!r.ok){
     알림.innerHTML = `<div class="note" style="margin:0">${esc(r.why||'시작 못 했어')}</div>`;
     return;
@@ -1845,7 +1882,7 @@ async function 프롬프트하나(번호){
   const s = 화풍찾기(작.style);
   const r = await api('prompt/start', {id:작.id,
     cuts:[{번호:c.번호, 대본:c.대본, 종류:컷종류(c.번호)}],
-    styleEn:s?s.영문:'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
+    styleEn:s?s.영문:'', graphic:작.graphic||'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
   if(!r.ok){ 되돌리기(); toast(r.why||'못 했어', true); return; }
 
   const 기다리기 = setInterval(async ()=>{
