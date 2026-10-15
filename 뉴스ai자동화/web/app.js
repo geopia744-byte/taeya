@@ -1743,26 +1743,38 @@ async function 프롬프트확인(){
 async function 프롬프트하나(번호){
   const c = (미리컷||[]).find(x=>x.번호===번호);
   if(!c){ toast('그 컷을 못 찾겠어', true); return; }
-  toast(`${번호}번 컷 다시 만드는 중...`);
+
+  // 어느 컷을 만드는 중인지 카드에 바로 보여 준다.
+  const 단추 = document.querySelector(`#컷목록 [onclick="프롬프트하나(${번호})"]`);
+  const 옛글 = 단추 ? 단추.textContent : '';
+  if(단추){ 단추.disabled = true; 단추.textContent = '만드는 중...'; }
+  const 되돌리기 = ()=>{ if(단추){ 단추.disabled = false; 단추.textContent = 옛글; } };
+  toast(`${번호}번 컷 만드는 중... 20초쯤 걸려`);
   const s = 화풍찾기(작.style);
   const r = await api('prompt/start', {id:작.id,
     cuts:[{번호:c.번호, 대본:c.대본}],
     styleEn:s?s.영문:'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
-  if(!r.ok){ toast(r.why||'못 했어', true); return; }
+  if(!r.ok){ 되돌리기(); toast(r.why||'못 했어', true); return; }
 
   const 기다리기 = setInterval(async ()=>{
     const st = await api('prompt/status', {id:작.id});
     if(st.상태==='도는중') return;
     clearInterval(기다리기);
-    if(st.상태!=='끝' || !st.줄?.length){ toast(st.오류||'못 만들었어', true); return; }
+    if(st.상태!=='끝' || !st.줄?.length){ 되돌리기(); toast(st.오류||'못 만들었어', true); return; }
     const x = st.줄[0], 인물 = 캐릭터문구();
     const 새것 = {번호:번호, 묘사:x.묘사, 원문:x.원문,
       영문:영문짜기(x.원문, x.번호)};
     const 모두 = (작.prompts||[]).filter(p=>p.번호!==번호).concat([새것])
                   .sort((a,b)=>a.번호-b.번호);
-    await 저장({prompts:모두});
+    // 한국어 장면 묘사도 같이 넣는다.
+    // 이걸 빠뜨리면 카드의 「장면」 칸이 비어 있어
+    // 무엇을 그리려는 건지 사람이 읽을 수가 없다.
+    const 장면들 = (작.scenes||[]).filter(x=>x.번호!==번호)
+                  .concat([{번호:번호, 묘사:x.묘사}])
+                  .sort((a,b)=>a.번호-b.번호);
+    await 저장({prompts:모두, scenes:장면들});
     await 저장지금(); 프롬프트줄그리기(); 카드그리기();
-    toast(`${번호}번 컷 다시 만들었어`);
+    toast(`${번호}번 컷 프롬프트를 만들었어 — [프롬프트 복사]로 가져가서 시험해 봐`);
   }, 2000);
 }
 
@@ -1894,8 +1906,10 @@ function 카드그리기(){
               title="타입캐스트에 붙여넣어 이 컷 소리를 만들 때">대본 복사</button>
             <button class="btn sm" onclick="컷프롬프트복사(${c.번호})" ${p?'':'disabled'}
               title="그림 만드는 곳에 붙여넣기">프롬프트 복사</button>
-            <button class="btn sm" onclick="프롬프트하나(${c.번호})"
-              style="margin-left:auto" title="이 컷 장면 묘사를 다시 만들기">다시</button>
+            <button class="btn sm ${p?'':'cy'}" onclick="프롬프트하나(${c.번호})"
+              style="margin-left:auto"
+              title="${p?'이 컷 장면 묘사를 다시 만들기':'이 컷 하나만 만들어 본다. 20초쯤 걸려'}"
+              >${p?'다시':'프롬프트 만들기'}</button>
           </div>
         </div>
       </div>`;
