@@ -1697,11 +1697,46 @@ function 프롬프트줄그리기(){
     <div style="margin-top:8px;font-size:11.5px;color:var(--tx3)">
       컷마다 화풍을 달리하고 싶으면 아래 장면 카드의 <b>화풍</b> 칸에서 고르면 돼.
       클로드를 다시 안 불러도 바로 바뀐다.</div>
+    ${영상줄()}
     <div id="프롬프트알림" style="margin-top:9px"></div>`;
 }
 
 function 컷프롬프트(번호){
   return (작.prompts||[]).find(p=>p.번호===번호) || null;
+}
+
+/* ── 컷마다 정지 이미지냐 영상이냐 ──────────────
+   롱폼은 전부 영상으로 만들지 않는다. 돈도 시간도 너무 든다.
+   후킹·전환점·마무리처럼 결정적인 데만 영상을 넣고
+   나머지는 정지 이미지로 간다. 그게 실제로 쓰는 방식이다.
+
+   정지 이미지는 몇 초든 늘려 둘 수 있지만
+   영상은 도구가 만들 수 있는 길이를 넘으면 안 된다.
+   구글 플로우(Veo)는 한 번에 10초까지다. */
+const 영상한계초 = 10;
+
+function 컷종류(번호){
+  return (작.cutKinds||{})[번호] === 'video' ? 'video' : 'image';
+}
+
+function 영상컷수(){
+  return (미리컷||[]).filter(c=>컷종류(c.번호)==='video').length;
+}
+
+async function 컷종류바꾸기(번호, 종류){
+  const 표 = Object.assign({}, 작.cutKinds||{});
+  if(종류==='video') 표[번호] = 'video'; else delete 표[번호];
+  작.cutKinds = 표;
+  await 저장({cutKinds:표});
+  await 저장지금();
+  프롬프트줄그리기(); 카드그리기();
+  const c = (미리컷||[]).find(x=>x.번호===번호);
+  if(종류==='video' && c && c.길이초 > 영상한계초){
+    toast(`${번호}번은 ${c.길이초.toFixed(1)}초라 플로우 10초를 넘어. `
+        + `목표 길이를 줄이거나 두 번 나눠 만들어야 해`, true);
+  } else {
+    toast(종류==='video' ? `${번호}번 컷 → 영상` : `${번호}번 컷 → 정지 이미지`);
+  }
 }
 
 /* 카드에서 영문 프롬프트를 폈다 접었다 한다.
@@ -1753,7 +1788,7 @@ async function 프롬프트전체(){
     장면 ${미리컷.length}개를 한 번에 설계하는 중... 1~3분 걸려. 창을 닫지 마.</div>`;
 
   const r = await api('prompt/start', {id:작.id,
-    cuts:미리컷.map(c=>({번호:c.번호, 대본:c.대본})),
+    cuts:미리컷.map(c=>({번호:c.번호, 대본:c.대본, 종류:컷종류(c.번호)})),
     styleEn:s?s.영문:'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
   if(!r.ok){
     알림.innerHTML = `<div class="note" style="margin:0">${esc(r.why||'시작 못 했어')}</div>`;
@@ -1809,7 +1844,7 @@ async function 프롬프트하나(번호){
   toast(`${번호}번 컷 만드는 중... 20초쯤 걸려`);
   const s = 화풍찾기(작.style);
   const r = await api('prompt/start', {id:작.id,
-    cuts:[{번호:c.번호, 대본:c.대본}],
+    cuts:[{번호:c.번호, 대본:c.대본, 종류:컷종류(c.번호)}],
     styleEn:s?s.영문:'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
   if(!r.ok){ 되돌리기(); toast(r.why||'못 했어', true); return; }
 
@@ -1833,6 +1868,29 @@ async function 프롬프트하나(번호){
     await 저장지금(); 프롬프트줄그리기(); 카드그리기();
     toast(`${번호}번 컷 프롬프트를 만들었어 — [프롬프트 복사]로 가져가서 시험해 봐`);
   }, 2000);
+}
+
+/* 영상으로 만들 컷이 몇 개인지, 길이가 넘지는 않는지 위에 알려 준다. */
+function 영상줄(){
+  const 모두 = (미리컷||[]);
+  const 영상 = 모두.filter(c=>컷종류(c.번호)==='video');
+  const 넘침 = 영상.filter(c=>c.길이초 > 영상한계초);
+  if(!영상.length){
+    return `<div style="margin-top:7px;font-size:11.5px;color:var(--tx3)">
+      결정적인 컷 몇 개만 <b>영상</b>으로 바꾸면 돼. 나머지는 정지 이미지로 간다.
+      보통 후킹 첫 컷 · 전환점 · 마무리에 넣는다.</div>`;
+  }
+  return `<div style="margin-top:9px;background:#1a1220;border:1px solid #6b3f8a;
+    border-left:3px solid #a855f7;border-radius:7px;padding:10px 13px;
+    font-size:12.5px;line-height:1.7;color:var(--tx2)">
+    <b style="color:#d8a8f0">영상 ${영상.length}개</b> ·
+    정지 이미지 ${모두.length - 영상.length}개
+    &nbsp;<span style="color:var(--tx3)">(${영상.map(c=>c.번호).join(', ')}번이 영상)</span>
+    ${넘침.length?`<br><span style="color:#fbbf24">⚠ ${넘침.map(c=>c.번호).join(', ')}번은
+      10초가 넘어. 구글 플로우는 한 번에 ${영상한계초}초까지야.
+      위 <b>장면 목표 길이</b>를 ${영상한계초}초로 내리거나, 그 컷만 정지 이미지로 돌려줘.</span>`
+      :`<br><span style="color:#4ade80">✓ 전부 ${영상한계초}초 안에 들어와. 플로우에 그대로 넣으면 돼.</span>`}
+  </div>`;
 }
 
 async function 화풍누름(id){
@@ -1913,12 +1971,18 @@ function 카드그리기(){
       const p = 컷프롬프트(c.번호);
       const 다름 = 컷화풍다름(c.번호);
       const 내화풍 = 화풍찾기(컷화풍(c.번호));
-      return `<div style="background:var(--card2);border:1px solid ${다름?'var(--cy)':(p?'#1d4a68':'var(--line2)')};
+      const 종류 = 컷종류(c.번호);
+      const 긴영상 = 종류==='video' && c.길이초 > 영상한계초;
+      return `<div style="background:${종류==='video'?'#1a1220':'var(--card2)'};
+        border:1px solid ${종류==='video'?'#6b3f8a':(다름?'var(--cy)':(p?'#1d4a68':'var(--line2)'))};
         border-radius:9px;padding:12px 14px;display:flex;flex-direction:column">
         <div style="display:flex;align-items:center;gap:7px;margin-bottom:9px">
           <span style="background:${색}22;color:${색};border:1px solid ${색}55;border-radius:5px;
             padding:2px 9px;font-size:13.5px;font-weight:700">${c.번호}</span>
           <span style="background:${색}22;color:${색};border-radius:5px;padding:2px 9px;font-size:12.5px">${c.구간}</span>
+          ${종류==='video'?`<span style="background:#2b1636;color:#d8a8f0;
+            border:1px solid #6b3f8a;border-radius:5px;padding:2px 8px;
+            font-size:11.5px;font-weight:600">영상</span>`:''}
           ${다름?`<span style="background:var(--cybg);color:var(--cy2);border:1px solid var(--cy);
             border-radius:5px;padding:1px 7px;font-size:10.5px">${내화풍.이름}</span>`:''}
           <span style="margin-left:auto;font-size:12.5px;color:var(--tx3)">${c.길이초.toFixed(1)}초</span>
@@ -1949,6 +2013,15 @@ function 카드그리기(){
         </div>`:''}
 
         <div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--line2)">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span style="font-size:12px;color:var(--tx3);flex:none">만들 것</span>
+            <button class="btn sm ${종류==='image'?'cy':''}" style="padding:3px 11px"
+              onclick="컷종류바꾸기(${c.번호},'image')">정지 이미지</button>
+            <button class="btn sm ${종류==='video'?'cy':''}" style="padding:3px 11px"
+              onclick="컷종류바꾸기(${c.번호},'video')">영상</button>
+            ${종류==='video'&&긴영상?`<span style="margin-left:auto;font-size:11px;
+              color:#fbbf24" title="플로우는 한 번에 10초까지야">10초 넘음</span>`:''}
+          </div>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
             <span style="font-size:12px;color:var(--tx3);flex:none">화풍</span>
             <select onchange="컷화풍바꾸기(${c.번호}, this.value)"
