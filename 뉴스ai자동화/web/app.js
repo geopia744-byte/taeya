@@ -285,8 +285,13 @@ const 본문 = {};
     <textarea class="ta" id="script" style="min-height:330px"
       placeholder="영상에 사용할 대본을 입력하세요.&#10;&#10;문단은 줄바꿈으로 구분합니다."
       oninput="글자세기();저장({script:this.value});기둥그리기()">${esc(작.script||'')}</textarea>
-    <div style="text-align:right;margin-top:7px" class="hint" id="글자">0자 / 60,000자</div>
-    <div style="margin-top:6px;font-size:13px" id="검사">　</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:9px">
+      <button class="btn sm" onclick="대본복사()">📋 대본 복사</button>
+      <button class="btn sm" onclick="대본내려받기()">⬇ txt로 저장</button>
+      <button class="btn sm gh" onclick="대본비우기()">비우기</button>
+      <div style="margin-left:auto" class="hint" id="글자">0자 / 60,000자</div>
+    </div>
+    <div style="margin-top:8px;font-size:13px" id="검사">　</div>
   </div>`;
 
 /* 기사 분량 대비 목표 분량이 얼마나 되는지 미리 알려준다.
@@ -625,15 +630,25 @@ function 구조글(총자){
 - 질문을 던져라. 듣는 사람 머릿속에 물음표를 만들어라.
 - 그런데, 문제는 여기부터입니다, 자 그럼, 같은 말로 흐름을 꺾어라.
 
+[숫자는 이 영상의 뼈대다 — 반드시 쓰되 이렇게 써라]
+- 숫자를 피하지 마라. 금액, 비율, 기간, 증감률을 아끼지 말고 써라.
+- 다만 숫자 하나에 반드시 하나를 붙여라. 둘 중 하나면 된다.
+    (가) 비교 — 전년 대비 몇 퍼센트, 몇 배, 얼마에서 얼마로
+    (나) 체감 — 그 돈이 얼마나 큰지 와닿는 비유 (아파트 몇 채 값, 직원 월급 몇 년치)
+- 한 문장에 숫자를 셋 이상 넣지 마라. 귀로 들으면 하나도 안 남는다.
+  숫자가 많으면 문장을 쪼개라.
+- 어려운 단위는 바꿔 말하라. 27억달러라고만 하지 말고 우리 돈으로 얼마인지 함께 말하라.
+
 [절대 쓰지 마라 — 이러면 사람들이 나간다]
 - …에 따르면, …로 나타났다, …로 알려졌다 같은 보도체
-- 숫자와 기관 이름을 줄줄이 늘어놓는 나열식 문장
+- 숫자와 기관 이름을 한 문장에 줄줄이 늘어놓는 것 (숫자 자체가 아니라 나열이 문제다)
 - 첫째, 둘째, 셋째 처럼 목차 읽어주는 말투
 - 아무 감정도 이해관계도 없는 설명만 이어지는 문단
 
 ${번()} 후킹 (약 ${훅.toLocaleString()}자) — 여기서 거의 다 결판난다
 
-   숫자부터 던지지 마라. 그건 뉴스 앵커 멘트다.
+   숫자는 적극적으로 써라. 다만 숫자만 읊지 마라. 그건 앵커 멘트다.
+   숫자 옆에 그 숫자가 왜 놀라운지를 반드시 붙여라.
    아래 셋 중 가장 잘 맞는 하나를 골라 써라.
 
    (가) 상식 뒤집기
@@ -644,10 +659,11 @@ ${번()} 후킹 (약 ${훅.toLocaleString()}자) — 여기서 거의 다 결판
    (다) 내 이해관계
        이게 왜 당신 지갑, 당신 일자리, 당신 집값과 엮이는지 먼저 때려라.
 
-   숫자를 쓸 거면 그냥 말하지 말고, 그 숫자가 왜 말이 안 되는지를 먼저 보여줘라.
-   나쁜 예) 27억달러, 우리 돈으로 3조7000억원입니다.
-   좋은 예) 불과 몇 년 전만 해도 우리는 이 회사에 로열티를 내던 쪽이었습니다.
-            그런데 지금, 이 회사를 사겠다고 나섰습니다.
+   나쁜 예) 27억달러, 우리 돈으로 3조7000억원입니다. 지분 10퍼센트를 사려면 필요한 돈입니다.
+            → 숫자만 읊었다. 왜 놀라운지가 없다.
+   좋은 예) 3조7000억원. 중형 아파트 1만 채 값입니다.
+            이 돈을 들여 우리가 사려는 건 땅도 공장도 아닙니다. 남의 회사 지분 10퍼센트입니다.
+            → 숫자를 쓰되 크기를 체감시키고, 바로 의문을 던졌다.
 
 ${번()} 예고 (약 ${예고.toLocaleString()}자)
    - 오늘 풀어줄 것을 알리되, 답을 미리 말하지 마라.
@@ -737,13 +753,39 @@ function 질문복사(){
   복사(질문글(), '질문을 복사했어. 클로드에 붙여넣어');
 }
 
+function 대본복사(){
+  const t=(document.getElementById('script')||{}).value||'';
+  if(!t.trim()){ toast('복사할 대본이 없어', true); return; }
+  복사(t, `대본 ${t.length.toLocaleString()}자를 복사했어`);
+}
+
+function 대본내려받기(){
+  const t=(document.getElementById('script')||{}).value||'';
+  if(!t.trim()){ toast('저장할 대본이 없어', true); return; }
+  const 날 = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const 이름 = `${(작.name||'대본').replace(/[\\/:*?"<>|]/g,'_')}_${날}.txt`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff'+t], {type:'text/plain;charset=utf-8'}));
+  a.download = 이름; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  toast(`${이름} 으로 저장했어`);
+}
+
+async function 대본비우기(){
+  if(!confirm('대본을 비울까? 되돌릴 수 없어.')) return;
+  document.getElementById('script').value='';
+  글자세기(); await 저장({script:''}); await 저장지금(); 기둥그리기();
+  toast('비웠어');
+}
+
 function 글자세기(){
   const t=(document.getElementById('script')||{}).value||'';
   const g=document.getElementById('글자');
   if(g) g.textContent = `${t.length.toLocaleString()}자 / 60,000자 ≈ ${(t.length/자당분).toFixed(1)}분 ≈ 컷 ${Math.round(t.length/컷당자)}개`;
   const 검=document.getElementById('검사'); if(!검) return;
   const 문제=[];
-  if(/\.[가-힣A-Za-z0-9]/.test(t)) 문제.push('온점 뒤 띄어쓰기');
+  // 1.4기가와트 같은 소수점과 1.2.3 같은 번호는 문장 끝이 아니다
+  if(/[가-힣](?:\.)[가-힣A-Za-z]/.test(t)) 문제.push('온점 뒤 띄어쓰기');
   if(t.includes('"')) 문제.push('따옴표');
   if(/[※★→←↑↓◆■□●○]/.test(t)) 문제.push('특수문자');
   if(/https?:\/\//.test(t)) 문제.push('URL');
