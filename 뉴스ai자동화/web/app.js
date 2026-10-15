@@ -175,6 +175,7 @@ function 그리기(){
     `<div class="stepno">${i+1}/7 ${단계[i].ko}</div>` + 본문[현재]()
     + (자체이동줄.includes(현재) ? '' : 이동줄(i));
   if(현재==='script'){ 글자세기(); 본문칸열기(); 어미보기(); 분량안내(); 배율안내(); }
+  if(현재==='voice'){ 펼친음성=false; 대조불러오기(); }
   if(현재==='storyboard'){ 다펼침=false; 컷그리기(); }
 }
 function 이동줄(i){
@@ -880,6 +881,13 @@ function 글자세기(){
       <button class="btn" onclick="이동('storyboard')">건너뛰고 스토리보드로</button>
     </div>
     <div id="음성판" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="대조카드" style="display:none">
+    <div class="corner"><button class="btn sm" onclick="음성폴더()">폴더 열기</button></div>
+    <h3>대본을 어디까지 소리로 만들었나</h3>
+    <div class="desc">내 말만 믿지 말고 직접 확인해. 글자 수를 하나하나 맞춰 본 결과야.</div>
+    <div id="대조판" style="margin-top:12px"></div>
   </div>`;
 };
 
@@ -948,6 +956,111 @@ async function 미리듣기(){
   글칸.innerHTML = `<span style="color:#4ade80">▶ 재생 중 (${r.초||'?'}초)</span> — ${esc(첫.slice(0,40))}…`;
 }
 
+/* ── 만들어진 음성 확인하기 ──────────────────
+   "대본 어디까지 음성으로 만든 거야?" 에 숫자로 답한다. */
+
+let 펼친음성 = false;
+
+async function 대조불러오기(){
+  const 카드 = document.getElementById('대조카드'); if(!카드) return;
+  const r = await api('voice/list', {id:작.id, script:작.script||''});
+  if(!r.있음){ 카드.style.display='none'; return; }
+  카드.style.display='';
+  대조그리기(r);
+}
+
+function 대조그리기(r){
+  const 판 = document.getElementById('대조판'); if(!판) return;
+  마지막대조 = r;
+
+  const 다됨 = r.똑같음 && !r.없는파일.length && !r.빈것.length;
+  const 색 = 다됨 ? '#4ade80' : '#fbbf24';
+
+  let 판정;
+  if(다됨){
+    판정 = `✓ <b>대본을 처음부터 끝까지 전부</b> 소리로 만들었어.
+            빠진 글자 하나도 없어.`;
+  } else if(!r.똑같음){
+    const 차 = r.대본글자 - r.음성글자;
+    판정 = 차 > 0
+      ? `⚠ 대본이 <b>${차.toLocaleString()}자 더 많아.</b>
+         음성을 만든 뒤에 대본을 고쳤을 거야. 다시 만들어야 맞아져.`
+      : `⚠ 음성 쪽이 <b>${(-차).toLocaleString()}자 더 많아.</b>
+         대본을 줄인 뒤라서 그래. 다시 만들어야 맞아져.`;
+  } else if(r.없는파일.length){
+    판정 = `⚠ 소리 파일 <b>${r.없는파일.length}개가 없어졌어.</b>
+            (${r.없는파일.slice(0,8).join(', ')}번) 다시 만들어줘.`;
+  } else {
+    판정 = `⚠ 길이가 0초인 문장이 <b>${r.빈것.length}개</b> 있어.
+            (${r.빈것.slice(0,8).join(', ')}번)`;
+  }
+
+  const 칸 = (이,값,꼬)=>`
+    <div style="background:var(--card2);border:1px solid var(--line2);
+      border-radius:8px;padding:11px 14px">
+      <div style="font-size:11.5px;color:var(--tx3)">${이}</div>
+      <div style="font-size:17px;font-weight:700;color:var(--tx);margin-top:3px">${값}</div>
+      ${꼬?`<div style="font-size:11px;color:var(--tx3);margin-top:2px">${꼬}</div>`:''}
+    </div>`;
+
+  const 보일것 = 펼친음성 ? r.줄 : r.줄.slice(0, 6);
+
+  판.innerHTML = `
+    <div style="color:${색};font-size:13.5px;line-height:1.8;margin-bottom:13px">${판정}</div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:9px">
+      ${칸('대본', r.대본글자.toLocaleString()+'자', '띄어쓰기 뺀 글자')}
+      ${칸('소리로 만든 것', r.음성글자.toLocaleString()+'자',
+            `<span style="color:${색}">${r.덮은비율}% 덮음</span>`)}
+      ${칸('문장', r.문장수+'개', '파일 '+r.줄.filter(x=>x.파일있음).length+'개 있음')}
+      ${칸('전체 길이', (r.전체초/60).toFixed(1)+'분', r.전체초.toFixed(1)+'초')}
+    </div>
+
+    <div style="margin:16px 0 8px;font-size:12.5px;color:var(--tx2)">
+      문장마다 들어보고 확인해. <b style="color:var(--cy2)">▶</b> 를 누르면 그 문장만 나와.
+    </div>
+
+    <div style="border:1px solid var(--line2);border-radius:8px;overflow:hidden">
+      ${보일것.map(x=>`
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:9px 12px;
+          border-bottom:1px solid var(--line2);background:${x.파일있음?'transparent':'#2a1a12'}">
+          <span style="font-size:11.5px;color:var(--tx3);width:30px;flex:none;
+            text-align:right;padding-top:2px">${x.번호}</span>
+          <button class="btn sm" style="flex:none;padding:2px 9px"
+            onclick="한문장듣기(${x.번호})" ${x.파일있음?'':'disabled'}>▶</button>
+          <span style="flex:none;width:52px;font-size:11.5px;color:var(--cy2);
+            padding-top:3px">${x.초.toFixed(1)}초</span>
+          <span style="flex:1;font-size:12.5px;line-height:1.65;color:var(--tx2)">${esc(x.글)}</span>
+          ${x.파일있음?'':'<span style="flex:none;font-size:11px;color:#fbbf24">파일 없음</span>'}
+        </div>`).join('')}
+    </div>
+
+    ${r.줄.length>6 ? `<div style="margin-top:9px">
+      <a href="#" onclick="펼친음성=!펼친음성;대조그리기(마지막대조);return false"
+        style="color:var(--cy2);font-size:12.5px">
+        ${펼친음성 ? '접기 ∧' : `전체 ${r.줄.length}문장 모두 보기 ∨`}</a></div>` : ''}
+
+    <div style="margin-top:13px;font-size:11.5px;color:var(--tx3);word-break:break-all">
+      소리 파일은 여기 있어 — ${esc(r.폴더)}
+    </div>
+    <audio id="낱소리" style="display:none"></audio>`;
+}
+
+let 마지막대조 = null;
+
+function 한문장듣기(번호){
+  const a = document.getElementById('낱소리'); if(!a) return;
+  const x = (마지막대조?.줄||[]).find(v=>v.번호===번호); if(!x) return;
+  a.src = `/api/voicefile?id=${encodeURIComponent(작.id)}&f=${encodeURIComponent(x.파일)}&t=${Date.now()}`;
+  a.play().catch(()=>toast('소리를 못 틀었어', true));
+}
+
+async function 음성폴더(){
+  const r = await api('folder/open', {id:작.id});
+  if(r.ok) toast('폴더를 열었어');
+  else toast(r.why||'폴더를 못 열었어', true);
+}
+
 let 음성폴링 = null;
 
 async function 음성시작(){
@@ -986,9 +1099,11 @@ async function 음성확인(){
   if(st.상태==='끝'){
     await 저장({voiceDone:true, sentences:st.목록, voiceTotal:st.전체초});
     await 저장지금(); 기둥그리기();
+    대조불러오기();
     판.innerHTML = `
       <div style="color:#4ade80;font-size:13px;margin-bottom:10px">
-        ✓ 문장 ${st.한것}개 · 전체 ${(st.전체초/60).toFixed(1)}분 — 실제 길이를 다 쟀어.</div>
+        ✓ 문장 ${st.한것}개 · 전체 ${(st.전체초/60).toFixed(1)}분 — 실제 길이를 다 쟀어.
+        <b>아래에서 하나씩 들어보고 확인해.</b></div>
       <div style="background:#0d2234;border:1px solid #1d4a68;border-radius:8px;padding:12px 14px;font-size:12.5px;color:#9fc4dc">
         이제 <b>스토리보드</b>로 가면 <b>추정이 아니라 실제 소리 길이</b>로 컷을 나눠.
         그림과 말이 어긋나지 않아.</div>

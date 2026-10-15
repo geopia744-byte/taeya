@@ -43,11 +43,17 @@ def 윈도우목소리():
     """이 컴퓨터에 깔린 목소리를 물어본다."""
     if not 윈도우:
         return []
+    # Gender 와 Culture 를 그냥 내보내면 ConvertTo-Json 이
+    # 열거형을 숫자로(여성=2) 바꿔 버려서 성별이 "알 수 없음" 으로 뜬다.
+    # 그래서 파워셸 쪽에서 미리 글자로 바꿔서 받는다.
     명령 = (
         "Add-Type -AssemblyName System.Speech; "
         "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
         "$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo } | "
-        "Select-Object Name, Gender, Culture | ConvertTo-Json -Compress"
+        "Select-Object Name, "
+        "@{n='Gender';e={[string]$_.Gender}}, "
+        "@{n='Culture';e={[string]$_.Culture}} "
+        "| ConvertTo-Json -Compress"
     )
     try:
         글 = _파워셸(명령).strip()
@@ -62,13 +68,18 @@ def 윈도우목소리():
     for v in 표:
         이름 = v.get('Name', '')
         나라 = str(v.get('Culture', ''))
+        # 혹시라도 숫자로 오면(윈도우 판에 따라 다르다) 숫자도 알아듣는다
         성 = v.get('Gender', '')
+        표 = {'Male': '남성', 'Female': '여성', 'Neutral': '중성',
+              1: '남성', 2: '여성', 3: '중성',
+              '1': '남성', '2': '여성', '3': '중성'}
         모음.append({
             'id': 이름,
             '이름': 이름,
-            '성별': {'Male': '남성', 'Female': '여성'}.get(성, '알 수 없음'),
+            '성별': 표.get(성, '알 수 없음'),
             '언어': 나라,
             '한국어': 나라.lower().startswith('ko'),
+            '종류': '한국어' if 나라.lower().startswith('ko') else 나라,
         })
     모음.sort(key=lambda x: (not x['한국어'], x['이름']))
     return 모음

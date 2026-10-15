@@ -5,7 +5,7 @@
 켜면 크롬 창이 저절로 열린다. 검은 창은 닫지 말 것.
 """
 
-import json, os, sys, time, uuid, threading, webbrowser, socket
+import json, os, re, sys, time, uuid, threading, webbrowser, socket, subprocess
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -155,6 +155,58 @@ def 기사붙이기(질문, 주소들):
     if 못읽음:
         덧 += '\n\n[못 읽은 주소 — 내용을 모르니 추측하지 말 것]\n' + '\n'.join(못읽음)
     return 질문 + 덧
+
+
+def 음성대조(jid, 대본):
+    """만들어 둔 음성이 대본을 전부 덮고 있는지 글자 단위로 맞춰 본다.
+
+    "대본 어디까지 음성으로 만든 거야?" 라는 물음에
+    말이 아니라 숫자로 답하기 위한 것이다.
+
+    띄어쓰기와 줄바꿈은 빼고 센다. 소리로는 안 나는 것들이라
+    넣고 세면 괜히 안 맞는 것처럼 보인다.
+    """
+    칸 = os.path.join(프로젝트칸, jid or '', '음성')
+    표 = 읽기(os.path.join(칸, '목록.json'), None)
+    if not isinstance(표, list) or not 표:
+        return {'있음': False}
+
+    def 알맹이(글):
+        return re.sub(r'\s', '', 글 or '')
+
+    대본알 = 알맹이(대본)
+    음성알 = 알맹이(''.join(x.get('글', '') for x in 표))
+
+    줄 = []
+    for x in 표:
+        이름 = x.get('파일', '')
+        있 = os.path.exists(os.path.join(칸, 이름)) if 이름 else False
+        줄.append({
+            '번호': x.get('번호'),
+            '글': x.get('글', ''),
+            '초': x.get('초') or 0,
+            '파일': 이름,
+            '파일있음': 있,
+            '글자': len(알맹이(x.get('글', ''))),
+        })
+
+    없는파일 = [r['번호'] for r in 줄 if not r['파일있음']]
+    빈것 = [r['번호'] for r in 줄 if not r['초']]
+
+    return {
+        '있음': True,
+        '줄': 줄,
+        '문장수': len(줄),
+        '전체초': round(sum(r['초'] for r in 줄), 2),
+        '대본글자': len(대본알),
+        '음성글자': len(음성알),
+        '덮은비율': (round(len(음성알) / len(대본알) * 100, 1)
+                    if 대본알 else 0),
+        '똑같음': 대본알 == 음성알,
+        '없는파일': 없는파일,
+        '빈것': 빈것,
+        '폴더': os.path.abspath(칸),
+    }
 
 
 def 잰길이(jid, 대본):
@@ -497,6 +549,23 @@ class 손(SimpleHTTPRequestHandler):
             if 길 == 'voice/status':
                 with 생성자물쇠:
                     return self._json(dict(음성중.get(d['id'], {'상태': '없음'})))
+
+            if 길 == 'voice/list':
+                return self._json(음성대조(d.get('id'), d.get('script', '')))
+
+            if 길 == 'folder/open':
+                칸 = os.path.join(프로젝트칸, d['id'], '음성')
+                if not os.path.isdir(칸):
+                    return self._json({'ok': False, 'why': '아직 음성 폴더가 없어'})
+                try:
+                    if os.name == 'nt':
+                        os.startfile(칸)          # noqa: S606
+                    else:
+                        subprocess.Popen(['xdg-open', 칸])
+                    return self._json({'ok': True, '곳': os.path.abspath(칸)})
+                except Exception as e:
+                    return self._json({'ok': False, 'why': str(e)[:200],
+                                       '곳': os.path.abspath(칸)})
 
             if 길 == 'cut':
                 글 = d.get('script', '')
