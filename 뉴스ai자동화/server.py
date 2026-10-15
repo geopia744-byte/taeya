@@ -238,6 +238,98 @@ def 잰길이(jid, 대본):
 # 돌고 있는 음성 작업
 음성중 = {}
 
+# 돌고 있는 프롬프트 작업
+프롬프트중 = {}
+
+
+def 프롬프트질문(컷들, 화풍영문, 인물):
+    """컷 전부를 한 번에 보내는 질문을 만든다.
+
+    컷마다 따로 물으면 인물과 배경이 컷마다 달라진다.
+    (3번 컷의 회장과 17번 컷의 회장이 다른 사람이 된다)
+    한 번에 보내야 앞뒤를 보고 같은 사람으로 그려 준다.
+    """
+    줄 = '\n'.join('%d. %s' % (c['번호'], c['대본']) for c in 컷들)
+    return f"""되묻지 마라. 아래 지시만으로 바로 답해라.
+
+너는 유튜브 롱폼 영상의 장면을 설계한다.
+아래에 대본이 {len(컷들)}개의 컷으로 나뉘어 있다.
+컷 하나에 그림 한 장이 들어간다.
+
+[해야 할 일]
+컷마다 두 가지를 만들어라.
+  1) 장면 묘사 — 그 컷의 내용을 그림으로 어떻게 보여줄지 한국어 한 문장
+  2) 영문 프롬프트 — 그림 생성 AI에 넣을 영어 묘사
+
+[반드시 지킬 것]
+- 컷 {len(컷들)}개 전부에 대해 빠짐없이 한 줄씩 써라. 건너뛰지 마라.
+- 한 줄은 반드시 이 모양이다. 앞뒤에 다른 말을 붙이지 마라.
+      번호 | 장면 묘사 | 영문 프롬프트
+- 영문 프롬프트에 화풍이나 화면비를 적지 마라. 그건 내가 따로 붙인다.
+  장면의 내용(무엇이 어떻게 보이는지)만 영어로 적어라.
+- 글자·숫자·자막을 그림 안에 넣지 마라. 영상에 자막을 따로 얹는다.
+- 실존 인물의 얼굴을 그리라고 하지 마라. 직책과 상황으로 표현하라.
+  (예: a Korean executive in a dark suit)
+- 같은 사람이 여러 컷에 나오면 생김새·옷차림을 똑같이 유지하라.
+- 숫자나 금액이 나오는 컷은 그것이 느껴지는 장면으로 바꿔라.
+  (예: 3조 7000억 원 → 거대한 금고, 쌓인 서류, 고층 빌딩 숲)
+{인물}
+[대본 컷]
+{줄}
+"""
+
+
+def 프롬프트만들기(jid, d):
+    """컷 전부의 장면 묘사와 영문 프롬프트를 한 번에 받아온다."""
+    def 상태(**kw):
+        with 생성자물쇠:
+            프롬프트중.setdefault(jid, {}).update(kw)
+
+    상태(상태='도는중', 오류='', 단계='장면 설계 중', 시작=time.time(), 한것=0)
+    try:
+        컷들 = d.get('cuts') or []
+        if not 컷들:
+            상태(상태='실패', 오류='컷이 없어. 먼저 스토리보드를 만들어줘')
+            return
+        상태(전체=len(컷들))
+        질문 = 프롬프트질문(컷들, d.get('styleEn', ''), d.get('charLine', ''))
+
+        칸 = os.path.join(프로젝트칸, jid, '진단')
+        os.makedirs(칸, exist_ok=True)
+        with open(os.path.join(칸, '프롬프트_보낸질문.txt'), 'w',
+                  encoding='utf-8') as f:
+            f.write(질문)
+
+        답 = 클로드한번(질문, 분=20)
+
+        with open(os.path.join(칸, '프롬프트_받은답.txt'), 'w',
+                  encoding='utf-8') as f:
+            f.write(답 or '')
+
+        줄들 = []
+        for 줄 in (답 or '').splitlines():
+            줄 = 줄.strip()
+            if 줄.count('|') < 2:
+                continue
+            쪽 = [x.strip() for x in 줄.split('|')]
+            번호 = re.sub(r'[^0-9]', '', 쪽[0])
+            if not 번호:
+                continue
+            줄들.append({'번호': int(번호), '묘사': 쪽[1], '원문': 쪽[2]})
+
+        if not 줄들:
+            상태(상태='실패',
+                 오류='클로드 답에서 「번호 | 묘사 | 영문」 줄을 못 찾았어. '
+                      '진단 폴더의 프롬프트_받은답.txt 를 봐줘')
+            return
+
+        줄들.sort(key=lambda x: x['번호'])
+        있는번호 = {x['번호'] for x in 줄들}
+        빠진 = [c['번호'] for c in 컷들 if c['번호'] not in 있는번호]
+        상태(상태='끝', 줄=줄들, 한것=len(줄들), 빠진=빠진)
+    except Exception as e:
+        상태(상태='실패', 오류=str(e)[:400])
+
 
 def 음성만들기(jid, d):
     """대본을 문장으로 쪼개고 하나씩 소리로 만든다.
@@ -514,6 +606,25 @@ class 손(SimpleHTTPRequestHandler):
             if 길 == 'script/status':
                 with 생성자물쇠:
                     st = dict(생성중.get(d['id'], {'상태': '없음'}))
+                if st.get('시작'):
+                    st['지난초'] = int(time.time() - st.pop('시작'))
+                return self._json(st)
+
+            if 길 == 'prompt/start':
+                if not 클로드길:
+                    return self._json({'ok': False,
+                                       'why': '클로드 코드가 이 컴퓨터에 없어'})
+                jid = d['id']
+                with 생성자물쇠:
+                    if 프롬프트중.get(jid, {}).get('상태') == '도는중':
+                        return self._json({'ok': True, '이미': True})
+                threading.Thread(target=프롬프트만들기, args=(jid, d),
+                                 daemon=True).start()
+                return self._json({'ok': True})
+
+            if 길 == 'prompt/status':
+                with 생성자물쇠:
+                    st = dict(프롬프트중.get(d['id'], {'상태': '없음'}))
                 if st.get('시작'):
                     st['지난초'] = int(time.time() - st.pop('시작'))
                 return self._json(st)

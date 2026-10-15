@@ -1446,6 +1446,18 @@ ${s.영문}, ${공통규격}`).join('\n\n')}`, '예시 프롬프트 12개를 복
 
   <div class="card">
     <div style="display:flex;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">그림 화풍</h3>
+      <div style="margin-left:auto;font-size:12.5px;color:var(--tx3)" id="화풍고른것"></div>
+    </div>
+    <div class="desc" style="margin-bottom:11px">
+      하나를 누르면 아래 장면 전부가 그 화풍의 영문 프롬프트로 바뀐다.
+      언제든 다시 눌러 바꿔도 된다.</div>
+    <div id="화풍줄"></div>
+    <div id="프롬프트줄" style="margin-top:13px"></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
       <h3 style="margin:0">장면</h3>
       <div style="margin-left:auto;font-size:12.5px;color:var(--tx3)" id="장면총수"></div>
     </div>
@@ -1518,6 +1530,7 @@ async function 진짜컷그리기(){
     `장면 <b style="color:var(--cy2)">${s.컷수}개</b> · 전체 ${s.전체분}분 · 평균 ${s.평균컷초}초.
      아래 <b>스토리보드 생성</b>을 누르면 이대로 확정됩니다.`;
   길이근거그리기(r, s);
+  화풍줄그리기();
 
   const 전체=s.전체초||1;
   document.getElementById('타임라인').innerHTML =
@@ -1525,6 +1538,189 @@ async function 진짜컷그리기(){
     미리컷.map(c=>`<div title="${c.번호}번 · ${c.길이초}초"
       style="width:${(c.길이초/전체*100).toFixed(3)}%;background:${구간색[c.구간]};border-right:1px solid rgba(0,0,0,.45)"></div>`).join('')+`</div>`;
   카드그리기();
+}
+
+/* ── 화풍 고르기 줄 (타임라인과 장면 사이) ──────────
+   누르면 그 화풍으로 장면 전부의 영문 프롬프트가 다시 붙는다. */
+
+function 화풍줄그리기(){
+  const 줄 = document.getElementById('화풍줄'); if(!줄) return;
+  const 지금 = 작.style || '';
+  const 묶음들 = [];
+  화풍목록.forEach(h=>{
+    let m = 묶음들.find(x=>x.이름===h.묶음);
+    if(!m){ m={이름:h.묶음, 것들:[]}; 묶음들.push(m); }
+    m.것들.push(h);
+  });
+
+  줄.innerHTML = 묶음들.map(m=>`
+    <div style="margin-bottom:11px">
+      <div style="font-size:11.5px;color:var(--tx3);margin-bottom:6px">${m.이름}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:8px">
+        ${m.것들.map(h=>{
+          const 뽑 = 지금===h.id;
+          return `<div onclick="화풍누름('${h.id}')" title="${esc(h.설명)}"
+            style="cursor:pointer;padding:10px 12px;border-radius:8px;
+            background:${뽑?'var(--cybg)':'var(--card2)'};
+            border:1px solid ${뽑?'var(--cy)':'var(--line2)'}">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:13.5px;font-weight:600;
+                color:${뽑?'var(--cy2)':'var(--tx)'}">${h.이름}</span>
+              ${뽑?'<span style="margin-left:auto;color:var(--cy2);font-size:12px">✓</span>':''}
+            </div>
+            <div style="font-size:11px;color:var(--tx3);margin-top:4px;line-height:1.5;
+              display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+              overflow:hidden">${esc(h.설명)}</div>
+          </div>`;}).join('')}
+      </div>
+    </div>`).join('');
+
+  const h = 화풍목록.find(x=>x.id===지금);
+  document.getElementById('화풍고른것').textContent =
+    h ? h.이름 : '아직 안 골랐어';
+  프롬프트줄그리기();
+}
+
+function 프롬프트줄그리기(){
+  const 줄 = document.getElementById('프롬프트줄'); if(!줄) return;
+  const h = 화풍목록.find(x=>x.id===(작.style||''));
+  if(!h){
+    줄.innerHTML = `<div style="font-size:12.5px;color:var(--tx3)">
+      위에서 화풍을 하나 골라줘.</div>`;
+    return;
+  }
+  const 만든것 = (미리컷||[]).filter(c=>컷프롬프트(c.번호)).length;
+  const 모두 = (미리컷||[]).length;
+  줄.innerHTML = `
+    <div style="background:var(--card2);border:1px solid var(--line2);
+      border-radius:8px;padding:11px 13px">
+      <div style="font-size:11.5px;color:var(--tx3);margin-bottom:5px">
+        모든 장면 뒤에 이 문장이 붙는다</div>
+      <div style="font-family:Consolas,monospace;font-size:11.5px;color:#9fc4dc;
+        line-height:1.65;word-break:break-all">${esc(h.영문)}, ${esc(공통규격)}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:11px;flex-wrap:wrap">
+      <button class="btn cy" onclick="프롬프트전체()">전체 프롬프트 생성</button>
+      <button class="btn" onclick="프롬프트전부복사()" ${만든것?'':'disabled'}>
+        영문 프롬프트 전부 복사</button>
+      <span style="font-size:12px;color:${만든것===모두&&모두?'#4ade80':'var(--tx3)'}">
+        ${모두 ? `${만든것} / ${모두}장면 만듦` : ''}</span>
+    </div>
+    <div id="프롬프트알림" style="margin-top:9px"></div>`;
+}
+
+function 컷프롬프트(번호){
+  return (작.prompts||[]).find(p=>p.번호===번호) || null;
+}
+
+/* 컷 대본 복사 — 타입캐스트에 붙여넣어 그 컷 소리를 만들 때 쓴다 */
+function 컷대본복사(번호){
+  const c = (미리컷||[]).find(x=>x.번호===번호);
+  if(!c) return;
+  복사(c.대본, `${번호}번 컷 대본을 복사했어 (${c.길이초}초)`);
+}
+
+function 컷프롬프트복사(번호){
+  const p = 컷프롬프트(번호);
+  if(!p){ toast('아직 이 컷 프롬프트가 없어', true); return; }
+  복사(p.영문, `${번호}번 컷 영문 프롬프트를 복사했어`);
+}
+
+function 프롬프트전부복사(){
+  const 것 = (작.prompts||[]).slice().sort((a,b)=>a.번호-b.번호);
+  if(!것.length){ toast('먼저 프롬프트를 만들어줘', true); return; }
+  복사(것.map(p=>`${p.번호}. ${p.영문}`).join('\n\n'),
+       `프롬프트 ${것.length}개 전부 복사했어`);
+}
+
+let 프롬프트폴링 = null;
+
+async function 프롬프트전체(){
+  if(!작.style){ toast('먼저 화풍을 골라줘', true); return; }
+  if(!(미리컷||[]).length){ toast('먼저 스토리보드를 만들어줘', true); return; }
+  const s = 화풍찾기(작.style);
+  const 알림 = document.getElementById('프롬프트알림');
+  알림.innerHTML = `<div style="color:var(--cy2);font-size:12.5px">
+    장면 ${미리컷.length}개를 한 번에 설계하는 중... 1~3분 걸려. 창을 닫지 마.</div>`;
+
+  const r = await api('prompt/start', {id:작.id,
+    cuts:미리컷.map(c=>({번호:c.번호, 대본:c.대본})),
+    styleEn:s?s.영문:'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
+  if(!r.ok){
+    알림.innerHTML = `<div class="note" style="margin:0">${esc(r.why||'시작 못 했어')}</div>`;
+    return;
+  }
+  clearInterval(프롬프트폴링);
+  프롬프트폴링 = setInterval(프롬프트확인, 2000);
+  프롬프트확인();
+}
+
+async function 프롬프트확인(){
+  const 알림 = document.getElementById('프롬프트알림');
+  if(!알림){ clearInterval(프롬프트폴링); return; }
+  const st = await api('prompt/status', {id:작.id});
+
+  if(st.상태==='도는중'){
+    알림.innerHTML = `<div style="color:var(--cy2);font-size:12.5px">
+      ${esc(st.단계||'만드는 중')}... ${st.지난초||0}초 지남.
+      장면 ${st.전체||미리컷.length}개를 한 번에 설계 중이야. 창을 닫지 마.</div>`;
+    return;
+  }
+  clearInterval(프롬프트폴링);
+
+  if(st.상태==='끝'){
+    const s = 화풍찾기(작.style), 인물 = 캐릭터문구();
+    const 것 = st.줄.map(x=>({번호:x.번호, 묘사:x.묘사, 원문:x.원문,
+      영문:[x.원문, 인물, s?s.영문:'', 공통규격].filter(Boolean).join(', ')}));
+    await 저장({prompts:것, scenes:st.줄.map(x=>({번호:x.번호, 묘사:x.묘사}))});
+    await 저장지금(); 기둥그리기();
+    프롬프트줄그리기(); 카드그리기();
+    알림.innerHTML = `<div style="color:#4ade80;font-size:12.5px">
+      ✓ 장면 ${것.length}개 프롬프트를 만들었어.
+      ${(st.빠진||[]).length ? `<span style="color:#fbbf24">
+        다만 ${st.빠진.length}개가 빠졌어 (${st.빠진.slice(0,10).join(', ')}번).
+        그 컷만 [다시] 를 눌러 만들어줘.</span>` : ''}</div>`;
+    toast(`프롬프트 ${것.length}개 완성`);
+  } else if(st.상태==='실패'){
+    알림.innerHTML = `<div class="note" style="margin:0"><b>못 만들었어.</b><br>
+      <span style="font-size:11.5px;color:#e3c988">${esc(st.오류||'')}</span></div>`;
+  }
+}
+
+/* 컷 하나만 다시 — 맘에 안 드는 것만 고칠 때 */
+async function 프롬프트하나(번호){
+  const c = (미리컷||[]).find(x=>x.번호===번호);
+  if(!c || !작.style){ toast('화풍을 먼저 골라줘', true); return; }
+  toast(`${번호}번 컷 다시 만드는 중...`);
+  const s = 화풍찾기(작.style);
+  const r = await api('prompt/start', {id:작.id,
+    cuts:[{번호:c.번호, 대본:c.대본}],
+    styleEn:s?s.영문:'', charLine:캐릭터문구()?('- 인물 고정: '+캐릭터문구()+'\n'):''});
+  if(!r.ok){ toast(r.why||'못 했어', true); return; }
+
+  const 기다리기 = setInterval(async ()=>{
+    const st = await api('prompt/status', {id:작.id});
+    if(st.상태==='도는중') return;
+    clearInterval(기다리기);
+    if(st.상태!=='끝' || !st.줄?.length){ toast(st.오류||'못 만들었어', true); return; }
+    const x = st.줄[0], 인물 = 캐릭터문구();
+    const 새것 = {번호:번호, 묘사:x.묘사, 원문:x.원문,
+      영문:[x.원문, 인물, s?s.영문:'', 공통규격].filter(Boolean).join(', ')};
+    const 모두 = (작.prompts||[]).filter(p=>p.번호!==번호).concat([새것])
+                  .sort((a,b)=>a.번호-b.번호);
+    await 저장({prompts:모두});
+    await 저장지금(); 프롬프트줄그리기(); 카드그리기();
+    toast(`${번호}번 컷 다시 만들었어`);
+  }, 2000);
+}
+
+async function 화풍누름(id){
+  await 저장({style:id});
+  await 저장지금();
+  화풍줄그리기();
+  카드그리기();
+  const h = 화풍목록.find(x=>x.id===id);
+  toast(`화풍: ${h.이름}`);
 }
 
 /* 컷 길이를 무엇으로 쟀는지 맨 위에 못 박는다.
@@ -1578,21 +1774,43 @@ function 카드그리기(){
   (작.scenes||[]).forEach(x=>묘사표[x.번호]=x.묘사);
 
   const 보일것 = 다펼침 ? cs : cs.slice(0, 9);
-  목록.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(282px,1fr));gap:12px">` +
+  목록.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">` +
     보일것.map(c=>{
       const 묘 = 묘사표[c.번호];
-      const 글 = 묘 || c.대본;
       const 색 = 구간색[c.구간];
-      return `<div style="background:var(--card2);border:1px solid var(--line2);border-radius:9px;padding:12px 14px">
+      const p = 컷프롬프트(c.번호);
+      return `<div style="background:var(--card2);border:1px solid ${p?'#1d4a68':'var(--line2)'};
+        border-radius:9px;padding:12px 14px;display:flex;flex-direction:column">
         <div style="display:flex;align-items:center;gap:7px;margin-bottom:9px">
           <span style="background:${색}22;color:${색};border:1px solid ${색}55;border-radius:5px;
             padding:1px 7px;font-size:12px;font-weight:700">${c.번호}</span>
           <span style="background:${색}22;color:${색};border-radius:5px;padding:1px 8px;font-size:11.5px">${c.구간}</span>
-          <span style="margin-left:auto;font-size:11.5px;color:var(--tx3)">${c.시작초.toFixed(1)}s ~ ${c.끝초.toFixed(1)}s</span>
+          <span style="margin-left:auto;font-size:11.5px;color:var(--tx3)">${c.길이초.toFixed(1)}초</span>
         </div>
-        <div style="font-size:12.5px;line-height:1.7;color:${묘?'var(--tx)':'var(--tx2)'};
-          ${다펼침?'':'max-height:72px;overflow:hidden'}">${esc(글)}</div>
-        ${묘?'':`<div style="margin-top:7px;font-size:11px;color:var(--tx3)">↑ 대본 토막 (장면 묘사 아직 없음)</div>`}
+
+        <div style="font-size:12.5px;line-height:1.7;color:var(--tx2);
+          ${다펼침?'':'max-height:72px;overflow:hidden'}">${esc(c.대본)}</div>
+
+        ${묘?`<div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line2)">
+          <div style="font-size:10.5px;color:var(--tx3);margin-bottom:3px">장면</div>
+          <div style="font-size:12px;line-height:1.6;color:var(--tx)">${esc(묘)}</div>
+        </div>`:''}
+
+        ${p?`<div style="margin-top:8px">
+          <div style="font-size:10.5px;color:var(--tx3);margin-bottom:3px">영문 프롬프트</div>
+          <div style="font-family:Consolas,monospace;font-size:10.5px;line-height:1.55;
+            color:#9fc4dc;max-height:54px;overflow:hidden">${esc(p.영문)}</div>
+        </div>`:''}
+
+        <div style="display:flex;gap:5px;margin-top:11px;padding-top:10px;
+          border-top:1px solid var(--line2);flex-wrap:wrap">
+          <button class="btn sm" onclick="컷대본복사(${c.번호})"
+            title="타입캐스트에 붙여넣어 이 컷 소리를 만들 때">대본 복사</button>
+          <button class="btn sm" onclick="컷프롬프트복사(${c.번호})" ${p?'':'disabled'}
+            title="그림 만드는 곳에 붙여넣기">프롬프트 복사</button>
+          <button class="btn sm" onclick="프롬프트하나(${c.번호})"
+            style="margin-left:auto" title="이 컷 프롬프트만 다시 만들기">다시</button>
+        </div>
       </div>`;
     }).join('') + `</div>`;
 
