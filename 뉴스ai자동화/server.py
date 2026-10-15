@@ -5,11 +5,12 @@
 켜면 크롬 창이 저절로 열린다. 검은 창은 닫지 말 것.
 """
 
-import json, os, re, sys, time, uuid, threading, webbrowser, socket, subprocess
+import json, os, re, shutil, sys, time, uuid, threading, webbrowser, socket, subprocess
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cutter
+import maker
 import voice
 
 여기 = os.path.dirname(os.path.abspath(__file__))
@@ -167,6 +168,113 @@ def 기사붙이기(질문, 주소들):
     return 질문 + 덧
 
 
+def 무음찾기(파일, 조용함=-34.0, 최소무음=0.28):
+    """소리 파일에서 문장 사이 빈 구간을 찾는다.
+
+    타입캐스트처럼 바깥에서 통짜로 만들어 온 음성은
+    어디가 어느 문장인지 프로그램이 모른다.
+    그래서 ffmpeg 로 조용한 구간을 찾아 그 사이를 한 문장으로 본다.
+
+    돌려주는 것: [(시작초, 끝초), ...]  — 소리가 나는 구간들
+    """
+    ff = shutil.which('ffmpeg')
+    if not ff:
+        return None, 'ffmpeg 를 못 찾았어'
+    try:
+        p = subprocess.run(
+            [ff, '-hide_banner', '-nostats', '-i', 파일,
+             '-af', 'silencedetect=noise=%ddB:d=%.2f' % (int(조용함), 최소무음),
+             '-f', 'null', '-'],
+            capture_output=True, timeout=600,
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0),
+        )
+    except Exception as e:
+        return None, str(e)[:200]
+
+    글 = (p.stderr or b'').decode('utf-8', 'replace')
+    전체 = 길이재기(파일)
+    if not 전체:
+        return None, '소리 길이를 못 쟀어'
+
+    무음 = []
+    시작 = None
+    for m in re.finditer(r'silence_(start|end):\s*([0-9.]+)', 글):
+        무엇, 값 = m.group(1), float(m.group(2))
+        if 무엇 == 'start':
+            시작 = 값
+        elif 시작 is not None:
+            무음.append((시작, 값))
+            시작 = None
+    if 시작 is not None:
+        무음.append((시작, 전체))
+
+    # 무음 사이 = 소리가 나는 구간
+    구간, 앞 = [], 0.0
+    for a, b in 무음:
+        if a - 앞 > 0.25:
+            구간.append((round(앞, 3), round(a, 3)))
+        앞 = b
+    if 전체 - 앞 > 0.25:
+        구간.append((round(앞, 3), round(전체, 3)))
+    return {'구간': 구간, '전체초': round(전체, 3)}, None
+
+
+def 길이재기(파일):
+    """voice.길이재기 를 쓰되 ffprobe 가 없을 때도 되게."""
+    try:
+        return voice.길이재기(파일)
+    except Exception:
+        return None
+
+
+def 소리와대본맞추기(jid, 대본):
+    """불러온 소리의 구간과 대본 문장을 하나씩 짝지운다.
+
+    자막 시각을 실제 소리에서 뽑으므로 어긋날 수가 없다.
+    다만 찾은 구간 수와 문장 수가 다를 수 있다.
+    그럴 때 숨기지 않고 몇 개가 어떻게 다른지 밝힌다.
+    """
+    칸 = os.path.join(프로젝트칸, jid, '음성')
+    파일 = None
+    for 이름 in sorted(os.listdir(칸)) if os.path.isdir(칸) else []:
+        if 이름.startswith('통짜.'):
+            파일 = os.path.join(칸, 이름)
+            break
+    if not 파일:
+        return {'있음': False}
+
+    잰것, 왜 = 무음찾기(파일)
+    if not 잰것:
+        return {'있음': True, '된것': False, '왜': 왜 or '못 쟀어'}
+
+    문장 = cutter.문장나누기(대본 or '')
+    구간 = 잰것['구간']
+
+    줄 = []
+    for i in range(max(len(문장), len(구간))):
+        s = 문장[i]['글'] if i < len(문장) else ''
+        g = 구간[i] if i < len(구간) else None
+        줄.append({
+            '번호': i + 1,
+            '글': s,
+            '시작': g[0] if g else None,
+            '끝': g[1] if g else None,
+            '초': round(g[1] - g[0], 2) if g else None,
+        })
+
+    짧은것 = [r['번호'] for r in 줄 if r['초'] is not None and r['초'] < 0.6]
+    return {
+        '있음': True, '된것': True,
+        '파일': os.path.basename(파일),
+        '전체초': 잰것['전체초'],
+        '구간수': len(구간),
+        '문장수': len(문장),
+        '맞나': len(구간) == len(문장),
+        '줄': 줄,
+        '짧은것': 짧은것,
+    }
+
+
 def 음성대조(jid, 대본):
     """만들어 둔 음성이 대본을 전부 덮고 있는지 글자 단위로 맞춰 본다.
 
@@ -250,6 +358,92 @@ def 잰길이(jid, 대본):
 
 # 돌고 있는 프롬프트 작업
 프롬프트중 = {}
+
+# 돌고 있는 영상 작업
+영상중 = {}
+
+
+def 영상만들기(jid, d):
+    """그림 + 길이 + 자막 + 소리 → mp4 하나.
+
+    컷마다 그림을 그 길이만큼 늘려 토막으로 만들고,
+    이어 붙이고, 자막을 굽고, 나레이션을 얹는다.
+    """
+    def 상태(**kw):
+        with 생성자물쇠:
+            영상중.setdefault(jid, {}).update(kw)
+
+    상태(상태='도는중', 단계='준비', 한것=0, 전체=0, 오류='', 시작=time.time())
+    작업칸 = os.path.join(프로젝트칸, jid, '만드는중')
+    try:
+        컷들 = d.get('cuts') or []
+        if not 컷들:
+            상태(상태='실패', 오류='컷이 없어. 스토리보드부터 만들어줘')
+            return
+
+        그림칸 = os.path.join(프로젝트칸, jid, '그림')
+        shutil.rmtree(작업칸, ignore_errors=True)
+        os.makedirs(작업칸, exist_ok=True)
+        상태(전체=len(컷들))
+
+        # ① 컷마다 영상 토막
+        토막들, 자막줄, 때 = [], [], 0.0
+        for i, c in enumerate(컷들, 1):
+            초 = max(0.5, float(c.get('길이초') or 3))
+            상태(한것=i - 1, 단계='%d/%d 장면 만드는 중' % (i, len(컷들)))
+            밖 = os.path.join(작업칸, 'c%04d.mp4' % i)
+            그림 = None
+            for 끝 in ('.jpg', '.jpeg', '.png', '.webp'):
+                p = os.path.join(그림칸, '%04d%s' % (c.get('번호', i), 끝))
+                if os.path.exists(p):
+                    그림 = p
+                    break
+            if 그림:
+                maker.컷토막(그림, 초, 밖, 'out' if i % 2 == 0 else 'in')
+            else:
+                maker.빈토막(초, 밖)
+            토막들.append(밖)
+            자막줄.append({'시작': 때, '끝': 때 + 초, '글': c.get('대본', '')})
+            때 += 초
+
+        # ② 잇기
+        상태(한것=len(컷들), 단계='장면 잇는 중')
+        이은것 = maker.이어붙이기(토막들, os.path.join(작업칸, '이은것.mp4'), 작업칸)
+
+        # ③ 자막 굽기
+        만든것 = 이은것
+        if d.get('자막', True):
+            상태(단계='자막 굽는 중')
+            ass = maker.ass만들기(자막줄, os.path.join(작업칸, '자막.ass'),
+                                 int(d.get('subMax') or 25))
+            만든것 = maker.자막굽기(이은것, ass, os.path.join(작업칸, '자막입힘.mp4'))
+
+        # ④ 소리 얹기
+        소리 = None
+        음성칸 = os.path.join(프로젝트칸, jid, '음성')
+        for 이름 in sorted(os.listdir(음성칸)) if os.path.isdir(음성칸) else []:
+            if 이름.startswith('통짜.'):
+                소리 = os.path.join(음성칸, 이름)
+                break
+        if 소리:
+            상태(단계='소리 얹는 중')
+            만든것 = maker.소리얹기(만든것, 소리, os.path.join(작업칸, '소리입힘.mp4'))
+
+        # ⑤ 내놓기
+        끝칸 = os.path.join(프로젝트칸, jid, '완성')
+        os.makedirs(끝칸, exist_ok=True)
+        마지막 = os.path.join(끝칸, '완성.mp4')
+        shutil.move(만든것, 마지막)
+        shutil.rmtree(작업칸, ignore_errors=True)
+
+        상태(상태='끝', 단계='다 됐어', 한것=len(컷들),
+             파일=os.path.abspath(마지막),
+             초=maker.길이재기(마지막),
+             바이트=os.path.getsize(마지막),
+             소리있나=bool(소리))
+    except Exception as e:
+        shutil.rmtree(작업칸, ignore_errors=True)
+        상태(상태='실패', 오류=str(e)[:900])
 
 
 def 프롬프트질문(컷들, 화풍영문, 인물, 그래픽=''):
@@ -683,6 +877,97 @@ class 손(SimpleHTTPRequestHandler):
         self.send_header('Pragma', 'no-cache')
         super().end_headers()
 
+    def _그림받기(self, jid, 컷, 끝):
+        """컷 하나에 들어갈 그림을 받는다. 파일 이름이 곧 컷 번호다."""
+        크기 = int(self.headers.get('Content-Length') or 0)
+        if 크기 <= 0 or 크기 > 60 * 1024 * 1024:
+            return self._json({'ok': False, 'why': '그림이 비었거나 너무 커'}, 400)
+        칸 = os.path.join(프로젝트칸, jid, '그림')
+        os.makedirs(칸, exist_ok=True)
+        for 옛 in os.listdir(칸):          # 한 컷에 한 장만
+            if 옛.startswith('%04d.' % 컷):
+                try:
+                    os.remove(os.path.join(칸, 옛))
+                except OSError:
+                    pass
+        파일 = os.path.join(칸, '%04d%s' % (컷, 끝))
+        남은 = 크기
+        with open(파일, 'wb') as f:
+            while 남은 > 0:
+                덩이 = self.rfile.read(min(1 << 20, 남은))
+                if not 덩이:
+                    break
+                f.write(덩이)
+                남은 -= len(덩이)
+        if 남은 > 0:
+            try:
+                os.remove(파일)
+            except OSError:
+                pass
+            return self._json({'ok': False, 'why': '파일이 중간에 끊겼어'}, 400)
+        return self._json({'ok': True, '컷': 컷, '파일': os.path.basename(파일)})
+
+    def _파일받기(self):
+        """타입캐스트에서 만든 소리 파일을 통째로 받는다.
+
+        주소 모양: /api/upload?id=<작업>&kind=narration&ext=.mp3
+        몸통은 날것 그대로다. 9분짜리가 8메가쯤 되는데
+        base64 로 싸면 11메가가 되어 괜히 커진다.
+        """
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        jid = os.path.basename((q.get('id') or [''])[0])
+        종류 = (q.get('kind') or ['narration'])[0]
+        끝 = (q.get('ext') or ['.mp3'])[0].lower()
+        컷 = re.sub(r'[^0-9]', '', (q.get('cut') or [''])[0])
+
+        if not jid or not os.path.isdir(os.path.join(프로젝트칸, jid)):
+            return self._json({'ok': False, 'why': '작업을 못 찾겠어'}, 404)
+
+        if 종류 == 'image':
+            if 끝 not in ('.jpg', '.jpeg', '.png', '.webp'):
+                return self._json({'ok': False, 'why': '그림 파일만 돼 (jpg·png·webp)'}, 400)
+            if not 컷:
+                return self._json({'ok': False, 'why': '몇 번 컷인지 모르겠어'}, 400)
+            return self._그림받기(jid, int(컷), 끝)
+
+        if 끝 not in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'):
+            return self._json({'ok': False, 'why': '소리 파일만 돼 (mp3·wav·m4a)'}, 400)
+
+        크기 = int(self.headers.get('Content-Length') or 0)
+        if 크기 <= 0:
+            return self._json({'ok': False, 'why': '파일이 비었어'}, 400)
+        if 크기 > 400 * 1024 * 1024:
+            return self._json({'ok': False, 'why': '파일이 너무 커 (400MB 넘음)'}, 400)
+
+        칸 = os.path.join(프로젝트칸, jid, '음성')
+        os.makedirs(칸, exist_ok=True)
+        for 옛 in os.listdir(칸):          # 통짜는 하나만 둔다
+            if 옛.startswith('통짜.'):
+                try:
+                    os.remove(os.path.join(칸, 옛))
+                except OSError:
+                    pass
+
+        파일 = os.path.join(칸, '통짜' + 끝)
+        남은 = 크기
+        with open(파일, 'wb') as f:
+            while 남은 > 0:
+                덩이 = self.rfile.read(min(1 << 20, 남은))
+                if not 덩이:
+                    break
+                f.write(덩이)
+                남은 -= len(덩이)
+        if 남은 > 0:
+            try:
+                os.remove(파일)
+            except OSError:
+                pass
+            return self._json({'ok': False, 'why': '파일이 중간에 끊겼어'}, 400)
+
+        return self._json({'ok': True, '파일': os.path.basename(파일),
+                           '바이트': 크기, '초': 길이재기(파일)})
+
     def _json(self, obj, code=200):
         b = json.dumps(obj, ensure_ascii=False).encode('utf-8')
         self.send_response(code)
@@ -748,6 +1033,12 @@ class 손(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.path.startswith('/api/'):
             return self._json({'error': '모르는 길'}, 404)
+
+        # 소리 파일 받기 — 통짜로 들어오므로 JSON 이 아니라 날것으로 받는다.
+        # 9분짜리 mp3 가 8메가쯤 되는데 base64 로 싸면 11메가가 된다.
+        if self.path.startswith('/api/upload'):
+            return self._파일받기()
+
         길 = self.path[5:]
         try:
             d = self._body()
@@ -856,6 +1147,73 @@ class 손(SimpleHTTPRequestHandler):
                 with 생성자물쇠:
                     return self._json(dict(음성중.get(d['id'], {'상태': '없음'})))
 
+            if 길 == 'image/list':
+                칸 = os.path.join(프로젝트칸, os.path.basename(d.get('id', '')), '그림')
+                있는것 = {}
+                for 이름 in (os.listdir(칸) if os.path.isdir(칸) else []):
+                    m = re.match(r'^(\d{4})\.', 이름)
+                    if m:
+                        있는것[int(m.group(1))] = 이름
+                return self._json({'그림': 있는것, '칸': os.path.abspath(칸)})
+
+            if 길 == 'image/del':
+                칸 = os.path.join(프로젝트칸, os.path.basename(d.get('id', '')), '그림')
+                n = 0
+                for 이름 in (os.listdir(칸) if os.path.isdir(칸) else []):
+                    if 이름.startswith('%04d.' % int(d.get('cut') or 0)):
+                        try:
+                            os.remove(os.path.join(칸, 이름)); n += 1
+                        except OSError:
+                            pass
+                return self._json({'ok': True, '지운것': n})
+
+            if 길 == 'folder/open2':
+                칸 = os.path.join(프로젝트칸, os.path.basename(d.get('id', '')),
+                                 d.get('what', '완성'))
+                if not os.path.isdir(칸):
+                    return self._json({'ok': False, 'why': '아직 그 폴더가 없어'})
+                try:
+                    if os.name == 'nt':
+                        os.startfile(칸)          # noqa: S606
+                    else:
+                        subprocess.Popen(['xdg-open', 칸])
+                    return self._json({'ok': True, '곳': os.path.abspath(칸)})
+                except Exception as e:
+                    return self._json({'ok': False, 'why': str(e)[:200],
+                                       '곳': os.path.abspath(칸)})
+
+            if 길 == 'narration/scan':
+                return self._json(소리와대본맞추기(d.get('id'), d.get('script', '')))
+
+            if 길 == 'narration/del':
+                칸 = os.path.join(프로젝트칸, os.path.basename(d.get('id', '')), '음성')
+                n = 0
+                for 옛 in (os.listdir(칸) if os.path.isdir(칸) else []):
+                    if 옛.startswith('통짜.'):
+                        try:
+                            os.remove(os.path.join(칸, 옛)); n += 1
+                        except OSError:
+                            pass
+                return self._json({'ok': True, '지운것': n})
+
+            if 길 == 'video/start':
+                if not shutil.which('ffmpeg'):
+                    return self._json({'ok': False,
+                                       'why': 'ffmpeg 를 못 찾았어. 깔려 있어야 영상이 만들어져'})
+                jid = d['id']
+                with 생성자물쇠:
+                    if 영상중.get(jid, {}).get('상태') == '도는중':
+                        return self._json({'ok': True, '이미': True})
+                threading.Thread(target=영상만들기, args=(jid, d), daemon=True).start()
+                return self._json({'ok': True})
+
+            if 길 == 'video/status':
+                with 생성자물쇠:
+                    st = dict(영상중.get(d['id'], {'상태': '없음'}))
+                if st.get('시작'):
+                    st['지난초'] = int(time.time() - st.pop('시작'))
+                return self._json(st)
+
             if 길 == 'voice/list':
                 return self._json(음성대조(d.get('id'), d.get('script', '')))
 
@@ -936,7 +1294,9 @@ class 손(SimpleHTTPRequestHandler):
                 return self._json({'ok': True})
 
             if 길 == 'job/del':
-                import shutil
+                # shutil 은 맨 위에서 들여온다. 여기서 또 import 하면
+                # 이 함수 안의 shutil 이 전부 지역 변수가 되어
+                # 앞쪽에서 쓰는 shutil.which 가 터진다.
                 shutil.rmtree(os.path.join(프로젝트칸, d['id']), ignore_errors=True)
                 return self._json({'ok': True})
 
