@@ -1587,34 +1587,15 @@ async function 진짜컷그리기(){
 function 화풍줄그리기(){
   const 줄 = document.getElementById('화풍줄'); if(!줄) return;
   const 지금 = 작.style || '';
-  const 묶음들 = [];
-  화풍목록.forEach(h=>{
-    let m = 묶음들.find(x=>x.이름===h.묶음);
-    if(!m){ m={이름:h.묶음, 것들:[]}; 묶음들.push(m); }
-    m.것들.push(h);
-  });
 
-  줄.innerHTML = 묶음들.map(m=>`
-    <div style="margin-bottom:11px">
-      <div style="font-size:11.5px;color:var(--tx3);margin-bottom:6px">${m.이름}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:8px">
-        ${m.것들.map(h=>{
-          const 뽑 = 지금===h.id;
-          return `<div onclick="화풍누름('${h.id}')" title="${esc(h.설명)}"
-            style="cursor:pointer;padding:10px 12px;border-radius:8px;
-            background:${뽑?'var(--cybg)':'var(--card2)'};
-            border:1px solid ${뽑?'var(--cy)':'var(--line2)'}">
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:13.5px;font-weight:600;
-                color:${뽑?'var(--cy2)':'var(--tx)'}">${h.이름}</span>
-              ${뽑?'<span style="margin-left:auto;color:var(--cy2);font-size:12px">✓</span>':''}
-            </div>
-            <div style="font-size:11px;color:var(--tx3);margin-top:4px;line-height:1.5;
-              display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-              overflow:hidden">${esc(h.설명)}</div>
-          </div>`;}).join('')}
-      </div>
-    </div>`).join('');
+  // 12가지를 한 판에 편다. 묶음 이름은 칸 안에 작게 넣는다.
+  // 묶음마다 줄을 나누면 세 줄이 되어 자리를 잡아먹고 글씨도 작아진다.
+  줄.innerHTML = `<div class="hp">` + 화풍목록.map(h=>`
+    <div class="k ${지금===h.id?'on':''}" onclick="화풍누름('${h.id}')">
+      <div class="g">${h.묶음}</div>
+      <div class="n">${h.이름}${지금===h.id?'<span style="margin-left:auto">✓</span>':''}</div>
+      <div class="d">${esc(h.설명)}</div>
+    </div>`).join('') + `</div>`;
 
   const h = 화풍목록.find(x=>x.id===지금);
   document.getElementById('화풍고른것').textContent =

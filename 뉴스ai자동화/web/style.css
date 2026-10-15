@@ -194,3 +194,27 @@ a:hover{text-decoration:underline}
   font-size:11.5px;color:#e3c988;margin-bottom:14px;line-height:1.6}
 .scr{display:none}
 .scr.on{display:block}
+
+/* ── 화풍 고르는 판 (스토리보드) ─────────
+   12가지를 6칸씩 두 줄로 편다. 좁아지면 줄 수가 늘어난다. */
+.hp{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px}
+@media (max-width:1500px){.hp{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:1050px){.hp{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.hp{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.hp .k{cursor:pointer;padding:12px 13px;border-radius:9px;
+  background:var(--card2);border:1px solid var(--line2);
+  transition:border-color .12s, background .12s}
+.hp .k:hover{border-color:#3a4a55;background:#191a1f}
+.hp .k.on{background:var(--cybg);border-color:var(--cy)}
+
+.hp .g{font-size:11px;color:var(--tx3);margin-bottom:5px}
+.hp .k.on .g{color:var(--cy2)}
+
+.hp .n{font-size:15.5px;font-weight:700;color:var(--tx);
+  line-height:1.3;display:flex;align-items:center;gap:6px}
+.hp .k.on .n{color:var(--cy2)}
+
+.hp .d{font-size:12.5px;color:var(--tx2);line-height:1.55;margin-top:7px;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.hp .k.on .d{color:#b9d9e8}
