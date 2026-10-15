@@ -353,12 +353,24 @@ def 프롬프트질문(컷들, 화풍영문, 인물, 그래픽=''):
    따옴표 안의 한국어는 **대본에 적힌 그대로** 옮긴다.
    대본에 없는 숫자는 절대 만들지 마라.
 
-4) **빈 스튜디오에 물건을 띄우지 마라.**
-   실제로 있을 법한 곳에 놓아라. 앞·중간·뒤에 각각 무언가가 있어야
-   깊이가 산다. 빛이 어느 쪽에서 오는지도 적어라.
-   나쁜 예: objects floating on a plain gray studio background
-   좋은 예: seen across a harbor at dusk, cranes in the foreground,
-            the plant glowing on the far shore, low sun from the left
+4) **장소는 그 이야기가 실제로 벌어지는 곳이어야 한다.**
+   전시실·사무실·창고·스튜디오처럼 아무 데나 되는 실내에
+   모형을 늘어놓지 마라. 그러면 쇼룸 사진이 되고 뉴스가 사라진다.
+
+   원전 이야기면 진짜 원전 단지, 바다 건너 보이는 발전소, 송전탑이 선 들판.
+   반도체면 공장 라인, 클린룸. 부동산이면 실제 아파트 단지와 거리.
+   금융이면 증권가 빌딩 숲, 전광판이 걸린 거리.
+
+   그리고 **모형(model, miniature, diorama)으로 만들지 마라.**
+   실제 크기의 진짜 장소로 그려라.
+   숫자와 도형만 그 위에 겹쳐 얹는다.
+
+   나쁜 예: a reactor dome model displayed in an exhibition hall
+   좋은 예: a real nuclear power plant across the water at dusk,
+            cooling towers steaming, transmission lines in the foreground
+
+   앞·중간·뒤에 각각 무언가가 있어야 깊이가 산다.
+   빛이 어느 쪽에서 오는지도 적어라.
 
 5) **부정어를 쓰지 마라.** 영어에 no, without, avoid, not 을 적지 마라.
    그림 AI 는 「~하지 마」를 못 알아듣고 오히려 그것을 그린다.
@@ -385,21 +397,25 @@ def 프롬프트질문(컷들, 화풍영문, 인물, 그래픽=''):
 [잘 된 예 — 위 대본의 1번 컷을 제대로 짜면 이렇다]
 ════════════════════════════════════════
 
-1 | 미국 원전 회사 지분 10퍼센트를 사는 데 3조 7000억 원이 든다는 것을,
-    원자로 돔 모형의 10분의 1 조각이 빛나며 빠져나오고 그 아래 돈더미와
-    한국 중형 아파트 단지 모형이 같은 높이로 나란히 선 모습으로 보여 준다. |
-    Wide establishing shot inside a dim corporate exhibition hall at dusk.
-    In the midground a large nuclear reactor dome model sliced like a pie chart,
-    one tenth wedge pulled out and glowing warm gold, large bold Korean text
-    "10%" overlaid on that wedge. Below and in front, on the left a towering
-    stack of banknote bundles with large bold Korean text "3조 7000억 원"
-    above it, on the right a dense model of Korean mid-rise apartment complexes
-    at the same height with large bold Korean text "1만 채" above it.
-    Cool blue window light from the left, warm glow from the reactor model,
-    haze in the air, deep shadows in the foreground.
+1 | 한국 기업들이 미국 원전 회사 지분 10퍼센트를 사는 데 3조 7000억 원이
+    들고 그것이 중형 아파트 1만 채 값이라는 것을, 황혼의 실제 원전 단지를
+    배경으로 돈과 아파트 단지를 나란히 놓아 보여 준다. |
+    Wide establishing shot of a real nuclear power plant complex across a
+    bay at dusk, two cooling towers releasing steam, one reactor dome lit
+    from below, a glowing golden wedge marking one tenth of the dome with
+    large bold Korean text "10%" over it. In the foreground on the left,
+    towering stacks of banknote bundles on the shoreline with large bold
+    Korean text "3조 7000억 원" above them. On the right, a real Korean
+    mid-rise apartment district rising to the same height, lit windows
+    glowing, large bold Korean text "1만 채" above it. Low orange sun from
+    the left, sea haze, dark rocks in the near foreground.
 
-이 예에는 소재(원자로 돔), 수치 글자 셋, 대본이 이름 댄 한국 아파트,
+이 예에는 소재(진짜 원전 단지), 수치 글자 셋, 대본이 이름 댄 한국 아파트,
 깊이(앞·중간·뒤), 빛의 방향이 모두 들어 있다. 이 수준으로 써라.
+
+★다만 이 예의 **장소를 베끼지 마라.** 컷마다 그 이야기에 맞는 곳을 새로 정하라.
+  여기서 보여 주려는 것은 "얼마나 자세히, 어떤 차례로 쓰는가"이지
+  "어디를 배경으로 하는가"가 아니다.
 
 ════════════════════════════════════════
 [답 모양]
