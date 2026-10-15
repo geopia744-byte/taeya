@@ -797,23 +797,208 @@ function 글자세기(){
 }
 
 /* ══ 2 음성 ══ */
-본문.voice = ()=>`
+본문.voice = ()=>{
+  const cs = cutter문장수();
+  return `
   <div class="h1">음성</div>
-  <div class="h1sub">대본을 문장으로 쪼개서 하나씩 소리로 만든다.</div>
-  <div class="note">아직 안 만든 단계야 (다음 차수). 지금은 <b>건너뛰기</b>로 표시만 해둘 수 있어.</div>
+  <div class="h1sub">대본을 문장으로 쪼개서 하나씩 소리로 만든다.
+    <b style="color:var(--cy2)">문장마다 실제 길이를 재서 스토리보드가 정확해진다.</b></div>
+
+  ${(작.script||'').trim().length<100 ? `<div class="note"><b>대본</b>부터 채워줘.</div>` : ''}
+
   <div class="card">
-    <h3>무엇이 들어갈 예정인가</h3>
-    <div style="font-size:13px;color:var(--tx2);line-height:2">
-      • 목소리 고르기 — 무료 edge-tts / 유료 ElevenLabs<br>
-      • 말하기 속도 (0.7~1.2배), 자막 최대 글자수<br>
-      • 무음 압축 — 최소 0.5초 · 목표 0.30초 · 임계값 -50dB<br>
-      • 문장마다 합성하고 <b>실제 길이를 재서 컷 시간을 다시 맞춤</b><br>
-      • 다국어 음성 (日本語 · English)
+    <h3>어디서 목소리를 가져올까</h3>
+    <div class="desc">둘 다 돈이 안 든다. 다만 준비물과 품질이 다르다.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:12px">
+      ${[['win','윈도우 내장','아무 준비 없음','가입·열쇠·카드 전부 필요 없고 인터넷도 안 쓴다. 대신 목소리가 좀 딱딱하다.'],
+         ['google','구글 Cloud','열쇠 필요 · 월 400만 자 무료','상업 이용이 허락돼 있다. 대본 한 편이 4,500자쯤이니 한 달에 890편까지 공짜다.']]
+        .map(([id,이,꼬,설])=>`
+        <div onclick="엔진고르기('${id}')" style="cursor:pointer;padding:14px 16px;border-radius:9px;
+          background:${(작.engine||'win')===id?'var(--cybg)':'var(--card2)'};
+          border:1px solid ${(작.engine||'win')===id?'var(--cy)':'var(--line2)'}">
+          <div style="font-size:15px;font-weight:600;color:${(작.engine||'win')===id?'var(--cy2)':'var(--tx)'}">${이}</div>
+          <div style="font-size:11.5px;color:var(--cy2);margin-top:3px">${꼬}</div>
+          <div style="font-size:12px;color:var(--tx2);line-height:1.6;margin-top:6px">${설}</div>
+        </div>`).join('')}
     </div>
+
+    ${작.engine==='google' ? `
     <div style="margin-top:14px">
-      <button class="btn" onclick="저장({voiceDone:true,voiceName:'건너뜀'}).then(()=>{기둥그리기();toast('표시해 뒀어')})">건너뛰기</button>
+      <div style="font-size:12.5px;color:var(--tx2);margin-bottom:6px">구글 열쇠 (API 키)</div>
+      <div style="display:flex;gap:8px">
+        <input class="in" id="gkey" type="password" placeholder="AIza..." value="${esc(작.gkey||'')}"
+          oninput="저장({gkey:this.value})">
+        <button class="btn" onclick="목소리불러오기()">목소리 불러오기</button>
+      </div>
+      <div class="hint">console.cloud.google.com → 프로젝트 만들기 → Text-to-Speech API 켜기 → 사용자 인증 정보에서 API 키 만들기</div>
+    </div>` : `
+    <div style="margin-top:12px"><button class="btn" onclick="목소리불러오기()">목소리 불러오기</button></div>`}
+  </div>
+
+  <div class="card">
+    <div class="corner" id="목소리수">　</div>
+    <h3>목소리 고르기</h3>
+    <div class="row" style="margin-bottom:12px">
+      <span class="lab">성별</span>
+      ${['전체','남성','여성'].map(g=>`
+        <button class="btn sm ${(작.gender||'전체')===g?'cy':''}" onclick="성별고르기('${g}')">${g}</button>`).join('')}
     </div>
+    <div id="목소리판"><div class="empty" style="padding:26px">위에서 <b>[목소리 불러오기]</b> 를 눌러줘.</div></div>
+  </div>
+
+  <div class="card">
+    <h3>음성 · 자막 설정</h3>
+    <div style="display:flex;align-items:center;gap:14px;margin:14px 0 8px">
+      <span class="lab" style="width:104px">말하기 속도</span>
+      <b id="속도값" style="width:56px;font-size:15px">${(작.rate||1.0).toFixed(2)}배</b>
+      <input type="range" id="rate" min="0.8" max="1.5" step="0.05" value="${작.rate||1.0}"
+        oninput="document.getElementById('속도값').textContent=(+this.value).toFixed(2)+'배';저장({rate:+this.value})"
+        style="flex:1;max-width:360px;accent-color:var(--cy)">
+      <span style="font-size:12px;color:var(--tx3)">1.0배가 기본. 뉴스는 1.05~1.15가 듣기 좋아</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;margin:10px 0">
+      <span class="lab" style="width:104px">자막 최대 글자수</span>
+      <b id="자막값" style="width:56px;font-size:15px">${작.subMax||25}</b>
+      <input type="range" id="subMax" min="12" max="40" step="1" value="${작.subMax||25}"
+        oninput="document.getElementById('자막값').textContent=this.value;저장({subMax:+this.value})"
+        style="flex:1;max-width:360px;accent-color:var(--cy)">
+      <span style="font-size:12px;color:var(--tx3)">한 줄에 이보다 길면 쪼갠다</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+      <button class="btn" onclick="미리듣기()">▶ 미리듣기</button>
+      <span class="hint" id="미리글" style="margin:0">고른 목소리와 속도로 한 문장 읽어본다</span>
+    </div>
+    <audio id="미리소리" style="display:none"></audio>
+  </div>
+
+  <div class="card">
+    <h3>음성 생성</h3>
+    <div class="desc">대본 ${(작.script||'').length.toLocaleString()}자 ≈ 문장 ${cs}개.
+      문장 하나에 1~2초씩 걸려서 <b>${Math.ceil(cs*1.5/60)}~${Math.ceil(cs*2.5/60)}분</b>쯤 걸려.</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <button class="btn cy" id="voBtn" onclick="음성시작()">음성 생성</button>
+      <button class="btn" onclick="이동('storyboard')">건너뛰고 스토리보드로</button>
+    </div>
+    <div id="음성판" style="margin-top:12px"></div>
   </div>`;
+};
+
+function cutter문장수(){
+  const t=(작.script||'').trim(); if(!t) return 0;
+  return t.split(/\n\s*\n/).reduce((n,p)=>
+    n + p.trim().split(/(?<=[.!?])\s+/).filter(Boolean).length, 0);
+}
+
+async function 엔진고르기(id){ await 저장({engine:id}); await 저장지금(); 그리기(); }
+async function 성별고르기(g){ await 저장({gender:g}); 목소리그리기(); }
+
+let 목소리들 = [];
+
+async function 목소리불러오기(){
+  const 판 = document.getElementById('목소리판');
+  판.innerHTML = `<div class="empty" style="padding:26px">불러오는 중...</div>`;
+  const r = await api('voices', {engine:작.engine||'win', key:작.gkey||''});
+  목소리들 = r.voices || [];
+  if(!목소리들.length){
+    판.innerHTML = `<div class="note" style="margin:0"><b>목소리를 못 가져왔어.</b><br>
+      ${esc(r.why||'')}${(작.engine!=='google'&&!r.windows)?'<br>이 컴퓨터는 윈도우가 아니야. 구글 쪽을 써야 해.':''}</div>`;
+    document.getElementById('목소리수').textContent='　';
+    return;
+  }
+  목소리그리기();
+}
+
+function 목소리그리기(){
+  const 판 = document.getElementById('목소리판'); if(!판) return;
+  const g = 작.gender||'전체';
+  const 보일것 = 목소리들.filter(v=> g==='전체' || v.성별===g);
+  document.getElementById('목소리수').textContent = `${보일것.length} / ${목소리들.length}개`;
+  if(!보일것.length){ 판.innerHTML=`<div class="empty" style="padding:26px">그 성별 목소리가 없어.</div>`; return; }
+  판.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px">`+
+    보일것.map(v=>{
+      const 뽑 = 작.voice===v.id;
+      const 색 = v.성별==='남성' ? '#38bdf8' : (v.성별==='여성' ? '#f0a8d0' : '#a78bfa');
+      return `<div onclick="목소리고르기('${esc(v.id)}')" style="cursor:pointer;padding:12px 14px;border-radius:9px;
+        background:${뽑?'var(--cybg)':'var(--card2)'};border:1px solid ${뽑?'var(--cy)':'var(--line2)'}">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:11px;color:${색};border:1px solid ${색}55;border-radius:5px;padding:1px 7px">${v.성별}</span>
+          ${v.종류?`<span style="font-size:10.5px;color:var(--tx3)">${esc(v.종류)}</span>`:''}
+          ${뽑?`<span style="margin-left:auto;color:var(--cy2);font-size:12px">✓ 고름</span>`:''}
+        </div>
+        <div style="font-size:13px;margin-top:6px;word-break:break-all;color:${뽑?'var(--cy2)':'var(--tx)'}">${esc(v.이름)}</div>
+      </div>`;}).join('')+`</div>`;
+}
+
+async function 목소리고르기(id){
+  await 저장({voice:id, voiceName:id.split('-').slice(-2).join('-')});
+  await 저장지금(); 기둥그리기(); 목소리그리기();
+}
+
+async function 미리듣기(){
+  const 글칸 = document.getElementById('미리글');
+  if(!작.voice){ 글칸.innerHTML='<span style="color:#fbbf24">먼저 목소리를 골라줘</span>'; return; }
+  글칸.textContent = '만드는 중...';
+  const 첫 = ((작.script||'').trim().split(/(?<=[.!?])\s+/)[0]||'').slice(0,80)
+            || '안녕하세요. 뉴스 AI 자동화입니다.';
+  const r = await api('voice/preview', {engine:작.engine||'win', voice:작.voice,
+    rate:작.rate||1.0, key:작.gkey||'', text:첫});
+  if(!r.ok){ 글칸.innerHTML=`<span style="color:#fbbf24">못 만들었어 — ${esc(r.why||'')}</span>`; return; }
+  const a = document.getElementById('미리소리');
+  a.src = r.url + '&t=' + Date.now(); a.play();
+  글칸.innerHTML = `<span style="color:#4ade80">▶ 재생 중 (${r.초||'?'}초)</span> — ${esc(첫.slice(0,40))}…`;
+}
+
+let 음성폴링 = null;
+
+async function 음성시작(){
+  if(!작.voice){ toast('먼저 목소리를 골라줘', true); return; }
+  if(!(작.script||'').trim()){ toast('대본이 없어', true); return; }
+  const r = await api('voice/start', {id:작.id, script:작.script,
+    engine:작.engine||'win', voice:작.voice, rate:작.rate||1.0, key:작.gkey||''});
+  if(!r.ok){ toast('시작 못 했어', true); return; }
+  document.getElementById('voBtn').disabled = true;
+  pill('음성 생성');
+  clearInterval(음성폴링); 음성폴링 = setInterval(음성확인, 1500); 음성확인();
+}
+
+async function 음성확인(){
+  const 판 = document.getElementById('음성판'); if(!판){ clearInterval(음성폴링); return; }
+  const st = await api('voice/status', {id:작.id});
+
+  if(st.상태==='도는중'){
+    const 비 = st.전체 ? Math.round(st.한것/st.전체*100) : 0;
+    판.innerHTML = `
+      <div style="background:var(--card2);border:1px solid var(--line2);border-radius:8px;padding:13px 15px">
+        <div style="display:flex;align-items:center;margin-bottom:8px">
+          <b style="color:var(--cy2)">문장 ${st.한것}/${st.전체} 만드는 중...</b>
+          <span style="margin-left:auto;color:var(--cy2)">${비}%</span>
+        </div>
+        <div style="height:6px;background:#0e0e11;border-radius:3px;overflow:hidden">
+          <div style="width:${비}%;height:100%;background:var(--cy)"></div></div>
+        <div style="font-size:12px;color:var(--tx3);margin-top:8px">${esc(st.지금||'')}</div>
+      </div>`;
+    return;
+  }
+
+  clearInterval(음성폴링); pill('');
+  const b = document.getElementById('voBtn'); if(b) b.disabled = false;
+
+  if(st.상태==='끝'){
+    await 저장({voiceDone:true, sentences:st.목록, voiceTotal:st.전체초});
+    await 저장지금(); 기둥그리기();
+    판.innerHTML = `
+      <div style="color:#4ade80;font-size:13px;margin-bottom:10px">
+        ✓ 문장 ${st.한것}개 · 전체 ${(st.전체초/60).toFixed(1)}분 — 실제 길이를 다 쟀어.</div>
+      <div style="background:#0d2234;border:1px solid #1d4a68;border-radius:8px;padding:12px 14px;font-size:12.5px;color:#9fc4dc">
+        이제 <b>스토리보드</b>로 가면 <b>추정이 아니라 실제 소리 길이</b>로 컷을 나눠.
+        그림과 말이 어긋나지 않아.</div>
+      <div style="margin-top:10px"><button class="btn cy" onclick="이동('storyboard')">스토리보드로 →</button></div>`;
+    toast(`음성 ${st.한것}개 완성 · ${(st.전체초/60).toFixed(1)}분`);
+  } else if(st.상태==='실패'){
+    판.innerHTML = `<div class="note" style="margin:0"><b>음성을 못 만들었어.</b><br>
+      <span style="font-family:Consolas,monospace;font-size:11.5px;color:#e3c988">${esc(st.오류||'')}</span></div>`;
+  }
+}
 
 /* ══ 3 스타일 ══ */
 본문.style = ()=>{
@@ -1201,7 +1386,7 @@ async function 진짜컷그리기(){
     return;
   }
   const 값 = id => +(document.getElementById(id)||{}).value || 0;
-  const r = await api('cut', { script:작.script||'',
+  const r = await api('cut', { id:작.id, script:작.script||'',
     target:값('t'), hook:값('hk'), emph:값('em'), endl:값('ed'),
     skipCta:document.getElementById('cta').checked });
   미리컷=r.컷; const s=r.요약;
@@ -1214,7 +1399,13 @@ async function 진짜컷그리기(){
      실측상 그림 수는 조회수와 무관하지만 훅만은 예외였습니다.`;
   document.getElementById('생성상태').innerHTML =
     `장면 <b style="color:var(--cy2)">${s.컷수}개</b> · 전체 ${s.전체분}분 · 평균 ${s.평균컷초}초.
-     아래 <b>스토리보드 생성</b>을 누르면 이대로 확정됩니다.`;
+     아래 <b>스토리보드 생성</b>을 누르면 이대로 확정됩니다.
+     <div style="margin-top:7px;font-size:12px;color:${r.잰것?'#4ade80':'#fbbf24'}">
+       ${r.잰것
+         ? '✓ 만들어 둔 음성의 <b>실제 길이</b>로 나눴습니다. 그림과 말이 어긋나지 않습니다.'
+         : '⚠ 아직 음성이 없어서 <b>글자 수로 어림잡아</b> 나눴습니다. '
+           + '<a href="#" onclick="이동(\'voice\');return false" style="color:var(--cy2)">음성</a>을 먼저 만들면 정확해집니다.'}
+     </div>`;
 
   const 전체=s.전체초||1;
   document.getElementById('타임라인').innerHTML =

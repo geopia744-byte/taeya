@@ -10,6 +10,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cutter
+import voice
 
 여기 = os.path.dirname(os.path.abspath(__file__))
 웹 = os.path.join(여기, 'web')
@@ -156,6 +157,87 @@ def 기사붙이기(질문, 주소들):
     return 질문 + 덧
 
 
+def 잰길이(jid, 대본):
+    """이미 만들어 둔 음성이 있으면 문장마다 실제 길이를 가져온다.
+
+    컷을 나눌 때 글자 수로 어림잡는 것보다 이쪽이 정확하다.
+    말이 빠른 문장과 느린 문장이 섞여 있어도 그림이 어긋나지 않는다.
+
+    대본이 음성을 만든 뒤에 고쳐졌으면 길이가 안 맞으므로 쓰지 않는다.
+    (문장 수가 다르면 어림짐작으로 돌아간다)
+    """
+    if not jid:
+        return None, False
+    표 = 읽기(os.path.join(프로젝트칸, jid, '음성', '목록.json'), None)
+    if not isinstance(표, list) or not 표:
+        return None, False
+    지금문장 = cutter.문장나누기(대본 or '')
+    if len(지금문장) != len(표):
+        return None, False
+    길이 = []
+    for x in 표:
+        초 = x.get('초')
+        if not isinstance(초, (int, float)) or 초 <= 0:
+            return None, False
+        길이.append(float(초))
+    return 길이, True
+
+
+# 돌고 있는 음성 작업
+음성중 = {}
+
+
+def 음성만들기(jid, d):
+    """대본을 문장으로 쪼개고 하나씩 소리로 만든다.
+
+    문장마다 실제 길이를 재서 돌려준다. 그 길이가 있어야
+    스토리보드에서 12~13초씩 정확하게 묶을 수 있다.
+    """
+    def 상태(**kw):
+        with 생성자물쇠:
+            음성중.setdefault(jid, {}).update(kw)
+
+    상태(상태='도는중', 한것=0, 전체=0, 오류='', 지금='')
+    try:
+        글 = (d.get('script') or '').strip()
+        문장 = cutter.문장나누기(글)
+        if not 문장:
+            상태(상태='실패', 오류='대본이 비어 있어')
+            return
+
+        칸 = os.path.join(프로젝트칸, jid, '음성')
+        os.makedirs(칸, exist_ok=True)
+        for 옛 in os.listdir(칸):
+            try:
+                os.remove(os.path.join(칸, 옛))
+            except OSError:
+                pass
+
+        엔진 = d.get('engine', 'win')
+        끝 = '.mp3' if 엔진 == 'google' else '.wav'
+        상태(전체=len(문장))
+
+        결과 = []
+        for i, s in enumerate(문장, 1):
+            with 생성자물쇠:
+                if 음성중.get(jid, {}).get('멈춰'):
+                    상태(상태='멈춤')
+                    return
+            이름 = '%04d%s' % (i, 끝)
+            파일 = os.path.join(칸, 이름)
+            상태(한것=i - 1, 지금=s['글'][:40])
+            voice.한문장(s['글'], 엔진, d.get('voice', ''),
+                        float(d.get('rate', 1.0)), 파일, d.get('key', ''))
+            초 = voice.길이재기(파일) or cutter.읽는시간(s['글'])
+            결과.append({'번호': i, '글': s['글'], '파일': 이름, '초': 초})
+
+        쓰기(os.path.join(프로젝트칸, jid, '음성', '목록.json'), 결과)
+        상태(상태='끝', 한것=len(문장), 목록=결과,
+             전체초=round(sum(x['초'] for x in 결과), 2))
+    except Exception as e:
+        상태(상태='실패', 오류=voice.까닭(e))
+
+
 def 클로드한번(질문, 분=30):
     """클로드를 한 번 불러 글을 받아온다.
 
@@ -280,6 +362,39 @@ class 손(SimpleHTTPRequestHandler):
     # 화면 파일 주기
     def do_GET(self):
         if self.path.startswith('/api/'):
+            if self.path.startswith('/api/listen'):
+                from urllib.parse import urlparse, parse_qs
+                이름 = (parse_qs(urlparse(self.path).query).get('f') or [''])[0]
+                이름 = os.path.basename(이름)
+                파일 = os.path.join(자료, '_미리듣기', 이름)
+                if not os.path.exists(파일):
+                    return self._json({'error': '없어'}, 404)
+                b = open(파일, 'rb').read()
+                self.send_response(200)
+                self.send_header('Content-Type',
+                                 'audio/mpeg' if 이름.endswith('.mp3') else 'audio/wav')
+                self.send_header('Content-Length', str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+                return
+
+            if self.path.startswith('/api/voicefile'):
+                from urllib.parse import urlparse, parse_qs
+                q = parse_qs(urlparse(self.path).query)
+                jid = os.path.basename((q.get('id') or [''])[0])
+                이름 = os.path.basename((q.get('f') or [''])[0])
+                파일 = os.path.join(프로젝트칸, jid, '음성', 이름)
+                if not os.path.exists(파일):
+                    return self._json({'error': '없어'}, 404)
+                b = open(파일, 'rb').read()
+                self.send_response(200)
+                self.send_header('Content-Type',
+                                 'audio/mpeg' if 이름.endswith('.mp3') else 'audio/wav')
+                self.send_header('Content-Length', str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+                return
+
             if self.path == '/api/jobs':
                 항목 = 읽기(os.path.join(자료, 'items.json'), {})
                 return self._json({'jobs': 작업들(),
@@ -351,17 +466,53 @@ class 손(SimpleHTTPRequestHandler):
                     st['지난초'] = int(time.time() - st.pop('시작'))
                 return self._json(st)
 
+            if 길 == 'voices':
+                목록, 왜 = voice.목소리목록(d.get('engine', 'win'), d.get('key', ''))
+                return self._json({'voices': 목록, 'why': 왜,
+                                   'windows': voice.윈도우})
+
+            if 길 == 'voice/preview':
+                칸 = os.path.join(자료, '_미리듣기')
+                os.makedirs(칸, exist_ok=True)
+                끝 = '.mp3' if d.get('engine') == 'google' else '.wav'
+                파일 = os.path.join(칸, 'preview' + 끝)
+                try:
+                    voice.한문장(d.get('text') or '안녕하세요. 뉴스 AI 자동화입니다.',
+                                d.get('engine', 'win'), d.get('voice', ''),
+                                float(d.get('rate', 1.0)), 파일, d.get('key', ''))
+                except Exception as e:
+                    return self._json({'ok': False, 'why': voice.까닭(e)})
+                return self._json({'ok': True,
+                                   'url': '/api/listen?f=preview' + 끝,
+                                   '초': voice.길이재기(파일)})
+
+            if 길 == 'voice/start':
+                jid = d['id']
+                with 생성자물쇠:
+                    if 음성중.get(jid, {}).get('상태') == '도는중':
+                        return self._json({'ok': True, '이미': True})
+                threading.Thread(target=음성만들기, args=(jid, d), daemon=True).start()
+                return self._json({'ok': True})
+
+            if 길 == 'voice/status':
+                with 생성자물쇠:
+                    return self._json(dict(음성중.get(d['id'], {'상태': '없음'})))
+
             if 길 == 'cut':
+                글 = d.get('script', '')
+                길이, 잰것 = 잰길이(d.get('id'), 글)
                 컷 = cutter.컷나누기(
-                    d.get('script', ''),
+                    글,
                     목표초=float(d.get('target') or cutter.기본초),
                     후킹목표=float(d.get('hook') or cutter.후킹초),
+                    문장길이=길이,
                     강조목표=float(d.get('emph') or 0) or None,
                     마무리목표=float(d.get('endl') or 0) or None,
                 )
                 if d.get('skipCta'):
                     컷 = cutter.CTA빼기(컷)
-                return self._json({'요약': cutter.요약(컷), '컷': 컷})
+                return self._json({'요약': cutter.요약(컷), '컷': 컷,
+                                   '잰것': 잰것})
 
             if 길 == 'style/sample':
                 파일 = os.path.join(자료, 'style_samples.json')

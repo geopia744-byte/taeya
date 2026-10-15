@@ -11,3 +11,5 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+뉴스ai자동화/data/
+뉴스ai자동화/__pycache__/
