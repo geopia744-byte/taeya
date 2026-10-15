@@ -94,7 +94,8 @@ class 손(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/api/'):
             if self.path == '/api/jobs':
-                return self._json({'jobs': 작업들()})
+                return self._json({'jobs': 작업들(),
+                                   'samples': 읽기(os.path.join(자료, 'style_samples.json'), {})})
             return self._json({'error': '모르는 길'}, 404)
         return super().do_GET()
 
@@ -109,12 +110,24 @@ class 손(SimpleHTTPRequestHandler):
             if 길 == 'cut':
                 컷 = cutter.컷나누기(
                     d.get('script', ''),
-                    목표초=float(d.get('target', cutter.기본초)),
-                    후킹목표=float(d.get('hook', cutter.후킹초)),
+                    목표초=float(d.get('target') or cutter.기본초),
+                    후킹목표=float(d.get('hook') or cutter.후킹초),
+                    강조목표=float(d.get('emph') or 0) or None,
+                    마무리목표=float(d.get('endl') or 0) or None,
                 )
                 if d.get('skipCta'):
                     컷 = cutter.CTA빼기(컷)
                 return self._json({'요약': cutter.요약(컷), '컷': 컷})
+
+            if 길 == 'style/sample':
+                파일 = os.path.join(자료, 'style_samples.json')
+                표 = 읽기(파일, {})
+                if d.get('data'):
+                    표[d['id']] = d['data']
+                else:
+                    표.pop(d['id'], None)
+                쓰기(파일, 표)
+                return self._json({'ok': True})
 
             if 길 == 'job/new':
                 jid = uuid.uuid4().hex[:10]
