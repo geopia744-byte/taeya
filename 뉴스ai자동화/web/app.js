@@ -1606,22 +1606,26 @@ function 화풍줄그리기(){
 function 프롬프트줄그리기(){
   const 줄 = document.getElementById('프롬프트줄'); if(!줄) return;
   const h = 화풍목록.find(x=>x.id===(작.style||''));
-  if(!h){
-    줄.innerHTML = `<div style="font-size:12.5px;color:var(--tx3)">
-      위에서 화풍을 하나 골라줘.</div>`;
-    return;
-  }
+  // 화풍을 아직 안 골랐어도 단추를 숨기지 않는다.
+  // 장면 묘사를 만드는 일은 화풍과 아무 상관이 없다.
+  // 화풍은 다 만든 뒤에 뒤에 붙이는 것이고, 나중에 골라도 바로 붙는다.
   const 만든것 = (미리컷||[]).filter(c=>컷프롬프트(c.번호)).length;
   const 모두 = (미리컷||[]).length;
   const 따로 = (미리컷||[]).filter(c=>컷화풍다름(c.번호)).length;
   줄.innerHTML = `
-    <div style="background:var(--card2);border:1px solid var(--line2);
+    ${h ? `<div style="background:var(--card2);border:1px solid var(--line2);
       border-radius:8px;padding:11px 13px">
       <div style="font-size:11.5px;color:var(--tx3);margin-bottom:5px">
         모든 장면 뒤에 이 문장이 붙는다</div>
       <div style="font-family:Consolas,monospace;font-size:11.5px;color:#9fc4dc;
         line-height:1.65;word-break:break-all">${esc(h.영문)}, ${esc(공통규격)}</div>
-    </div>
+    </div>` : `<div style="background:#2a2113;border:1px solid #fbbf2455;
+      border-left:3px solid #fbbf24;border-radius:7px;padding:11px 13px;
+      font-size:12.5px;line-height:1.7;color:var(--tx2)">
+      <b style="color:#fbbf24">전체 화풍을 아직 안 골랐어.</b>
+      위에서 하나 눌러줘. 안 고르고 먼저 만들어도 되는데,
+      그럼 프롬프트에 화풍 문장이 안 붙어. 나중에 골라도 바로 붙으니까
+      <b>지금 만들어 두고 화풍은 천천히 골라도 괜찮아.</b></div>`}
     <div style="display:flex;gap:8px;align-items:center;margin-top:11px;flex-wrap:wrap">
       <button class="btn cy" onclick="프롬프트전체()">전체 프롬프트 생성</button>
       <button class="btn" onclick="프롬프트전부복사()" ${만든것?'':'disabled'}>
@@ -1666,7 +1670,6 @@ function 프롬프트전부복사(){
 let 프롬프트폴링 = null;
 
 async function 프롬프트전체(){
-  if(!작.style){ toast('먼저 화풍을 골라줘', true); return; }
   if(!(미리컷||[]).length){ toast('먼저 스토리보드를 만들어줘', true); return; }
   const s = 화풍찾기(작.style);
   const 알림 = document.getElementById('프롬프트알림');
@@ -1720,7 +1723,7 @@ async function 프롬프트확인(){
 /* 컷 하나만 다시 — 맘에 안 드는 것만 고칠 때 */
 async function 프롬프트하나(번호){
   const c = (미리컷||[]).find(x=>x.번호===번호);
-  if(!c || !작.style){ toast('화풍을 먼저 골라줘', true); return; }
+  if(!c){ toast('그 컷을 못 찾겠어', true); return; }
   toast(`${번호}번 컷 다시 만드는 중...`);
   const s = 화풍찾기(작.style);
   const r = await api('prompt/start', {id:작.id,
