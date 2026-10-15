@@ -64,7 +64,64 @@ function toast(m,bad){ const d=document.createElement('div');
   d.className='toast'+(bad?' bad':''); d.textContent=m;
   document.getElementById('toast').appendChild(d); setTimeout(()=>d.remove(),2800); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function 복사(t,말){ navigator.clipboard.writeText(t).then(()=>toast(말||'복사했어')); }
+/* 복사 — 반드시 되게 만든다.
+   navigator.clipboard 는 창이 focus 를 잃었거나 브라우저 설정에 따라
+   조용히 거절한다. 그러면 아무 일도 안 일어나 사용자는 고장인 줄 안다.
+   그래서 실패하면 옛 방식(textarea + execCommand)으로 한 번 더 해보고,
+   그것마저 안 되면 글을 띄워서 손으로 복사할 수 있게 한다. */
+function 옛복사(t){
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.setAttribute('readonly','');
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, t.length);
+    const 됐나 = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return 됐나;
+  }catch(e){ return false; }
+}
+
+function 손으로복사(t, 왜){
+  const 덮 = document.createElement('div');
+  덮.style.cssText = 'position:fixed;inset:0;background:#000c;z-index:200;'
+    + 'display:flex;align-items:center;justify-content:center;padding:28px';
+  덮.innerHTML = `<div style="background:var(--card);border:1px solid var(--line2);
+    border-radius:11px;padding:18px 20px;max-width:820px;width:100%">
+    <div style="font-size:14px;font-weight:600;margin-bottom:5px">자동 복사가 막혔어</div>
+    <div style="font-size:12.5px;color:var(--tx2);line-height:1.7;margin-bottom:11px">
+      ${esc(왜||'')}<br>아래 칸의 글이 이미 모두 선택돼 있어.
+      <b>Ctrl + C</b> 를 누르면 복사돼.</div>
+    <textarea readonly style="width:100%;height:230px;background:#0d1620;
+      color:#a8d0e4;border:1px solid #1d3444;border-radius:7px;padding:11px;
+      font-family:Consolas,monospace;font-size:12px;line-height:1.6;
+      resize:vertical"></textarea>
+    <div style="text-align:right;margin-top:11px">
+      <button class="btn cy" id="닫기단추">닫기</button></div>
+  </div>`;
+  document.body.appendChild(덮);
+  const ta = 덮.querySelector('textarea');
+  ta.value = t; ta.focus(); ta.select();
+  const 닫기 = ()=>덮.remove();
+  덮.querySelector('#닫기단추').onclick = 닫기;
+  덮.onclick = e=>{ if(e.target===덮) 닫기(); };
+}
+
+async function 복사(t, 말){
+  t = String(t == null ? '' : t);
+  if(!t.trim()){ toast('복사할 게 없어', true); return false; }
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(t);
+      toast(말 || '복사했어');
+      return true;
+    }
+  }catch(e){ /* 아래 옛 방식으로 넘어간다 */ }
+  if(옛복사(t)){ toast(말 || '복사했어'); return true; }
+  손으로복사(t, '브라우저가 자동 복사를 막았어.');
+  return false;
+}
 function 초표기(s){ const m=Math.floor(s/60); return `${m}:${(s%60).toFixed(1).padStart(4,'0')}`; }
 
 /* ── 각 단계가 끝났는지 (체크 표시용. 막지는 않는다) ── */
@@ -1849,7 +1906,7 @@ function 카드그리기(){
   const 전체이름 = 전체화풍 ? 전체화풍.이름 : '';
 
   const 보일것 = 다펼침 ? cs : cs.slice(0, 9);
-  목록.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">` +
+  목록.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:13px">` +
     보일것.map(c=>{
       const 묘 = 묘사표[c.번호];
       const 색 = 구간색[c.구간];
@@ -1860,42 +1917,45 @@ function 카드그리기(){
         border-radius:9px;padding:12px 14px;display:flex;flex-direction:column">
         <div style="display:flex;align-items:center;gap:7px;margin-bottom:9px">
           <span style="background:${색}22;color:${색};border:1px solid ${색}55;border-radius:5px;
-            padding:1px 7px;font-size:12px;font-weight:700">${c.번호}</span>
-          <span style="background:${색}22;color:${색};border-radius:5px;padding:1px 8px;font-size:11.5px">${c.구간}</span>
+            padding:2px 9px;font-size:13.5px;font-weight:700">${c.번호}</span>
+          <span style="background:${색}22;color:${색};border-radius:5px;padding:2px 9px;font-size:12.5px">${c.구간}</span>
           ${다름?`<span style="background:var(--cybg);color:var(--cy2);border:1px solid var(--cy);
             border-radius:5px;padding:1px 7px;font-size:10.5px">${내화풍.이름}</span>`:''}
-          <span style="margin-left:auto;font-size:11.5px;color:var(--tx3)">${c.길이초.toFixed(1)}초</span>
+          <span style="margin-left:auto;font-size:12.5px;color:var(--tx3)">${c.길이초.toFixed(1)}초</span>
         </div>
 
-        <div style="font-size:12.5px;line-height:1.7;color:var(--tx2);
-          ${다펼침?'':'max-height:72px;overflow:hidden'}">${esc(c.대본)}</div>
+        <div style="font-size:14px;line-height:1.75;color:var(--tx);
+          ${다펼침?'':'max-height:90px;overflow:hidden'}">${esc(c.대본)}</div>
 
         ${묘?`<div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line2)">
-          <div style="font-size:10.5px;color:var(--tx3);margin-bottom:3px">장면</div>
-          <div style="font-size:12px;line-height:1.6;color:var(--tx)">${esc(묘)}</div>
+          <div style="font-size:12px;color:var(--tx3);margin-bottom:4px">장면</div>
+          <div style="font-size:13.5px;line-height:1.7;color:var(--tx)">${esc(묘)}</div>
         </div>`:''}
 
-        ${p?`<div style="margin-top:8px">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-            <span style="font-size:10.5px;color:var(--tx3)">영문 프롬프트</span>
-            <span style="font-size:10px;color:var(--tx3)">${p.영문.length}자</span>
+        ${p?`<div style="margin-top:9px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <span style="font-size:11px;color:var(--tx3)">영문 프롬프트</span>
+            <span style="font-size:10.5px;color:var(--tx3)">${p.영문.length}자</span>
             <a href="#" onclick="프롬프트펴기(${c.번호});return false"
-              style="margin-left:auto;font-size:10.5px;color:var(--cy2)"
+              style="margin-left:auto;font-size:11px;color:var(--cy2)"
               id="편지${c.번호}">${펴진프롬프트.has(c.번호)?'접기':'전체 보기'}</a>
           </div>
-          <div id="프롬${c.번호}" style="font-family:Consolas,monospace;font-size:10.5px;
-            line-height:1.6;color:#9fc4dc;word-break:break-word;
-            ${펴진프롬프트.has(c.번호)?'':'max-height:54px;overflow:hidden'}">${esc(p.영문)}</div>
+          <div onclick="컷프롬프트복사(${c.번호})" title="눌러서 복사"
+            class="pbox" id="프롬${c.번호}"
+            style="${펴진프롬프트.has(c.번호)?'':'max-height:76px;overflow:hidden'}">
+            <div class="ptx">${esc(p.영문)}</div>
+            <div class="pcopy">눌러서 복사</div>
+          </div>
         </div>`:''}
 
         <div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--line2)">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
-            <span style="font-size:10.5px;color:var(--tx3);flex:none">화풍</span>
+            <span style="font-size:12px;color:var(--tx3);flex:none">화풍</span>
             <select onchange="컷화풍바꾸기(${c.번호}, this.value)"
               style="flex:1;min-width:0;background:${다름?'var(--cybg)':'var(--card)'};
               color:${다름?'var(--cy2)':'var(--tx2)'};
               border:1px solid ${다름?'var(--cy)':'var(--line2)'};
-              border-radius:6px;padding:4px 6px;font-size:11.5px;font-family:inherit">
+              border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit">
               <option value="">전체와 같게${전체이름?' ('+전체이름+')':''}</option>
               ${화풍목록.map(h=>`<option value="${h.id}"
                 ${(작.cutStyles||{})[c.번호]===h.id?'selected':''}>${h.이름}</option>`).join('')}
