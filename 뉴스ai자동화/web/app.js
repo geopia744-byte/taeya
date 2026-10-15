@@ -1397,6 +1397,8 @@ ${s.영문}, ${공통규격}`).join('\n\n')}`, '예시 프롬프트 12개를 복
   <div class="card">
     <h3>섹션 설정</h3>
 
+    <div id="길이근거" style="margin:12px 0 4px"></div>
+
     <div style="display:flex;align-items:center;gap:14px;margin:16px 0 6px">
       <span class="lab" style="width:104px">장면 목표 길이</span>
       <b id="목표값" style="width:46px;font-size:15px">${작.target||13}초</b>
@@ -1514,13 +1516,8 @@ async function 진짜컷그리기(){
      실측상 그림 수는 조회수와 무관하지만 훅만은 예외였습니다.`;
   document.getElementById('생성상태').innerHTML =
     `장면 <b style="color:var(--cy2)">${s.컷수}개</b> · 전체 ${s.전체분}분 · 평균 ${s.평균컷초}초.
-     아래 <b>스토리보드 생성</b>을 누르면 이대로 확정됩니다.
-     <div style="margin-top:7px;font-size:12px;color:${r.잰것?'#4ade80':'#fbbf24'}">
-       ${r.잰것
-         ? '✓ 만들어 둔 음성의 <b>실제 길이</b>로 나눴습니다. 그림과 말이 어긋나지 않습니다.'
-         : '⚠ 아직 음성이 없어서 <b>글자 수로 어림잡아</b> 나눴습니다. '
-           + '<a href="#" onclick="이동(\'voice\');return false" style="color:var(--cy2)">음성</a>을 먼저 만들면 정확해집니다.'}
-     </div>`;
+     아래 <b>스토리보드 생성</b>을 누르면 이대로 확정됩니다.`;
+  길이근거그리기(r, s);
 
   const 전체=s.전체초||1;
   document.getElementById('타임라인').innerHTML =
@@ -1528,6 +1525,49 @@ async function 진짜컷그리기(){
     미리컷.map(c=>`<div title="${c.번호}번 · ${c.길이초}초"
       style="width:${(c.길이초/전체*100).toFixed(3)}%;background:${구간색[c.구간]};border-right:1px solid rgba(0,0,0,.45)"></div>`).join('')+`</div>`;
   카드그리기();
+}
+
+/* 컷 길이를 무엇으로 쟀는지 맨 위에 못 박는다.
+   이게 아래쪽에 있으면 아무도 안 본다. 그래서 설정 바로 위에 둔다. */
+function 길이근거그리기(r, s){
+  const 판 = document.getElementById('길이근거'); if(!판) return;
+  const 음성초 = +작.voiceTotal || 0;
+  const 컷초 = s.전체초 || 0;
+  const 분 = x => (x/60).toFixed(1) + '분';
+
+  const 상자 = (색,배,글) => `
+    <div style="background:${배};border:1px solid ${색}55;border-left:3px solid ${색};
+      border-radius:7px;padding:11px 14px;font-size:12.8px;line-height:1.75;color:var(--tx2)">${글}</div>`;
+
+  if(r.잰것){
+    // 실측을 썼다면 음성 길이와 컷 합계가 같아야 한다. 다르면 뭔가 잘못된 것이다.
+    if(음성초 && Math.abs(음성초-컷초) > 1){
+      판.innerHTML = 상자('#f87171','#2a1416',
+        `<b style="color:#f87171">⚠ 숫자가 안 맞습니다.</b>
+         음성은 <b>${분(음성초)}</b>인데 장면 합계는 <b>${분(컷초)}</b>입니다.
+         <b>${분(Math.abs(음성초-컷초))}</b> 차이. 음성을 다시 만들어 주세요.`);
+      return;
+    }
+    판.innerHTML = 상자('#4ade80','#0f2318',
+      `<b style="color:#4ade80">✓ 만들어 둔 음성의 실제 길이로 나눴습니다.</b>
+       음성 ${분(음성초||컷초)} = 장면 합계 ${분(컷초)}. 그림과 말이 어긋나지 않습니다.`);
+    return;
+  }
+
+  // 어림짐작으로 나눈 경우 — 음성이 있는데도 못 쓴 것이면 까닭을 밝힌다
+  const 있는데못씀 = !!작.voiceDone;
+  판.innerHTML = 상자('#fbbf24','#2a2113',
+    `<b style="color:#fbbf24">⚠ 글자 수로 어림잡아 나눴습니다.</b>
+     실제 소리 길이가 아닙니다. 뒤로 갈수록 그림이 말보다 먼저 넘어갑니다.
+     ${있는데못씀
+       ? `<br><br><b>음성은 만들어 뒀는데 못 썼습니다.</b>
+          음성을 만든 뒤에 대본이 바뀌어서 문장 수가 달라졌기 때문입니다.
+          ${음성초 ? `음성은 <b>${분(음성초)}</b>, 지금 어림잡은 값은 <b>${분(컷초)}</b>
+                      — <b>${분(Math.abs(음성초-컷초))}</b>이나 어긋납니다.` : ''}
+          <br><a href="#" onclick="이동('voice');return false"
+            style="color:var(--cy2)"><b>음성으로 가서 다시 만들어 주세요 →</b></a>`
+       : `<br><a href="#" onclick="이동('voice');return false"
+            style="color:var(--cy2)"><b>음성을 먼저 만들면 정확해집니다 →</b></a>`}`);
 }
 
 /* 장면 카드 — 3칸 격자. 원본 그대로. */
