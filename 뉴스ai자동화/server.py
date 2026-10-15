@@ -30,6 +30,43 @@ def 읽기(경로, 기본):
 
 쓰기자물쇠 = threading.Lock()
 
+
+def 쓰기(경로, 값):
+    """여러 요청이 한꺼번에 들어와도 파일이 깨지지 않게 쓴다.
+
+    - 자물쇠로 한 번에 하나만 쓰게 한다
+    - 임시 이름을 요청마다 다르게 해서 서로 덮어쓰지 않게 한다
+    """
+    with 쓰기자물쇠:
+        os.makedirs(os.path.dirname(경로), exist_ok=True)
+        tmp = '%s.%d.tmp' % (경로, threading.get_ident())
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(값, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, 경로)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+
+def 작업들():
+    out = []
+    for d in sorted(os.listdir(프로젝트칸)):
+        p = os.path.join(프로젝트칸, d, 'job.json')
+        if os.path.exists(p):
+            v = 읽기(p, None)
+            if v:
+                out.append(v)
+    return out
+
+
+def 작업저장(j):
+    쓰기(os.path.join(프로젝트칸, j['id'], 'job.json'), j)
+
+
 # ── 클로드 코드가 이 PC에 깔려 있나 ──────────────
 import shutil, subprocess
 
@@ -119,68 +156,87 @@ def 기사붙이기(질문, 주소들):
     return 질문 + 덧
 
 
-def 클로드부르기(작업id, 질문):
-    """클로드 코드를 불러서 대본을 받아온다. 오래 걸리므로 딴 가닥에서 돈다."""
+def 클로드한번(질문, 분=30):
+    """클로드를 한 번 불러 글을 받아온다."""
+    p = subprocess.run(
+        [클로드길, '-p', 질문, '--allowedTools', 'WebFetch,WebSearch'],
+        capture_output=True, timeout=분 * 60,
+        creationflags=(subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0),
+    )
+    나온글 = (p.stdout or b'').decode('utf-8', 'replace').strip()
+    에러 = (p.stderr or b'').decode('utf-8', 'replace').strip()
+    if not 나온글:
+        raise RuntimeError(에러[:600] or ('끝난 값 %d' % p.returncode))
+    return 나온글
+
+
+def 토막내서쓰기(작업id, 질문, 목표자, 상태):
+    """긴 대본은 한 번에 못 받는다. 차례를 먼저 잡고 토막 내서 이어 쓴다.
+
+    클로드 한 번에 안전하게 받을 수 있는 양을 6,000자쯤으로 본다.
+    """
+    토막수 = max(2, -(-목표자 // 6000))
+    상태(단계='차례 잡는 중 (전체 %d토막)' % 토막수)
+
+    차례질문 = (질문 + '\n\n[지금은 대본을 쓰지 마라]\n'
+                '위 구조와 기사를 바탕으로, 대본을 %d개 토막으로 나눌 차례표만 써라.\n'
+                '한 줄에 하나씩, 이 모양으로만 출력해라. 설명은 쓰지 마라.\n'
+                '번호. 소제목 | 이 토막에서 다룰 내용 한 문장 | 목표 글자수\n'
+                '전체 글자수의 합이 %d자가 되게 나눠라.' % (토막수, 목표자))
+    차례 = 클로드한번(차례질문, 분=15)
+
+    줄 = [l.strip() for l in 차례.splitlines() if '|' in l]
+    if len(줄) < 2:
+        raise RuntimeError('차례표를 제대로 못 받았어:\n' + 차례[:400])
+
+    모은글 = []
+    for i, l in enumerate(줄, 1):
+        상태(단계='대본 쓰는 중 (%d/%d토막)' % (i, len(줄)), 글='\n\n'.join(모은글))
+        앞부분 = ('\n\n[바로 앞 토막의 끝부분 — 자연스럽게 이어 써라]\n...'
+                  + 모은글[-1][-400:]) if 모은글 else ''
+        토막질문 = (질문
+                    + '\n\n[전체 차례표]\n' + 차례
+                    + 앞부분
+                    + '\n\n[지금 쓸 것]\n' + l
+                    + '\n\n이 토막만 써라. 소제목이나 번호를 쓰지 마라. 본문만 출력해라.'
+                      '\n인사말이나 마무리 인사를 넣지 마라.'
+                    + ('\n이 토막이 마지막이다. 여운을 남기는 한 문장으로 끝내라.'
+                       if i == len(줄) else
+                       '\n이 토막은 마지막이 아니다. 다음 토막으로 넘어가는 한 문장으로 끝내라.'))
+        모은글.append(다듬기서버(클로드한번(토막질문, 분=20)))
+
+    return '\n\n'.join(모은글)
+
+
+def 다듬기서버(t):
+    t = (t or '').strip()
+    t = _re.sub(r'^```[a-z]*\s*', '', t, flags=_re.I)
+    t = _re.sub(r'```\s*$', '', t)
+    t = _re.sub(r'^(네[,.]?\s*|알겠습니다[,.]?\s*|여기\s*있습니다[.:]?\s*)', '', t)
+    return t.strip()
+
+
+def 클로드부르기(작업id, 질문, 목표자=0):
+    """대본을 받아온다. 길면 토막 내서 이어 쓴다."""
     def 상태(**kw):
         with 생성자물쇠:
             생성중.setdefault(작업id, {}).update(kw)
 
     상태(상태='도는중', 글='', 오류='')
     try:
-        p = subprocess.run(
-            [클로드길, '-p', 질문,
-             '--allowedTools', 'WebFetch,WebSearch'],
-            capture_output=True, timeout=1800,
-            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0),
-        )
-        나온글 = (p.stdout or b'').decode('utf-8', 'replace').strip()
-        에러 = (p.stderr or b'').decode('utf-8', 'replace').strip()
-        if p.returncode != 0 and not 나온글:
-            상태(상태='실패', 오류=에러[:600] or ('끝난 값 %d' % p.returncode))
-        elif not 나온글:
+        if 목표자 >= 9000:
+            글 = 토막내서쓰기(작업id, 질문, 목표자, 상태)
+        else:
+            상태(단계='대본 쓰는 중')
+            글 = 다듬기서버(클로드한번(질문, 분=30))
+        if not 글:
             상태(상태='실패', 오류='클로드가 아무 글도 주지 않았어.')
         else:
-            상태(상태='끝', 글=나온글)
+            상태(상태='끝', 글=글)
     except subprocess.TimeoutExpired:
-        상태(상태='실패', 오류='30분을 넘겨서 멈췄어.')
+        상태(상태='실패', 오류='시간을 넘겨서 멈췄어.')
     except Exception as e:
-        상태(상태='실패', 오류=str(e)[:600])
-
-
-def 쓰기(경로, 값):
-    """여러 요청이 한꺼번에 들어와도 파일이 깨지지 않게 쓴다.
-
-    - 자물쇠로 한 번에 하나만 쓰게 한다
-    - 임시 이름을 요청마다 다르게 해서 서로 덮어쓰지 않게 한다
-    """
-    with 쓰기자물쇠:
-        os.makedirs(os.path.dirname(경로), exist_ok=True)
-        tmp = '%s.%d.tmp' % (경로, threading.get_ident())
-        try:
-            with open(tmp, 'w', encoding='utf-8') as f:
-                json.dump(값, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, 경로)
-        finally:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-
-
-def 작업들():
-    out = []
-    for d in sorted(os.listdir(프로젝트칸)):
-        p = os.path.join(프로젝트칸, d, 'job.json')
-        if os.path.exists(p):
-            v = 읽기(p, None)
-            if v:
-                out.append(v)
-    return out
-
-
-def 작업저장(j):
-    쓰기(os.path.join(프로젝트칸, j['id'], 'job.json'), j)
+        상태(상태='실패', 오류=str(e)[:800])
 
 
 # ── 요청 처리 ─────────────────────────────────────
@@ -250,7 +306,7 @@ class 손(SimpleHTTPRequestHandler):
                     질문 = 기사붙이기(d['prompt'], d.get('urls', ''))
                     with 생성자물쇠:
                         생성중[jid]['단계'] = '대본 쓰는 중'
-                    클로드부르기(jid, 질문)
+                    클로드부르기(jid, 질문, int(d.get('chars') or 0))
 
                 threading.Thread(target=준비하고부르기, daemon=True).start()
                 return self._json({'ok': True})
