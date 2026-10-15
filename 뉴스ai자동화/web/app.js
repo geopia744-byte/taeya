@@ -1647,6 +1647,25 @@ function 컷프롬프트(번호){
   return (작.prompts||[]).find(p=>p.번호===번호) || null;
 }
 
+/* 카드에서 영문 프롬프트를 폈다 접었다 한다.
+   접힌 채로는 세 줄밖에 안 보여서 뒷부분을 읽을 수 없다. */
+const 펴진프롬프트 = new Set();
+
+function 프롬프트펴기(번호){
+  const 글 = document.getElementById('프롬' + 번호);
+  const 편지 = document.getElementById('편지' + 번호);
+  if(!글) return;
+  if(펴진프롬프트.has(번호)){
+    펴진프롬프트.delete(번호);
+    글.style.maxHeight = '54px'; 글.style.overflow = 'hidden';
+    편지.textContent = '전체 보기';
+  } else {
+    펴진프롬프트.add(번호);
+    글.style.maxHeight = 'none'; 글.style.overflow = 'visible';
+    편지.textContent = '접기';
+  }
+}
+
 /* 컷 대본 복사 — 타입캐스트에 붙여넣어 그 컷 소리를 만들 때 쓴다 */
 function 컷대본복사(번호){
   const c = (미리컷||[]).find(x=>x.번호===번호);
@@ -1845,9 +1864,16 @@ function 카드그리기(){
         </div>`:''}
 
         ${p?`<div style="margin-top:8px">
-          <div style="font-size:10.5px;color:var(--tx3);margin-bottom:3px">영문 프롬프트</div>
-          <div style="font-family:Consolas,monospace;font-size:10.5px;line-height:1.55;
-            color:#9fc4dc;max-height:54px;overflow:hidden">${esc(p.영문)}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <span style="font-size:10.5px;color:var(--tx3)">영문 프롬프트</span>
+            <span style="font-size:10px;color:var(--tx3)">${p.영문.length}자</span>
+            <a href="#" onclick="프롬프트펴기(${c.번호});return false"
+              style="margin-left:auto;font-size:10.5px;color:var(--cy2)"
+              id="편지${c.번호}">${펴진프롬프트.has(c.번호)?'접기':'전체 보기'}</a>
+          </div>
+          <div id="프롬${c.번호}" style="font-family:Consolas,monospace;font-size:10.5px;
+            line-height:1.6;color:#9fc4dc;word-break:break-word;
+            ${펴진프롬프트.has(c.번호)?'':'max-height:54px;overflow:hidden'}">${esc(p.영문)}</div>
         </div>`:''}
 
         <div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--line2)">
