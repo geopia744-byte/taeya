@@ -8,6 +8,7 @@ const 컷당자 = 107;
 
 let 작업들 = [];
 let 예시그림 = {};   // {화풍id: dataURL}
+let 클로드있나 = false;
 let 내화풍 = [];
 let 캐릭터들 = [];
 let 작 = null;
@@ -33,7 +34,7 @@ async function api(p, b){
 async function 불러오기(){
   const r = await api('jobs');
   작업들 = r.jobs; 예시그림 = r.samples || {};
-  내화풍 = r.myStyles || []; 캐릭터들 = r.chars || [];
+  내화풍 = r.myStyles || []; 캐릭터들 = r.chars || []; 클로드있나 = !!r.claude;
 }
 async function 항목불러오기(){
   const r = await api('jobs');
@@ -205,15 +206,25 @@ const 본문 = {};
       value="${esc(작.topic||'')}" oninput="저장({topic:this.value})">
 
     <div class="row">
+      <span class="lab">카테고리</span>
+      <select class="sel" id="genre" onchange="장르바꿈(this.value)">
+        ${장르목록.map(g=>`<option value="${g.id}" ${(작.genre||'econ')===g.id?'selected':''}>${esc(g.이름)}</option>`).join('')}
+      </select>
+      <span style="font-size:12px;color:var(--tx3)">고르면 아래 말투가 그 장르에 맞게 바뀐다</span>
+    </div>
+
+    <div class="row">
       <span class="lab">분량</span>
       <select class="sel" id="minutes" onchange="저장({minutes:+this.value});분량안내()">
         ${[5,9,10,15,20,30,45,60].map(v=>`<option value="${v}" ${(작.minutes||9)===v?'selected':''}>${v}분</option>`).join('')}
       </select>
       <input class="in" id="chars" style="width:168px" placeholder="글자수 직접(선택)"
         value="${작.chars2?esc(작.chars2):''}" oninput="저장({chars2:this.value});분량안내()">
-      <button class="btn cy" onclick="질문복사()">대본 생성</button>
+      <button class="btn cy" id="genBtn" onclick="대본생성()">대본 생성</button>
+      <button class="btn" onclick="질문복사()">📋 질문만 복사</button>
     </div>
     <div class="hint" id="분량글">　</div>
+    <div id="생성판" style="margin-top:12px"></div>
   </div>
 
   <div class="card">
@@ -265,9 +276,110 @@ function 분량안내(){
        <b>${g.분}분 ≈ ${g.자.toLocaleString()}자 ≈ 그림 ${컷}장</b>`;
 }
 
-function 질문복사(){
-  const 분=작.minutes||9, 자=분*자당분;
-  복사(`뉴스 영상 대본을 써줘.
+/* 장르를 고르면 말투가 그 장르 것으로 바뀐다 */
+async function 장르바꿈(id){
+  const g = 장르목록.find(x=>x.id===id);
+  const 칸 = document.getElementById('tone');
+  const 지금 = (칸.value||'').trim();
+  const 다른장르말투 = 장르목록.some(x=>x.말투.trim() && x.말투.trim()===지금);
+  if(!지금 || 다른장르말투){        // 비었거나 다른 장르 기본값이면 갈아끼운다
+    칸.value = g.말투;
+  } else if(g.말투.trim() && !confirm(`말투를 「${g.이름}」 기본값으로 바꿀까?\n\n지금 적어 둔 글은 사라져.`)){
+    await 저장({genre:id}); 기둥그리기(); return;
+  } else if(g.말투.trim()){
+    칸.value = g.말투;
+  }
+  await 저장({genre:id, tone:칸.value});
+  toast(`카테고리를 「${g.이름}」 로 바꿨어`);
+}
+
+/* ── 대본 생성 — 클로드 코드를 직접 부른다 ── */
+let 생성폴링 = null;
+
+async function 대본생성(){
+  const 질문 = 질문글();
+  const 판 = document.getElementById('생성판');
+  const 단추 = document.getElementById('genBtn');
+
+  if(!클로드있나){
+    판.innerHTML = `
+      <div class="note" style="margin:0">
+        <b>이 컴퓨터에서 클로드 코드를 찾지 못했어.</b><br>
+        그래서 자동으로는 못 만들어. 두 가지 중 하나야.<br><br>
+        <b>① 지금 바로</b> — 오른쪽 <b>[📋 질문만 복사]</b> 를 눌러 클로드에 붙여넣고,
+        나온 대본을 아래 <b>대본 내용</b> 칸에 붙여넣으면 돼.<br>
+        <b>② 자동으로 하려면</b> — PC에 클로드 코드를 깔고 이 프로그램을 다시 켜.
+      </div>`;
+    질문복사();
+    return;
+  }
+
+  const r = await api('script/start', {id:작.id, prompt:질문});
+  if(!r.ok){ 판.innerHTML = `<div class="note" style="margin:0">${esc(r.why||'시작하지 못했어')}</div>`; return; }
+
+  단추.disabled = true; 단추.textContent = '생성 중...';
+  pill('대본 생성');
+  clearInterval(생성폴링);
+  생성폴링 = setInterval(생성확인, 2000);
+  생성확인();
+}
+
+async function 생성확인(){
+  const 판 = document.getElementById('생성판'); if(!판) { clearInterval(생성폴링); return; }
+  const st = await api('script/status', {id:작.id});
+
+  if(st.상태==='도는중'){
+    const 분 = Math.floor((st.지난초||0)/60), 초 = (st.지난초||0)%60;
+    판.innerHTML = `<div style="background:var(--card2);border:1px solid var(--line2);border-radius:8px;
+      padding:13px 15px;font-size:13px">
+      <b style="color:var(--cy2)">클로드가 대본을 쓰는 중...</b>
+      <span style="color:var(--tx3);margin-left:8px">${분}분 ${초}초 지남</span>
+      <div style="color:var(--tx3);font-size:12px;margin-top:6px">
+        기사를 읽고 쓰느라 <b>3~10분</b>쯤 걸려. 이 창을 닫지 말고 그냥 둬.</div></div>`;
+    return;
+  }
+
+  clearInterval(생성폴링); pill('');
+  const 단추 = document.getElementById('genBtn');
+  if(단추){ 단추.disabled = false; 단추.textContent = '대본 생성'; }
+
+  if(st.상태==='끝'){
+    const 글 = 다듬기(st.글);
+    document.getElementById('script').value = 글;
+    글자세기(); await 저장({script:글}); await 저장지금(); 기둥그리기();
+    판.innerHTML = `<div style="color:#4ade80;font-size:13px">
+      ✓ 대본 ${글.length.toLocaleString()}자를 받았어. 아래 편집창에서 다듬으면 돼.</div>`;
+    toast(`대본 ${글.length.toLocaleString()}자 생성 완료`);
+  } else if(st.상태==='실패'){
+    판.innerHTML = `<div class="note" style="margin:0">
+      <b>대본을 못 받았어.</b><br>
+      <span style="font-family:Consolas,monospace;font-size:11.5px;color:#e3c988">${esc(st.오류||'')}</span><br><br>
+      대신 <b>[📋 질문만 복사]</b> 로 받아올 수 있어.</div>`;
+  }
+}
+
+/* 클로드가 앞뒤에 붙이는 인사말·따옴표 울타리를 걷어낸다 */
+function 다듬기(t){
+  t = (t||'').trim();
+  t = t.replace(/^```[a-z]*\s*/i,'').replace(/```\s*$/,'');
+  t = t.replace(/^(네[,.]?\s*|알겠습니다[,.]?\s*|여기\s*있습니다[.:]?\s*)/,'');
+  return t.trim();
+}
+
+function pill(글){
+  const p=document.getElementById('pill');
+  if(!p) return;
+  if(글){ document.getElementById('pillTx').textContent=글; p.classList.add('on'); }
+  else p.classList.remove('on');
+}
+
+function 질문글(){
+  const g = 목표글자수();
+  const 장르 = (장르목록.find(x=>x.id===(작.genre||'econ'))||{}).이름 || '';
+  return `뉴스 영상 대본을 써줘.
+
+[카테고리]
+${장르}
 
 [참고 기사]
 ${작.url||'(없음)'}
@@ -276,7 +388,7 @@ ${작.url||'(없음)'}
 ${작.topic||'(기사 내용에 따름)'}
 
 [분량]
-정확히 ${자.toLocaleString()}자 내외 (약 ${분}분 분량)
+정확히 ${g.자.toLocaleString()}자 내외
 
 [말투·스토리텔링]
 ${(작.tone||'').trim() || '- 차분하고 신뢰감 있는 뉴스 해설 말투\n- 첫 세 문장 안에 시청자를 붙잡는 긴장감을 준다\n- 마무리는 여운을 남기는 한 문장으로 끝낸다'}
@@ -287,8 +399,13 @@ ${(작.tone||'').trim() || '- 차분하고 신뢰감 있는 뉴스 해설 말투
 3. 문단은 빈 줄로 구분
 4. 특수문자(※ ★ → 등)와 이모지 쓰지 말 것
 5. URL, 이메일 주소 넣지 말 것
-6. 단어 뒤 괄호 금지 (클로드(Claude) ❌ → 클로드 ⭕)
-7. 설명이나 머리말 없이 대본 본문만 출력할 것`, '질문을 복사했어. 클로드에 붙여넣어');
+6. 단어 뒤 괄호 금지 (클로드(Claude) 금지 → 클로드)
+7. 설명이나 머리말 없이 대본 본문만 출력할 것
+8. 참고 기사 주소가 있으면 그 내용을 먼저 읽고 쓸 것`;
+}
+
+function 질문복사(){
+  복사(질문글(), '질문을 복사했어. 클로드에 붙여넣어');
 }
 
 function 글자세기(){

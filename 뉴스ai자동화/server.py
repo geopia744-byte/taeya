@@ -30,6 +30,47 @@ def 읽기(경로, 기본):
 
 쓰기자물쇠 = threading.Lock()
 
+# ── 클로드 코드가 이 PC에 깔려 있나 ──────────────
+import shutil, subprocess
+
+클로드길 = None
+for 이름 in ('claude', 'claude.cmd', 'claude.exe'):
+    찾음 = shutil.which(이름)
+    if 찾음:
+        클로드길 = 찾음
+        break
+
+# 돌고 있는 생성 작업  {작업id: {상태, 글, 오류}}
+생성중 = {}
+생성자물쇠 = threading.Lock()
+
+
+def 클로드부르기(작업id, 질문):
+    """클로드 코드를 불러서 대본을 받아온다. 오래 걸리므로 딴 가닥에서 돈다."""
+    def 상태(**kw):
+        with 생성자물쇠:
+            생성중.setdefault(작업id, {}).update(kw)
+
+    상태(상태='도는중', 글='', 오류='', 시작=time.time())
+    try:
+        p = subprocess.run(
+            [클로드길, '-p', 질문],
+            capture_output=True, timeout=1800,
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0),
+        )
+        나온글 = (p.stdout or b'').decode('utf-8', 'replace').strip()
+        에러 = (p.stderr or b'').decode('utf-8', 'replace').strip()
+        if p.returncode != 0 and not 나온글:
+            상태(상태='실패', 오류=에러[:600] or ('끝난 값 %d' % p.returncode))
+        elif not 나온글:
+            상태(상태='실패', 오류='클로드가 아무 글도 주지 않았어.')
+        else:
+            상태(상태='끝', 글=나온글)
+    except subprocess.TimeoutExpired:
+        상태(상태='실패', 오류='30분을 넘겨서 멈췄어.')
+    except Exception as e:
+        상태(상태='실패', 오류=str(e)[:600])
+
 
 def 쓰기(경로, 값):
     """여러 요청이 한꺼번에 들어와도 파일이 깨지지 않게 쓴다.
@@ -94,8 +135,12 @@ class 손(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/api/'):
             if self.path == '/api/jobs':
+                항목 = 읽기(os.path.join(자료, 'items.json'), {})
                 return self._json({'jobs': 작업들(),
-                                   'samples': 읽기(os.path.join(자료, 'style_samples.json'), {})})
+                                   'samples': 읽기(os.path.join(자료, 'style_samples.json'), {}),
+                                   'myStyles': 항목.get('style', []),
+                                   'chars': 항목.get('char', []),
+                                   'claude': bool(클로드길)})
             return self._json({'error': '모르는 길'}, 404)
         return super().do_GET()
 
@@ -106,6 +151,24 @@ class 손(SimpleHTTPRequestHandler):
         길 = self.path[5:]
         try:
             d = self._body()
+
+            if 길 == 'script/start':
+                if not 클로드길:
+                    return self._json({'ok': False, 'why': '클로드 코드가 이 컴퓨터에 없어'})
+                jid = d['id']
+                with 생성자물쇠:
+                    돌고있나 = 생성중.get(jid, {}).get('상태') == '도는중'
+                if 돌고있나:
+                    return self._json({'ok': True, '이미': True})
+                threading.Thread(target=클로드부르기, args=(jid, d['prompt']), daemon=True).start()
+                return self._json({'ok': True})
+
+            if 길 == 'script/status':
+                with 생성자물쇠:
+                    st = dict(생성중.get(d['id'], {'상태': '없음'}))
+                if st.get('시작'):
+                    st['지난초'] = int(time.time() - st.pop('시작'))
+                return self._json(st)
 
             if 길 == 'cut':
                 컷 = cutter.컷나누기(
@@ -126,6 +189,29 @@ class 손(SimpleHTTPRequestHandler):
                     표[d['id']] = d['data']
                 else:
                     표.pop(d['id'], None)
+                쓰기(파일, 표)
+                return self._json({'ok': True})
+
+            if 길 == 'item/save':
+                파일 = os.path.join(자료, 'items.json')
+                표 = 읽기(파일, {})
+                목록 = 표.setdefault(d['kind'], [])
+                it = d['item']
+                if it.get('id'):
+                    for i, x in enumerate(목록):
+                        if x['id'] == it['id']:
+                            목록[i] = {**x, **it}
+                            break
+                else:
+                    it['id'] = uuid.uuid4().hex[:8]
+                    목록.append(it)
+                쓰기(파일, 표)
+                return self._json({'ok': True})
+
+            if 길 == 'item/del':
+                파일 = os.path.join(자료, 'items.json')
+                표 = 읽기(파일, {})
+                표[d['kind']] = [x for x in 표.get(d['kind'], []) if x['id'] != d['id']]
                 쓰기(파일, 표)
                 return self._json({'ok': True})
 
@@ -179,6 +265,11 @@ def main():
     print('  창이 저절로 열려. 안 열리면 아래 주소를 복사해서 넣어줘.')
     print('')
     print('      ' + 주소)
+    print('')
+    if 클로드길:
+        print('  클로드 코드를 찾았어 → 대본 생성이 자동으로 돌아가.')
+    else:
+        print('  클로드 코드가 안 보여 → 대본은 [질문 복사]로 받아오면 돼.')
     print('')
     print('  ※ 이 검은 창은 닫지 마. 닫으면 화면도 멈춰.')
     print('    다 썼으면 이 창에서 Ctrl + C 를 누르거나 그냥 닫으면 돼.')
