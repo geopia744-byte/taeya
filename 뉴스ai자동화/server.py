@@ -45,16 +45,91 @@ for 이름 in ('claude', 'claude.cmd', 'claude.exe'):
 생성자물쇠 = threading.Lock()
 
 
+import urllib.request, html as _html, re as _re
+
+브라우저인척 = {
+    'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                   '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'),
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+}
+
+
+def 기사읽기(주소, 최대글자=12000):
+    """뉴스 기사 주소를 열어서 본문 글만 뽑는다.
+
+    클로드 코드에게 주소를 주면 WebFetch 권한을 물어보느라 멈춘다.
+    그래서 여기서 먼저 읽어 글로 바꿔 넘긴다.
+    """
+    주소 = (주소 or '').strip()
+    if not 주소.startswith('http'):
+        return None, '주소가 아니야'
+    try:
+        req = urllib.request.Request(주소, headers=브라우저인척)
+        with urllib.request.urlopen(req, timeout=25) as r:
+            원본 = r.read()
+        글 = 원본.decode('utf-8', 'replace')
+    except Exception as e:
+        return None, str(e)[:200]
+
+    # 네이버 뉴스는 본문 칸이 정해져 있다
+    본문 = None
+    for 패턴 in (r'<div[^>]+id="dic_area"[^>]*>(.*?)</div>',
+                r'<article[^>]*>(.*?)</article>',
+                r'<div[^>]+id="newsct_article"[^>]*>(.*?)</div>'):
+        m = _re.search(패턴, 글, _re.S | _re.I)
+        if m:
+            본문 = m.group(1)
+            break
+    덩어리 = 본문 or 글
+
+    제목 = ''
+    m = _re.search(r'<title[^>]*>(.*?)</title>', 글, _re.S | _re.I)
+    if m:
+        제목 = _html.unescape(_re.sub(r'<[^>]+>', '', m.group(1))).strip()
+
+    덩어리 = _re.sub(r'<(script|style|noscript)[^>]*>.*?</\1>', ' ', 덩어리, flags=_re.S | _re.I)
+    덩어리 = _re.sub(r'<br\s*/?>|</p>|</div>', '\n', 덩어리, flags=_re.I)
+    덩어리 = _re.sub(r'<[^>]+>', ' ', 덩어리)
+    덩어리 = _html.unescape(덩어리)
+    덩어리 = _re.sub(r'[ \t ]+', ' ', 덩어리)
+    덩어리 = _re.sub(r'\n\s*\n\s*\n+', '\n\n', 덩어리).strip()
+
+    if len(덩어리) < 150:
+        return None, '본문을 찾지 못했어 (글이 너무 짧음)'
+    return {'제목': 제목, '본문': 덩어리[:최대글자]}, None
+
+
+def 기사붙이기(질문, 주소들):
+    """질문에 기사 본문을 끼워 넣는다. 못 읽은 주소는 그대로 남긴다."""
+    모음, 못읽음 = [], []
+    for u in [x.strip() for x in (주소들 or '').splitlines() if x.strip()][:3]:
+        글, 왜 = 기사읽기(u)
+        if 글:
+            모음.append('■ %s\n%s\n\n%s' % (글['제목'] or u, u, 글['본문']))
+        else:
+            못읽음.append('%s  (%s)' % (u, 왜))
+    if not 모음 and not 못읽음:
+        return 질문
+    덧 = ''
+    if 모음:
+        덧 += ('\n\n[기사 본문 — 아래 글을 바탕으로 써라. 따로 인터넷을 뒤질 필요 없다]\n'
+               + '\n\n────────\n\n'.join(모음))
+    if 못읽음:
+        덧 += '\n\n[못 읽은 주소 — 내용을 모르니 추측하지 말 것]\n' + '\n'.join(못읽음)
+    return 질문 + 덧
+
+
 def 클로드부르기(작업id, 질문):
     """클로드 코드를 불러서 대본을 받아온다. 오래 걸리므로 딴 가닥에서 돈다."""
     def 상태(**kw):
         with 생성자물쇠:
             생성중.setdefault(작업id, {}).update(kw)
 
-    상태(상태='도는중', 글='', 오류='', 시작=time.time())
+    상태(상태='도는중', 글='', 오류='')
     try:
         p = subprocess.run(
-            [클로드길, '-p', 질문],
+            [클로드길, '-p', 질문,
+             '--allowedTools', 'WebFetch,WebSearch'],
             capture_output=True, timeout=1800,
             creationflags=(subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0),
         )
@@ -152,6 +227,14 @@ class 손(SimpleHTTPRequestHandler):
         try:
             d = self._body()
 
+            if 길 == 'article/peek':
+                글, 왜 = 기사읽기(d.get('url', ''))
+                if 글:
+                    return self._json({'ok': True, '제목': 글['제목'],
+                                       '글자수': len(글['본문']),
+                                       '맛보기': 글['본문'][:300]})
+                return self._json({'ok': False, 'why': 왜})
+
             if 길 == 'script/start':
                 if not 클로드길:
                     return self._json({'ok': False, 'why': '클로드 코드가 이 컴퓨터에 없어'})
@@ -160,7 +243,16 @@ class 손(SimpleHTTPRequestHandler):
                     돌고있나 = 생성중.get(jid, {}).get('상태') == '도는중'
                 if 돌고있나:
                     return self._json({'ok': True, '이미': True})
-                threading.Thread(target=클로드부르기, args=(jid, d['prompt']), daemon=True).start()
+                def 준비하고부르기():
+                    with 생성자물쇠:
+                        생성중[jid] = {'상태': '도는중', '글': '', '오류': '',
+                                      '시작': time.time(), '단계': '기사 읽는 중'}
+                    질문 = 기사붙이기(d['prompt'], d.get('urls', ''))
+                    with 생성자물쇠:
+                        생성중[jid]['단계'] = '대본 쓰는 중'
+                    클로드부르기(jid, 질문)
+
+                threading.Thread(target=준비하고부르기, daemon=True).start()
                 return self._json({'ok': True})
 
             if 길 == 'script/status':

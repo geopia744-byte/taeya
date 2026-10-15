@@ -199,9 +199,20 @@ const 본문 = {};
     <div class="desc">참고 유튜브 링크나 <b>뉴스 기사 주소</b>를 주면 Claude가 리서치해서 대본 초안을 써줍니다.
       생성 후 아래 편집창에서 다듬고 확정하세요.</div>
 
-    <textarea class="ta" id="url" style="min-height:58px;margin-bottom:9px"
+    <textarea class="ta" id="url" style="min-height:58px;margin-bottom:7px"
       placeholder="참고 유튜브·뉴스 URL (선택, 한 줄에 하나씩)"
       oninput="저장({url:this.value})">${esc(작.url||'')}</textarea>
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+      <button class="btn sm" onclick="기사확인()">🔍 기사 읽히는지 확인</button>
+      <span class="hint" id="기사상태" style="margin:0">주소를 넣고 눌러봐. 못 읽으면 본문을 직접 붙여넣으면 돼.</span>
+    </div>
+    <div id="본문칸">${작.articleText?`
+      <div style="margin-bottom:12px">
+        <div style="font-size:12.5px;color:var(--tx2);margin-bottom:6px">
+          기사 본문 (직접 붙여넣은 것) — ${작.articleText.length.toLocaleString()}자</div>
+        <textarea class="ta" id="atext" style="min-height:90px"
+          oninput="저장({articleText:this.value})">${esc(작.articleText)}</textarea>
+      </div>`:''}</div>
     <input class="in" id="topic" style="margin-bottom:12px" placeholder="주제/소재 (예: 인공지능 해킹)"
       value="${esc(작.topic||'')}" oninput="저장({topic:this.value})">
 
@@ -293,6 +304,35 @@ async function 장르바꿈(id){
   toast(`카테고리를 「${g.이름}」 로 바꿨어`);
 }
 
+/* 기사를 프로그램이 읽을 수 있는지 먼저 확인해 본다 */
+async function 기사확인(){
+  const 줄 = (document.getElementById('url').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const 칸 = document.getElementById('기사상태');
+  if(!줄.length){ 칸.innerHTML='<span style="color:#fbbf24">주소를 먼저 넣어줘</span>'; return; }
+  칸.textContent = '읽어보는 중...';
+  const r = await api('article/peek', {url:줄[0]});
+  if(r.ok){
+    칸.innerHTML = `<span style="color:#4ade80">✓ 읽었어 — ${esc(r.제목||'')} (${r.글자수.toLocaleString()}자)</span>`;
+  }else{
+    칸.innerHTML = `<span style="color:#fbbf24">✕ 못 읽었어 (${esc(r.why||'')}) — 아래에 본문을 붙여넣어줘</span>`;
+    본문칸열기();
+  }
+}
+
+function 본문칸열기(){
+  const 칸 = document.getElementById('본문칸');
+  if(document.getElementById('atext')) { document.getElementById('atext').focus(); return; }
+  칸.innerHTML = `
+    <div style="margin-bottom:12px">
+      <div style="font-size:12.5px;color:var(--tx2);margin-bottom:6px">
+        기사 본문을 그대로 붙여넣어 (기사 화면에서 글만 긁어오면 돼)</div>
+      <textarea class="ta" id="atext" style="min-height:120px"
+        placeholder="기사 본문을 여기에 붙여넣어."
+        oninput="저장({articleText:this.value})"></textarea>
+    </div>`;
+  document.getElementById('atext').focus();
+}
+
 /* ── 대본 생성 — 클로드 코드를 직접 부른다 ── */
 let 생성폴링 = null;
 
@@ -314,7 +354,7 @@ async function 대본생성(){
     return;
   }
 
-  const r = await api('script/start', {id:작.id, prompt:질문});
+  const r = await api('script/start', {id:작.id, prompt:질문, urls:(작.url||'')});
   if(!r.ok){ 판.innerHTML = `<div class="note" style="margin:0">${esc(r.why||'시작하지 못했어')}</div>`; return; }
 
   단추.disabled = true; 단추.textContent = '생성 중...';
@@ -332,7 +372,7 @@ async function 생성확인(){
     const 분 = Math.floor((st.지난초||0)/60), 초 = (st.지난초||0)%60;
     판.innerHTML = `<div style="background:var(--card2);border:1px solid var(--line2);border-radius:8px;
       padding:13px 15px;font-size:13px">
-      <b style="color:var(--cy2)">클로드가 대본을 쓰는 중...</b>
+      <b style="color:var(--cy2)">${esc(st.단계||'클로드가 대본을 쓰는 중')}...</b>
       <span style="color:var(--tx3);margin-left:8px">${분}분 ${초}초 지남</span>
       <div style="color:var(--tx3);font-size:12px;margin-top:6px">
         기사를 읽고 쓰느라 <b>3~10분</b>쯤 걸려. 이 창을 닫지 말고 그냥 둬.</div></div>`;
@@ -401,7 +441,10 @@ ${(작.tone||'').trim() || '- 차분하고 신뢰감 있는 뉴스 해설 말투
 5. URL, 이메일 주소 넣지 말 것
 6. 단어 뒤 괄호 금지 (클로드(Claude) 금지 → 클로드)
 7. 설명이나 머리말 없이 대본 본문만 출력할 것
-8. 참고 기사 주소가 있으면 그 내용을 먼저 읽고 쓸 것`;
+8. 참고 기사 주소가 있으면 그 내용을 먼저 읽고 쓸 것` +
+    ((작.articleText||'').trim()
+      ? `\n\n[기사 본문 — 아래 글을 바탕으로 써라. 따로 인터넷을 뒤질 필요 없다]\n${작.articleText.trim()}`
+      : '');
 }
 
 function 질문복사(){
