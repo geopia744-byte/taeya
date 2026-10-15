@@ -865,6 +865,9 @@ def 클로드부르기(작업id, 질문, 목표자=0):
 
 # ── 요청 처리 ─────────────────────────────────────
 class 손(SimpleHTTPRequestHandler):
+    # 재생틀이 Range 로 조각을 달라고 하려면 HTTP/1.1 이어야 한다
+    protocol_version = 'HTTP/1.1'
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=웹, **kw)
 
@@ -1029,20 +1032,50 @@ class 손(SimpleHTTPRequestHandler):
                 if not os.path.exists(파일):
                     return self._json({'error': '아직 없어'}, 404)
                 크기 = os.path.getsize(파일)
-                self.send_response(200)
+                # 재생틀은 영상을 조각내서 달라고 한다(Range).
+                # 이걸 안 받으면 브라우저가 아예 못 읽거나 중간으로 못 넘긴다.
+                처음, 끝자리 = 0, 크기 - 1
+                범위 = self.headers.get('Range', '')
+                쪼갬 = False
+                m = re.match(r'bytes=(\d*)-(\d*)', 범위 or '')
+                if m:
+                    쪼갬 = True
+                    if m.group(1):
+                        처음 = int(m.group(1))
+                        if m.group(2):
+                            끝자리 = min(int(m.group(2)), 크기 - 1)
+                    elif m.group(2):            # bytes=-500 (뒤에서 500)
+                        처음 = max(0, 크기 - int(m.group(2)))
+                    if 처음 >= 크기:
+                        self.send_response(416)
+                        self.send_header('Content-Range', 'bytes */%d' % 크기)
+                        self.end_headers()
+                        return
+                보낼것 = 끝자리 - 처음 + 1
+
+                self.send_response(206 if 쪼갬 else 200)
                 self.send_header('Content-Type', 'video/mp4')
-                self.send_header('Content-Length', str(크기))
-                self.send_header('Accept-Ranges', 'none')
+                self.send_header('Accept-Ranges', 'bytes')
+                self.send_header('Content-Length', str(보낼것))
+                if 쪼갬:
+                    self.send_header('Content-Range',
+                                     'bytes %d-%d/%d' % (처음, 끝자리, 크기))
                 if (q.get('dl') or [''])[0]:
                     self.send_header('Content-Disposition',
                                      'attachment; filename="wansung.mp4"')
                 self.end_headers()
                 with open(파일, 'rb') as f:
-                    while True:
-                        덩이 = f.read(1 << 20)
+                    f.seek(처음)
+                    남은 = 보낼것
+                    while 남은 > 0:
+                        덩이 = f.read(min(1 << 20, 남은))
                         if not 덩이:
                             break
-                        self.wfile.write(덩이)
+                        try:
+                            self.wfile.write(덩이)
+                        except (BrokenPipeError, ConnectionResetError):
+                            return          # 재생틀이 먼저 끊는 건 흔하다
+                        남은 -= len(덩이)
                 return
 
             if self.path.startswith('/api/voicefile'):
