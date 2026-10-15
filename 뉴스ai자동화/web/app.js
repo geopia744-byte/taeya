@@ -174,7 +174,7 @@ function 그리기(){
   document.getElementById('main').innerHTML =
     `<div class="stepno">${i+1}/7 ${단계[i].ko}</div>` + 본문[현재]()
     + (자체이동줄.includes(현재) ? '' : 이동줄(i));
-  if(현재==='script'){ 글자세기(); 본문칸열기(); 어미보기(); 분량안내(); }
+  if(현재==='script'){ 글자세기(); 본문칸열기(); 어미보기(); 분량안내(); 배율안내(); }
   if(현재==='storyboard'){ 다펼침=false; 컷그리기(); }
 }
 function 이동줄(i){
@@ -231,12 +231,22 @@ const 본문 = {};
     </div>
 
     <div class="row">
+      <span class="lab">근거 범위</span>
+      <select class="sel" id="scope" onchange="저장({scope:this.value});배율안내()">
+        <option value="only" ${(작.scope||'only')==='only'?'selected':''}>기사만 쓰기 (안전)</option>
+        <option value="bg"   ${작.scope==='bg'?'selected':''}>기사 + 배경 조사 (깊이)</option>
+      </select>
+      <span style="font-size:12px;color:var(--tx3)" id="범위글">　</span>
+    </div>
+    <div id="배율판" style="margin-top:10px"></div>
+
+    <div class="row">
       <span class="lab">분량</span>
-      <select class="sel" id="minutes" onchange="저장({minutes:+this.value});분량안내()">
+      <select class="sel" id="minutes" onchange="저장({minutes:+this.value});분량안내();배율안내()">
         ${[5,9,10,15,20,30,45,60].map(v=>`<option value="${v}" ${(작.minutes||9)===v?'selected':''}>${v}분</option>`).join('')}
       </select>
       <input class="in" id="chars" style="width:168px" placeholder="글자수 직접(선택)"
-        value="${작.chars2?esc(작.chars2):''}" oninput="저장({chars2:this.value});분량안내()">
+        value="${작.chars2?esc(작.chars2):''}" oninput="저장({chars2:this.value});분량안내();배율안내()">
       <button class="btn cy" id="genBtn" onclick="대본생성()">대본 생성</button>
       <button class="btn" onclick="질문복사()">📋 질문만 복사</button>
     </div>
@@ -278,6 +288,67 @@ const 본문 = {};
     <div style="text-align:right;margin-top:7px" class="hint" id="글자">0자 / 60,000자</div>
     <div style="margin-top:6px;font-size:13px" id="검사">　</div>
   </div>`;
+
+/* 기사 분량 대비 목표 분량이 얼마나 되는지 미리 알려준다.
+   레퍼런스 영상 실측: 기사 약 1,800자 → 대본 4,621자 ≈ 2.5배 */
+function 배율안내(){
+  const 판 = document.getElementById('배율판'); if(!판) return;
+  const 범 = document.getElementById('범위글');
+  if(범) 범.textContent = (작.scope==='bg')
+    ? '핵심 사실은 기사에서만. 배경·용어·과거 사례만 조사해서 보탠다'
+    : '기사에 있는 사실만 쓴다. 조사하지 않는다';
+
+  const 기사 = (작.articleText||'').trim().length;
+  if(!기사){ 판.innerHTML=''; return; }
+  const 목표 = 목표글자수().자;
+  const 배 = 목표/기사;
+  const 알맞 = Math.round(기사*2.5);
+
+  let 색, 말;
+  if(배 <= 2){        색='#4ade80'; 말='넉넉해. 기사 내용이 충분히 담겨.'; }
+  else if(배 <= 4){   색='#4ade80'; 말='적당해. 레퍼런스 영상도 이 범위였어 (약 2.5배).'; }
+  else if(배 <= 8){   색='#fbbf24'; 말='묽어질 수 있어. 같은 사실을 여러 번 돌려 쓰게 돼.'; }
+  else {              색='#ef4444'; 말='무리야. 같은 말을 되풀이하는 대본이 나와.'; }
+
+  판.innerHTML = `
+    <div style="background:var(--card2);border:1px solid ${색}44;border-left:3px solid ${색};
+      border-radius:7px;padding:11px 14px;font-size:12.5px;line-height:1.75">
+      기사 <b>${기사.toLocaleString()}자</b> → 대본 <b>${목표.toLocaleString()}자</b>
+      · <b style="color:${색}">${배.toFixed(1)}배</b><br>
+      <span style="color:${색}">${말}</span>
+      ${배 > 4 ? `<br><span style="color:var(--tx2)">이렇게 해 봐 ─
+        <b>분량을 ${(알맞/자당분).toFixed(0)}분(${알맞.toLocaleString()}자)</b>으로 줄이거나,
+        <b>같은 사건을 다룬 기사를 2~3개 더</b> 넣거나,
+        <b>근거 범위를 「기사 + 배경 조사」</b>로 바꿔봐.</span>` : ''}
+    </div>`;
+}
+
+/* 근거를 어디까지 쓸지 */
+function 근거규칙(){
+  if(작.scope === 'bg'){
+    return `이 영상의 뼈대는 아래 [기사 본문]이다. 거기서 벗어나지 마라.
+   다만 듣는 사람이 이해하는 데 필요한 배경은 네가 조사해서 보태도 된다.
+
+   기사에서만 가져올 것 (절대 지어내지 마라)
+     - 이번 사건의 날짜, 숫자, 금액, 지분율, 인물 이름, 기관 이름
+     - 누가 무엇을 했다는 사실 주장
+     - 확정된 것과 아직 정해지지 않은 것의 구분
+
+   네가 조사해서 보태도 되는 것
+     - 용어 풀이 (이 회사가 무엇을 하는 곳인지, 이 제도가 무엇인지)
+     - 이 일이 왜 중요한지에 대한 배경과 맥락
+     - 비슷한 과거 사례
+
+   조사해서 넣은 내용은 단정하지 마라.
+   알려져 있습니다, 전해집니다, 로 알려진 곳입니다 처럼 한 겹 눅여서 말하라.
+   이번 사건의 핵심 수치를 기사 밖에서 가져오는 것은 어떤 경우에도 금지다.`;
+  }
+  return `아래 [기사 본문]에 적힌 사실만 써라.
+   날짜, 숫자, 인물, 기관 이름, 사건 내용을 네 기억으로 지어내지 마라.
+   기사에 없는 통계나 사례를 만들어 붙이지 마라.
+   기사에 없는 내용이 필요하면 그 부분을 쓰지 말고 넘어가라.
+   비유와 설명은 네가 만들어도 되지만, 사실 주장은 반드시 기사에서 나와야 한다.`;
+}
 
 function 어미보기(){
   const e = 어미목록.find(x=>x.id===(작.ending||'jon'))||어미목록[0];
@@ -366,7 +437,7 @@ function 본문칸열기(글){
       </div>
       <textarea class="ta" id="atext" style="min-height:130px"
         placeholder="기사 화면에서 본문 글을 긁어다 그대로 붙여넣어."
-        oninput="저장({articleText:this.value});본문세기갱신()">${esc(값)}</textarea>
+        oninput="저장({articleText:this.value});본문세기갱신();배율안내()">${esc(값)}</textarea>
     </div>`;
   if(!값) document.getElementById('atext').focus();
 }
@@ -612,11 +683,7 @@ function 질문글(){
   return `너는 유튜브 롱폼 영상 대본 작가다. 아래 조건으로 대본을 써라.
 
 [가장 중요한 규칙]
-1. 아래 [기사 본문]에 적힌 사실만 써라.
-   날짜, 숫자, 인물, 기관 이름, 사건 내용을 네 기억으로 지어내지 마라.
-   기사에 없는 통계나 사례를 만들어 붙이지 마라.
-   기사에 없는 내용이 필요하면 그 부분을 쓰지 말고 넘어가라.
-   비유와 설명은 네가 만들어도 되지만, 사실 주장은 반드시 기사에서 나와야 한다.
+1. ${근거규칙()}
 2. 되묻지 마라. 질문하지 마라. 확인을 구하지 마라.
    곧바로 대본 본문만 출력해라.
 3. 머리말, 설명, 인사말, 마무리 인사를 쓰지 마라. 첫 글자부터 대본이어야 한다.
@@ -655,7 +722,7 @@ ${구조글(g.자)}
 11. 위 [문장 끝맺음] 규칙을 처음부터 끝까지 한 문장도 빠짐없이 지킬 것.
     말투 설명이 다른 어미로 적혀 있어도 거기에 끌려가지 말 것` +
     ((작.articleText||'').trim()
-      ? `\n\n[기사 본문 — 아래 글을 바탕으로 써라. 따로 인터넷을 뒤질 필요 없다]\n${작.articleText.trim()}`
+      ? `\n\n[기사 본문 — 이 영상의 뼈대다]\n${작.articleText.trim()}`
       : '');
 }
 
