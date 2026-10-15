@@ -238,6 +238,7 @@ function 그리기(){
   if(현재==='script'){ 글자세기(); 본문칸열기(); 어미보기(); 분량안내(); 배율안내(); 다음안내(); }
   if(현재==='voice'){ 펼친음성=false; 대조불러오기(); }
   if(현재==='storyboard'){ 다펼침=false; 컷그리기(); }
+  if(현재==='video'){ 소리폄=false; 그림불러오기(); 소리맞춰보기(); }
 }
 function 이동줄(i){
   const 앞=i>0?단계[i-1]:null, 뒤=i<단계.length-1?단계[i+1]:null;
@@ -2276,20 +2277,306 @@ function 전체프롬프트복사(){
 }
 
 /* ══ 6 영상 ══ */
-본문.video = ()=>`
+본문.video = ()=>{
+  const cs = 작.cuts||미리컷||[];
+  return `
   <div class="h1">영상</div>
-  <div class="h1sub">그림 + 음성 + 자막을 붙여서 mp4 하나로 만든다.</div>
-  <div class="note">아직 안 만든 단계야 (다음 차수).</div>
+  <div class="h1sub">그림 + 음성 + 자막을 붙여서 <b style="color:var(--cy2)">mp4 하나</b>로 만든다.</div>
+
   <div class="card">
-    <h3>무엇이 들어갈 예정인가</h3>
-    <div style="font-size:13px;color:var(--tx2);line-height:2">
-      • 컷마다 그림 올리기 (끌어다 놓기 / 이미지 교체)<br>
-      • 그림을 컷 길이에 맞춰 이어 붙이기<br>
-      • 음성 얹기<br>
-      • <b>자막을 화면에 굽기</b><br>
-      • 1920×1080 mp4 로 내보내고 [폴더 열기]
+    <h3>① 나레이션 넣기</h3>
+    <div class="desc">타입캐스트에서 만든 소리 파일을 여기에 끌어다 놓으면 돼.
+      대본 전체를 한 번에 만든 <b>통짜 파일 하나</b>면 된다.</div>
+    <div id="소리칸" ondragover="event.preventDefault();this.style.borderColor='var(--cy)'"
+      ondragleave="this.style.borderColor='var(--line2)'"
+      ondrop="소리떨구기(event)"
+      style="margin-top:12px;border:2px dashed var(--line2);border-radius:11px;
+      padding:26px;text-align:center;cursor:pointer;transition:border-color .15s"
+      onclick="document.getElementById('소리고르기').click()">
+      <div style="font-size:15px;color:var(--tx2)">여기에 <b>mp3</b> 를 끌어다 놓기</div>
+      <div style="font-size:12.5px;color:var(--tx3);margin-top:6px">
+        누르면 파일 고르는 창이 열려 · mp3 · wav · m4a</div>
     </div>
+    <input type="file" id="소리고르기" accept="audio/*" style="display:none"
+      onchange="소리고름(this.files[0])">
+    <div id="소리판" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h3>② 컷마다 그림 넣기</h3>
+    <div class="desc">제미니·Flow 에서 받은 그림을 컷에 끌어다 놓으면 돼.
+      안 넣은 컷은 어두운 바탕으로 채워진다.</div>
+    <div style="display:flex;gap:9px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="btn sm" onclick="그림폴더()">그림 폴더 열기</button>
+      <span class="hint" style="margin:0">폴더에 <b>0001.png</b> 처럼 컷 번호로 넣어도 돼</span>
+      <span style="margin-left:auto;font-size:12.5px" id="그림셈"></span>
+    </div>
+    <div id="그림판" style="margin-top:13px"></div>
+  </div>
+
+  <div class="card">
+    <h3>③ 영상 만들기</h3>
+    <div style="display:flex;align-items:center;gap:14px;margin:12px 0 6px">
+      <span class="lab" style="width:118px">자막 한 줄 글자수</span>
+      <b id="자막값2" style="width:44px;font-size:15px">${작.subMax||22}</b>
+      <input type="range" id="subMax2" min="14" max="30" step="1" value="${작.subMax||22}"
+        oninput="document.getElementById('자막값2').textContent=this.value;저장({subMax:+this.value})"
+        style="flex:1;max-width:320px;accent-color:var(--cy)">
+      <span style="font-size:12px;color:var(--tx3)">1920 폭에 56px 글자면 22자가 알맞아</span>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;
+      color:var(--tx2);margin:10px 0 14px;cursor:pointer">
+      <input type="checkbox" id="자막켜기" ${작.자막===false?'':'checked'}
+        onchange="저장({자막:this.checked})" style="width:17px;height:17px;accent-color:var(--cy)">
+      자막을 화면에 굽는다 (끄면 자막 없는 영상이 나와)
+    </label>
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+      <button class="btn cy" id="영상단추" style="font-size:15px;padding:11px 22px"
+        onclick="영상시작()">영상 만들기</button>
+      <span class="hint" style="margin:0">장면 ${cs.length}개 · 1~4분쯤 걸려. 창을 닫지 마</span>
+    </div>
+    <div id="영상판" style="margin-top:13px"></div>
   </div>`;
+};
+
+/* ── 나레이션 넣기 ─────────────────────── */
+function 소리떨구기(ev){
+  ev.preventDefault(); ev.stopPropagation();
+  ev.currentTarget.style.borderColor='var(--line2)';
+  소리고름((ev.dataTransfer.files||[])[0]);
+}
+
+async function 소리고름(f){
+  if(!f) return;
+  const 끝 = '.' + (f.name.split('.').pop()||'').toLowerCase();
+  if(!['.mp3','.wav','.m4a','.aac','.ogg','.flac'].includes(끝)){
+    toast('소리 파일만 돼 (mp3 · wav · m4a)', true); return;
+  }
+  const 판 = document.getElementById('소리판');
+  판.innerHTML = `<div style="color:var(--cy2);font-size:13px">
+    ${esc(f.name)} 올리는 중... (${(f.size/1048576).toFixed(1)}MB)</div>`;
+  try{
+    const r = await fetch(`/api/upload?id=${encodeURIComponent(작.id)}&kind=narration&ext=${끝}`,
+      {method:'POST', body:f, headers:{'Content-Type':'application/octet-stream'}});
+    const j = await r.json();
+    if(!j.ok){ 판.innerHTML = `<div class="note" style="margin:0">${esc(j.why||'못 올렸어')}</div>`; return; }
+    toast(`소리 올렸어 · ${j.초?j.초.toFixed(1)+'초':''}`);
+    소리맞춰보기();
+  }catch(e){
+    판.innerHTML = `<div class="note" style="margin:0">올리다 끊겼어: ${esc(String(e))}</div>`;
+  }
+}
+
+async function 소리맞춰보기(){
+  const 판 = document.getElementById('소리판'); if(!판) return;
+  판.innerHTML = `<div style="color:var(--cy2);font-size:13px">
+    소리에서 문장 경계를 찾는 중...</div>`;
+  const r = await api('narration/scan', {id:작.id, script:작.script||''});
+  if(!r.있음){ 판.innerHTML = ''; return; }
+  if(!r.된것){
+    판.innerHTML = `<div class="note" style="margin:0">${esc(r.왜||'못 쟀어')}</div>`; return;
+  }
+  const 맞 = r.맞나;
+  판.innerHTML = `
+    <div style="background:${맞?'#0f2318':'#2a2113'};border:1px solid ${맞?'#4ade8055':'#fbbf2455'};
+      border-left:3px solid ${맞?'#4ade80':'#fbbf24'};border-radius:7px;padding:11px 14px;
+      font-size:13px;line-height:1.75;color:var(--tx2)">
+      <b style="color:${맞?'#4ade80':'#fbbf24'}">${esc(r.파일)} · ${(r.전체초/60).toFixed(1)}분</b><br>
+      소리에서 찾은 문장 <b>${r.구간수}개</b> · 대본 문장 <b>${r.문장수}개</b>
+      ${맞 ? ' — 딱 맞아. 자막 시각이 실제 소리와 어긋나지 않아.'
+           : `<br><span style="color:#fbbf24">수가 달라서 뒤로 갈수록 자막이 밀릴 수 있어.
+              대본을 고쳤거나, 타입캐스트가 문장을 다르게 끊었을 거야.</span>`}
+      ${(r.짧은것||[]).length?`<br><span style="color:#fbbf24">너무 짧은 구간: ${r.짧은것.slice(0,10).join(', ')}번</span>`:''}
+    </div>
+    <div style="margin-top:9px;display:flex;gap:8px;align-items:center">
+      <a href="#" onclick="소리줄보기();return false" style="color:var(--cy2);font-size:12.5px">
+        문장별 시각 보기</a>
+      <button class="btn sm gh" style="margin-left:auto" onclick="소리지우기()">소리 빼기</button>
+    </div>
+    <div id="소리줄" style="margin-top:10px"></div>`;
+  마지막소리 = r;
+}
+
+let 마지막소리 = null;
+let 소리폄 = false;
+
+function 소리줄보기(){
+  const 판 = document.getElementById('소리줄');
+  if(!판 || !마지막소리) return;
+  소리폄 = !소리폄;
+  if(!소리폄){ 판.innerHTML=''; return; }
+  판.innerHTML = `<div style="border:1px solid var(--line2);border-radius:8px;overflow:hidden">` +
+    마지막소리.줄.map(r=>`
+      <div style="display:flex;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line2);
+        background:${r.시작==null?'#2a1a12':'transparent'}">
+        <span style="width:34px;flex:none;text-align:right;font-size:12px;color:var(--tx3)">${r.번호}</span>
+        <span style="width:118px;flex:none;font-size:12px;color:var(--cy2)">
+          ${r.시작==null?'—':r.시작.toFixed(1)+'s ~ '+r.끝.toFixed(1)+'s'}</span>
+        <span style="flex:1;font-size:13px;color:var(--tx2);line-height:1.6">${esc(r.글||'(소리만 있고 대본이 없음)')}</span>
+      </div>`).join('') + `</div>`;
+}
+
+async function 소리지우기(){
+  if(!confirm('넣은 소리를 뺄까?')) return;
+  await api('narration/del', {id:작.id});
+  마지막소리 = null;
+  document.getElementById('소리판').innerHTML = '';
+  toast('뺐어');
+}
+
+/* ── 컷마다 그림 ─────────────────────── */
+async function 그림불러오기(){
+  const r = await api('image/list', {id:작.id});
+  그림있는것 = r.그림 || {};
+  그림판그리기();
+}
+
+let 그림있는것 = {};
+
+function 그림판그리기(){
+  const 판 = document.getElementById('그림판'); if(!판) return;
+  const cs = 작.cuts||미리컷||[];
+  const 넣은것 = cs.filter(c=>그림있는것[c.번호]).length;
+  const 셈 = document.getElementById('그림셈');
+  if(셈) 셈.innerHTML = `<span style="color:${넣은것===cs.length&&cs.length?'#4ade80':'var(--tx3)'}">
+    ${넣은것} / ${cs.length}컷에 그림 있음</span>`;
+  if(!cs.length){
+    판.innerHTML = `<div class="empty" style="padding:26px">먼저 스토리보드를 만들어줘.</div>`;
+    return;
+  }
+  판.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:11px">` +
+    cs.map(c=>{
+      const 있 = 그림있는것[c.번호];
+      return `<div ondragover="event.preventDefault();this.style.borderColor='var(--cy)'"
+        ondragleave="this.style.borderColor='${있?'#1d4a68':'var(--line2)'}'"
+        ondrop="그림떨구기(event, ${c.번호})"
+        onclick="그림고르기(${c.번호})"
+        style="border:2px dashed ${있?'#1d4a68':'var(--line2)'};border-radius:9px;
+        padding:9px;cursor:pointer;background:var(--card2);transition:border-color .15s">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
+          <span style="font-size:12.5px;font-weight:700;color:var(--tx)">${c.번호}</span>
+          <span style="font-size:11.5px;color:var(--tx3)">${(c.길이초||0).toFixed(1)}초</span>
+          ${있?`<span style="margin-left:auto;color:#4ade80;font-size:12px">✓</span>`:''}
+        </div>
+        ${있
+          ? `<img src="/api/image?id=${encodeURIComponent(작.id)}&f=${encodeURIComponent(있)}&t=${그림때}"
+               style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;display:block">`
+          : `<div style="width:100%;aspect-ratio:16/9;border-radius:6px;background:#0e1219;
+               display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--tx3)">
+               그림 끌어다 놓기</div>`}
+        <div style="font-size:11.5px;color:var(--tx3);margin-top:7px;line-height:1.5;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
+          ${esc(c.대본||'')}</div>
+      </div>`;
+    }).join('') + `</div>`;
+}
+
+let 그림때 = Date.now();
+
+function 그림떨구기(ev, 번호){
+  ev.preventDefault(); ev.stopPropagation();
+  그림올리기((ev.dataTransfer.files||[])[0], 번호);
+}
+
+function 그림고르기(번호){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = ()=>그림올리기(inp.files[0], 번호);
+  inp.click();
+}
+
+async function 그림올리기(f, 번호){
+  if(!f) return;
+  const 끝 = '.' + (f.name.split('.').pop()||'').toLowerCase();
+  if(!['.jpg','.jpeg','.png','.webp'].includes(끝)){
+    toast('그림 파일만 돼 (jpg · png · webp)', true); return;
+  }
+  const r = await fetch(`/api/upload?id=${encodeURIComponent(작.id)}&kind=image&cut=${번호}&ext=${끝}`,
+    {method:'POST', body:f, headers:{'Content-Type':'application/octet-stream'}});
+  const j = await r.json();
+  if(!j.ok){ toast(j.why||'못 올렸어', true); return; }
+  그림있는것[번호] = j.파일;
+  그림때 = Date.now();
+  그림판그리기();
+  toast(`${번호}번 컷에 그림 넣었어`);
+}
+
+async function 그림폴더(){
+  const r = await api('folder/open2', {id:작.id, what:'그림'});
+  if(r.ok) toast('폴더를 열었어');
+  else toast(r.why||'폴더를 못 열었어', true);
+}
+
+/* ── 영상 만들기 ─────────────────────── */
+let 영상폴링 = null;
+
+async function 영상시작(){
+  const cs = 작.cuts||미리컷||[];
+  if(!cs.length){ toast('먼저 스토리보드를 만들어줘', true); return; }
+  const r = await api('video/start', {
+    id:작.id, cuts:cs,
+    자막: document.getElementById('자막켜기').checked,
+    subMax: +((document.getElementById('subMax2')||{}).value) || 22});
+  if(!r.ok){
+    document.getElementById('영상판').innerHTML =
+      `<div class="note" style="margin:0">${esc(r.why||'시작 못 했어')}</div>`;
+    return;
+  }
+  document.getElementById('영상단추').disabled = true;
+  pill('영상 만드는 중');
+  clearInterval(영상폴링);
+  영상폴링 = setInterval(영상확인, 2000);
+  영상확인();
+}
+
+async function 영상확인(){
+  const 판 = document.getElementById('영상판');
+  if(!판){ clearInterval(영상폴링); return; }
+  const st = await api('video/status', {id:작.id});
+
+  if(st.상태==='도는중'){
+    const 비 = st.전체 ? Math.round(st.한것/st.전체*100) : 0;
+    판.innerHTML = `
+      <div style="background:var(--card2);border:1px solid var(--line2);border-radius:8px;padding:13px 15px">
+        <div style="display:flex;align-items:center;margin-bottom:8px">
+          <b style="color:var(--cy2)">${esc(st.단계||'만드는 중')}</b>
+          <span style="margin-left:auto;color:var(--tx3);font-size:12.5px">${st.지난초||0}초 지남</span>
+        </div>
+        <div style="height:6px;background:#0e0e11;border-radius:3px;overflow:hidden">
+          <div style="width:${비}%;height:100%;background:var(--cy);transition:width .3s"></div></div>
+      </div>`;
+    return;
+  }
+  clearInterval(영상폴링); pill('');
+  const b = document.getElementById('영상단추'); if(b) b.disabled = false;
+
+  if(st.상태==='끝'){
+    await 저장({videoDone:true}); await 저장지금(); 기둥그리기();
+    판.innerHTML = `
+      <div style="color:#4ade80;font-size:14px;font-weight:600;margin-bottom:10px">
+        ✓ 영상이 나왔어 — ${(st.초/60).toFixed(1)}분 · ${(st.바이트/1048576).toFixed(1)}MB
+        ${st.소리있나?'· 소리 들어감':'· <span style="color:#fbbf24">소리 없음</span>'}</div>
+      <video controls style="width:100%;max-width:860px;border-radius:9px;background:#000"
+        src="/api/done?id=${encodeURIComponent(작.id)}&t=${Date.now()}"></video>
+      <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
+        <button class="btn cy" onclick="완성폴더()">폴더 열기</button>
+        <a class="btn" href="/api/done?id=${encodeURIComponent(작.id)}&dl=1"
+           download="완성.mp4" style="text-decoration:none">내려받기</a>
+      </div>
+      <div style="margin-top:9px;font-size:11.5px;color:var(--tx3);word-break:break-all">
+        ${esc(st.파일||'')}</div>`;
+    toast(`영상 완성 · ${(st.초/60).toFixed(1)}분`);
+  } else if(st.상태==='실패'){
+    판.innerHTML = `<div class="note" style="margin:0"><b>못 만들었어.</b><br>
+      <span style="font-family:Consolas,monospace;font-size:11.5px;color:#e3c988">${esc(st.오류||'')}</span></div>`;
+  }
+}
+
+async function 완성폴더(){
+  const r = await api('folder/open2', {id:작.id, what:'완성'});
+  if(r.ok) toast('폴더를 열었어');
+  else toast(r.why||'폴더를 못 열었어', true);
+}
 
 /* ══ 7 완성 ══ */
 본문.export = ()=>`

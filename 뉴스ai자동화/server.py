@@ -415,7 +415,7 @@ def 영상만들기(jid, d):
         if d.get('자막', True):
             상태(단계='자막 굽는 중')
             ass = maker.ass만들기(자막줄, os.path.join(작업칸, '자막.ass'),
-                                 int(d.get('subMax') or 25))
+                                 int(d.get('subMax') or 22))
             만든것 = maker.자막굽기(이은것, ass, os.path.join(작업칸, '자막입힘.mp4'))
 
         # ④ 소리 얹기
@@ -1000,6 +1000,49 @@ class 손(SimpleHTTPRequestHandler):
                 self.send_header('Content-Length', str(len(b)))
                 self.end_headers()
                 self.wfile.write(b)
+                return
+
+            if self.path.startswith('/api/image'):
+                from urllib.parse import urlparse, parse_qs
+                q = parse_qs(urlparse(self.path).query)
+                jid = os.path.basename((q.get('id') or [''])[0])
+                이름 = os.path.basename((q.get('f') or [''])[0])
+                파일 = os.path.join(프로젝트칸, jid, '그림', 이름)
+                if not os.path.exists(파일):
+                    return self._json({'error': '없어'}, 404)
+                b = open(파일, 'rb').read()
+                끝 = 이름.rsplit('.', 1)[-1].lower()
+                self.send_response(200)
+                self.send_header('Content-Type',
+                                 'image/png' if 끝 == 'png' else
+                                 ('image/webp' if 끝 == 'webp' else 'image/jpeg'))
+                self.send_header('Content-Length', str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
+                return
+
+            if self.path.startswith('/api/done'):
+                from urllib.parse import urlparse, parse_qs
+                q = parse_qs(urlparse(self.path).query)
+                jid = os.path.basename((q.get('id') or [''])[0])
+                파일 = os.path.join(프로젝트칸, jid, '완성', '완성.mp4')
+                if not os.path.exists(파일):
+                    return self._json({'error': '아직 없어'}, 404)
+                크기 = os.path.getsize(파일)
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', str(크기))
+                self.send_header('Accept-Ranges', 'none')
+                if (q.get('dl') or [''])[0]:
+                    self.send_header('Content-Disposition',
+                                     'attachment; filename="wansung.mp4"')
+                self.end_headers()
+                with open(파일, 'rb') as f:
+                    while True:
+                        덩이 = f.read(1 << 20)
+                        if not 덩이:
+                            break
+                        self.wfile.write(덩이)
                 return
 
             if self.path.startswith('/api/voicefile'):
