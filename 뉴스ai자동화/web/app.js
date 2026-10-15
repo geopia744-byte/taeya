@@ -165,12 +165,16 @@ function 열기(id){
 }
 
 /* ── 화면 그리기 ──────────────────────── */
+/* 제 이동줄을 스스로 갖는 화면 */
+const 자체이동줄 = ['storyboard'];
+
 function 그리기(){
   const i = 단계.findIndex(s=>s.k===현재);
   document.getElementById('main').innerHTML =
-    `<div class="stepno">${i+1}/7 ${단계[i].ko}</div>` + 본문[현재]() + 이동줄(i);
+    `<div class="stepno">${i+1}/7 ${단계[i].ko}</div>` + 본문[현재]()
+    + (자체이동줄.includes(현재) ? '' : 이동줄(i));
   if(현재==='script') 글자세기();
-  if(현재==='storyboard') 컷그리기();
+  if(현재==='storyboard'){ 다펼침=false; 컷그리기(); }
 }
 function 이동줄(i){
   const 앞=i>0?단계[i-1]:null, 뒤=i<단계.length-1?단계[i+1]:null;
@@ -651,20 +655,32 @@ ${s.영문}, ${공통규격}`).join('\n\n')}`, '예시 프롬프트 12개를 복
   </div>
 
   <div class="card">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">장면</h3>
+      <div style="margin-left:auto;font-size:12.5px;color:var(--tx3)" id="장면총수"></div>
+    </div>
+    <div id="컷목록"></div>
+    <div style="text-align:center;margin-top:12px">
+      <a href="#" id="상세보기" onclick="상세토글();return false"></a>
+    </div>
+  </div>
+
+  <div class="card">
     <h3>생성 상태</h3>
-    <div style="font-size:12.5px;color:var(--tx2);margin-top:8px" id="생성상태">
+    <div style="font-size:13px;margin-top:8px" id="생성상태">
       아래 스토리보드 생성 버튼을 누르면 자막을 장면으로 나누고 장면별 묘사를 만듭니다.
     </div>
   </div>
 
-  <div class="card"><div id="컷목록"></div></div>
-
   <div class="navbar">
     <button class="btn" onclick="이동('voice')">이전</button>
     <div class="sp"></div>
-    <button class="btn cy" onclick="컷확정()">스토리보드 생성</button>
+    <button class="btn cy" onclick="스토리보드생성()">스토리보드 생성</button>
     <button class="btn cy" onclick="이동('image')">다음</button>
   </div>`;
+
+let 다펼침 = false;
+function 상세토글(){ 다펼침 = !다펼침; 카드그리기(); }
 
 function 칸채우기(v){
   ['bd','em','ed'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=v; });
@@ -717,24 +733,99 @@ async function 진짜컷그리기(){
     `<div style="display:flex;height:26px;border-radius:5px;overflow:hidden;border:1px solid var(--line2)">`+
     미리컷.map(c=>`<div title="${c.번호}번 · ${c.길이초}초"
       style="width:${(c.길이초/전체*100).toFixed(3)}%;background:${구간색[c.구간]};border-right:1px solid rgba(0,0,0,.45)"></div>`).join('')+`</div>`;
-  목록.innerHTML = 미리컷.map(c=>`
-    <div style="display:flex;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
-      <div style="width:34px;flex-shrink:0;text-align:center">
-        <div style="font-size:14px;font-weight:700;color:${구간색[c.구간]}">${c.번호}</div>
-        <div style="font-size:10px;color:var(--tx3)">${c.구간}</div></div>
-      <div style="width:112px;flex-shrink:0;font-size:12px;color:var(--tx3);line-height:1.5">
-        ${초표기(c.시작초)} ~ ${초표기(c.끝초)}<br>
-        <span style="color:var(--tx2)">${c.길이초}초 · ${c.글자수}자</span></div>
-      <div style="flex:1;min-width:0;font-size:13px;line-height:1.7">${esc(c.대본)}</div>
-    </div>`).join('');
+  카드그리기();
 }
-async function 컷확정(){
+
+/* 장면 카드 — 3칸 격자. 원본 그대로. */
+function 카드그리기(){
+  const 목록 = document.getElementById('컷목록'); if(!목록) return;
+  const cs = 미리컷;
+  const 묘사표 = {};
+  (작.scenes||[]).forEach(x=>묘사표[x.번호]=x.묘사);
+
+  const 보일것 = 다펼침 ? cs : cs.slice(0, 9);
+  목록.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(282px,1fr));gap:12px">` +
+    보일것.map(c=>{
+      const 묘 = 묘사표[c.번호];
+      const 글 = 묘 || c.대본;
+      const 색 = 구간색[c.구간];
+      return `<div style="background:var(--card2);border:1px solid var(--line2);border-radius:9px;padding:12px 14px">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:9px">
+          <span style="background:${색}22;color:${색};border:1px solid ${색}55;border-radius:5px;
+            padding:1px 7px;font-size:12px;font-weight:700">${c.번호}</span>
+          <span style="background:${색}22;color:${색};border-radius:5px;padding:1px 8px;font-size:11.5px">${c.구간}</span>
+          <span style="margin-left:auto;font-size:11.5px;color:var(--tx3)">${c.시작초.toFixed(1)}s ~ ${c.끝초.toFixed(1)}s</span>
+        </div>
+        <div style="font-size:12.5px;line-height:1.7;color:${묘?'var(--tx)':'var(--tx2)'};
+          ${다펼침?'':'max-height:72px;overflow:hidden'}">${esc(글)}</div>
+        ${묘?'':`<div style="margin-top:7px;font-size:11px;color:var(--tx3)">↑ 대본 토막 (장면 묘사 아직 없음)</div>`}
+      </div>`;
+    }).join('') + `</div>`;
+
+  document.getElementById('장면총수').textContent = `${cs.length}장면`;
+  const a = document.getElementById('상세보기');
+  if(a) a.textContent = 다펼침 ? `접기 ∧` : `상세보기 (전체 ${cs.length}장면) ∨`;
+}
+
+/* 스토리보드 생성 = ① 컷 자르기 ② 컷마다 장면 묘사 쓰기
+   ②는 클로드가 해야 한다. 질문을 만들어 주고 받아 넣는다. */
+async function 스토리보드생성(){
   if(!미리컷.length){ toast('자를 대본이 없어', true); return; }
   const 값 = id => +(document.getElementById(id)||{}).value || 0;
   await 저장({ cuts:미리컷, target:값('t'), hook:값('hk'), emph:값('em'), endl:값('ed'),
                skipCta:document.getElementById('cta').checked });
   await 저장지금(); 기둥그리기();
+
+  document.getElementById('생성상태').innerHTML = `
+    <div style="color:var(--cy2);font-weight:600;margin-bottom:8px">
+      ① 장면 ${미리컷.length}개로 나눴습니다.</div>
+    <div style="color:var(--tx2);line-height:1.8;margin-bottom:12px">
+      ② 이제 <b>컷마다 장면 묘사</b>를 써야 합니다. 이건 클로드가 합니다.<br>
+      아래 단추를 눌러 질문을 복사하고, 클로드에 붙여넣은 뒤 결과를 다시 붙여넣으세요.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn cy" onclick="묘사질문복사()">📋 장면 묘사 질문 복사</button>
+      <button class="btn" onclick="묘사넣기칸()">받은 결과 붙여넣기</button>
+    </div>
+    <div id="묘사칸" style="margin-top:12px"></div>`;
+  카드그리기();
   toast(`스토리보드가 확정되었습니다 — 장면 ${미리컷.length}개`);
+}
+
+function 묘사넣기칸(){
+  document.getElementById('묘사칸').innerHTML = `
+    <textarea class="ta" id="sc" style="min-height:150px"
+      placeholder="1 | 해커가 어두운 방에서 거대한 기업 빌딩의 보안망을 상징하는 격자 방벽을 노려본다 | a hacker in a dark room..."></textarea>
+    <div style="margin-top:9px"><button class="btn cy" onclick="묘사넣기()">넣기</button></div>`;
+  document.getElementById('sc').focus();
+}
+
+async function 묘사넣기(){
+  const out=[];
+  for(const l of document.getElementById('sc').value.split('\n')){
+    const m=l.trim().split('|').map(x=>x.trim());
+    if(m.length<2) continue;
+    const n=parseInt(m[0].replace(/[^0-9]/g,''),10);
+    if(!n) continue;
+    out.push({번호:n, 묘사:m[1], 원문:m[2]||''});
+  }
+  if(!out.length){ toast('읽을 줄이 없어. 「번호 | 묘사 | 영문」 모양이어야 해', true); return; }
+  out.sort((a,b)=>a.번호-b.번호);
+
+  // 영문이 같이 왔으면 프롬프트까지 바로 만든다
+  const s = 화풍찾기(작.style), 인물 = 캐릭터문구();
+  const 프 = out.filter(x=>x.원문).map(x=>({
+    번호:x.번호, 묘사:x.묘사, 원문:x.원문,
+    영문:[x.원문, 인물, s?s.영문:'', 공통규격].filter(Boolean).join(', ')}));
+
+  await 저장({scenes:out, prompts: 프.length?프:(작.prompts||[])});
+  await 저장지금(); 기둥그리기(); 카드그리기();
+  document.getElementById('생성상태').innerHTML =
+    `<div style="color:#4ade80;font-weight:600">작업 완료됨</div>
+     <div style="color:var(--tx3);font-size:12.5px;margin-top:5px">생성 방식: AI (claude)</div>
+     ${프.length?`<div style="color:var(--tx2);font-size:12.5px;margin-top:7px">
+       영문 프롬프트 ${프.length}개도 같이 만들었어. <b>이미지</b> 단계에서 확인해.</div>`:''}`;
+  toast(`장면 묘사 ${out.length}개 넣었어`);
 }
 
 /* ══ 5 이미지 ══ */
@@ -781,7 +872,8 @@ async function 컷확정(){
 };
 
 function 묘사질문복사(){
-  const cs=작.cuts||[];
+  const cs=(작.cuts&&작.cuts.length)?작.cuts:미리컷;
+  if(!cs.length){ toast('먼저 스토리보드를 생성해줘', true); return; }
   복사(`아래는 영상 대본을 ${cs.length}개의 컷으로 나눈 것이다.
 컷마다 그 내용에 어울리는 그림을 하나씩 만들려고 한다.
 
