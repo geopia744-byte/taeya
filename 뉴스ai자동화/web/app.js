@@ -337,9 +337,28 @@ function 본문칸열기(){
 let 생성폴링 = null;
 
 async function 대본생성(){
-  const 질문 = 질문글();
   const 판 = document.getElementById('생성판');
   const 단추 = document.getElementById('genBtn');
+
+  // 뭘 쓸지 안 주면 클로드가 되묻는다. 미리 막는다.
+  const 주소있나 = (작.url||'').trim().length > 0;
+  const 주제있나 = (작.topic||'').trim().length > 0;
+  const 본문있나 = (작.articleText||'').trim().length > 50;
+  if(!주소있나 && !주제있나 && !본문있나){
+    판.innerHTML = `
+      <div class="note" style="margin:0">
+        <b>무엇에 대해 쓸지가 비어 있어.</b><br>
+        이대로 누르면 클로드가 대본 대신 <b>"어떤 소재인가요?"</b> 하고 되물어와.<br><br>
+        아래 셋 중 <b>하나는 꼭</b> 채워줘.<br>
+        · <b>뉴스 기사 주소</b> (맨 윗칸)<br>
+        · <b>주제/소재</b> (둘째 칸) — 예: 인공지능 해킹<br>
+        · <b>기사 본문</b> 직접 붙여넣기
+      </div>`;
+    (document.getElementById('topic')||{}).focus?.();
+    return;
+  }
+
+  const 질문 = 질문글();
 
   if(!클로드있나){
     판.innerHTML = `
@@ -385,6 +404,25 @@ async function 생성확인(){
 
   if(st.상태==='끝'){
     const 글 = 다듬기(st.글);
+
+    // 대본이 아니라 되묻는 글이면 칸에 집어넣지 않는다
+    if(되묻는글인가(글)){
+      판.innerHTML = `
+        <div class="note" style="margin:0">
+          <b>대본 대신 클로드가 되물어왔어.</b> 준 정보가 모자라서야.<br><br>
+          <b>이렇게 해 봐</b><br>
+          · <b>주제/소재</b> 칸을 채워줘 (예: 인공지능 해킹) — 이게 제일 잘 들어<br>
+          · 기사 주소를 넣었다면 <b>[🔍 기사 읽히는지 확인]</b> 을 먼저 눌러봐.
+            못 읽으면 본문을 직접 붙여넣어야 해<br>
+          · <b>말투</b> 칸도 비어 있으면 카테고리를 한 번 다시 골라줘<br><br>
+          <details><summary style="cursor:pointer;color:var(--cy2)">클로드가 되물은 내용 보기</summary>
+          <div style="margin-top:8px;font-size:12px;color:var(--tx2);white-space:pre-wrap;
+            max-height:160px;overflow:auto">${esc(글)}</div></details>
+        </div>`;
+      toast('대본이 아니라 되묻는 글이 왔어', true);
+      return;
+    }
+
     document.getElementById('script').value = 글;
     글자세기(); await 저장({script:글}); await 저장지금(); 기둥그리기();
     판.innerHTML = `<div style="color:#4ade80;font-size:13px">
@@ -396,6 +434,16 @@ async function 생성확인(){
       <span style="font-family:Consolas,monospace;font-size:11.5px;color:#e3c988">${esc(st.오류||'')}</span><br><br>
       대신 <b>[📋 질문만 복사]</b> 로 받아올 수 있어.</div>`;
   }
+}
+
+/* 대본이 아니라 "뭘 쓸까요?" 하고 되묻는 글인가 */
+function 되묻는글인가(t){
+  const g = (t||'').trim();
+  if(g.length < 700 && /[?？]/.test(g)) return true;          // 짧은데 물음표가 있다
+  const 신호 = ['알려주세요','확인하고 싶','정보 주시면','어떤 주제','어떤 뉴스',
+                '말씀해 주','정해 주시','선택해 주','무엇을 다룰','알려주시면'];
+  const 걸림 = 신호.filter(w=>g.includes(w)).length;
+  return 걸림 >= 2 && g.length < 1600;
 }
 
 /* 클로드가 앞뒤에 붙이는 인사말·따옴표 울타리를 걷어낸다 */
@@ -454,7 +502,12 @@ function 구조글(총자){
 function 질문글(){
   const g = 목표글자수();
   const 장르 = (장르목록.find(x=>x.id===(작.genre||'econ'))||{}).이름 || '';
-  return `뉴스 영상 대본을 써줘.
+  return `너는 유튜브 롱폼 영상 대본 작가다. 아래 조건으로 대본을 써라.
+
+[가장 중요한 규칙]
+되묻지 마라. 질문하지 마라. 확인을 구하지 마라.
+정보가 모자라면 네가 알아서 합리적으로 정해서 채우고, 곧바로 대본 본문만 출력해라.
+머리말, 설명, 인사말, 마무리 인사를 쓰지 마라. 첫 글자부터 대본이어야 한다.
 
 [카테고리]
 ${장르}
@@ -481,7 +534,8 @@ ${구조글(g.자)}
 5. URL, 이메일 주소 넣지 말 것
 6. 단어 뒤 괄호 금지 (클로드(Claude) 금지 → 클로드)
 7. 설명이나 머리말 없이 대본 본문만 출력할 것
-8. 참고 기사 주소가 있으면 그 내용을 먼저 읽고 쓸 것` +
+8. 참고 기사 주소가 있으면 그 내용을 먼저 읽고 쓸 것
+9. 어떤 경우에도 나에게 되묻지 말 것. 바로 대본을 쓸 것` +
     ((작.articleText||'').trim()
       ? `\n\n[기사 본문 — 아래 글을 바탕으로 써라. 따로 인터넷을 뒤질 필요 없다]\n${작.articleText.trim()}`
       : '');

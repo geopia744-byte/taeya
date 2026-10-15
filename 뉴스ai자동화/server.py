@@ -247,6 +247,12 @@ class 손(SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass  # 검은 창을 조용하게
 
+    def end_headers(self):
+        # 프로그램을 새로 깔았는데 브라우저가 옛 화면을 기억하면 안 된다
+        self.send_header('Cache-Control', 'no-store, must-revalidate')
+        self.send_header('Pragma', 'no-cache')
+        super().end_headers()
+
     def _json(self, obj, code=200):
         b = json.dumps(obj, ensure_ascii=False).encode('utf-8')
         self.send_response(code)
