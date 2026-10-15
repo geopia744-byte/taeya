@@ -289,12 +289,12 @@ class 손(SimpleHTTPRequestHandler):
         try:
             d = self._body()
 
-            if 길 == 'article/peek':
+            if 길 in ('article/fetch', 'article/peek'):
                 글, 왜 = 기사읽기(d.get('url', ''))
                 if 글:
                     return self._json({'ok': True, '제목': 글['제목'],
                                        '글자수': len(글['본문']),
-                                       '맛보기': 글['본문'][:300]})
+                                       '본문': 글['본문']})
                 return self._json({'ok': False, 'why': 왜})
 
             if 길 == 'script/start':

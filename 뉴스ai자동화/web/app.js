@@ -174,7 +174,7 @@ function 그리기(){
   document.getElementById('main').innerHTML =
     `<div class="stepno">${i+1}/7 ${단계[i].ko}</div>` + 본문[현재]()
     + (자체이동줄.includes(현재) ? '' : 이동줄(i));
-  if(현재==='script') 글자세기();
+  if(현재==='script'){ 글자세기(); 본문칸열기(); }
   if(현재==='storyboard'){ 다펼침=false; 컷그리기(); }
 }
 function 이동줄(i){
@@ -203,16 +203,10 @@ const 본문 = {};
       placeholder="참고 유튜브·뉴스 URL (선택, 한 줄에 하나씩)"
       oninput="저장({url:this.value})">${esc(작.url||'')}</textarea>
     <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
-      <button class="btn sm" onclick="기사확인()">🔍 기사 읽히는지 확인</button>
-      <span class="hint" id="기사상태" style="margin:0">주소를 넣고 눌러봐. 못 읽으면 본문을 직접 붙여넣으면 돼.</span>
+      <button class="btn sm" onclick="기사확인()">🔍 기사 읽어오기</button>
+      <span class="hint" id="기사상태" style="margin:0">주소를 넣고 눌러봐. 기사 본문을 가져와서 대본의 근거로 쓴다.</span>
     </div>
-    <div id="본문칸">${작.articleText?`
-      <div style="margin-bottom:12px">
-        <div style="font-size:12.5px;color:var(--tx2);margin-bottom:6px">
-          기사 본문 (직접 붙여넣은 것) — ${작.articleText.length.toLocaleString()}자</div>
-        <textarea class="ta" id="atext" style="min-height:90px"
-          oninput="저장({articleText:this.value})">${esc(작.articleText)}</textarea>
-      </div>`:''}</div>
+    <div id="본문칸"></div>
     <input class="in" id="topic" style="margin-bottom:12px" placeholder="주제/소재 (예: 인공지능 해킹)"
       value="${esc(작.topic||'')}" oninput="저장({topic:this.value})">
 
@@ -304,33 +298,70 @@ async function 장르바꿈(id){
   toast(`카테고리를 「${g.이름}」 로 바꿨어`);
 }
 
-/* 기사를 프로그램이 읽을 수 있는지 먼저 확인해 본다 */
+/* 기사를 읽어서 본문을 가져온다. 가져온 본문이 대본의 근거가 된다. */
 async function 기사확인(){
   const 줄 = (document.getElementById('url').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
   const 칸 = document.getElementById('기사상태');
-  if(!줄.length){ 칸.innerHTML='<span style="color:#fbbf24">주소를 먼저 넣어줘</span>'; return; }
-  칸.textContent = '읽어보는 중...';
-  const r = await api('article/peek', {url:줄[0]});
-  if(r.ok){
-    칸.innerHTML = `<span style="color:#4ade80">✓ 읽었어 — ${esc(r.제목||'')} (${r.글자수.toLocaleString()}자)</span>`;
+  if(!줄.length){
+    칸.innerHTML='<span style="color:#fbbf24">주소를 먼저 넣어줘</span>';
+    본문칸열기(); return;
+  }
+  칸.innerHTML = '<span style="color:var(--cy2)">읽어오는 중...</span>';
+
+  const 모음 = [];
+  let 실패 = null;
+  for(const u of 줄.slice(0,3)){
+    const r = await api('article/fetch', {url:u});
+    if(r.ok) 모음.push(`■ ${r.제목||u}\n${r.본문}`);
+    else 실패 = r.why;
+  }
+
+  if(모음.length){
+    const 글 = 모음.join('\n\n────────\n\n');
+    await 저장({articleText:글}); await 저장지금();
+    칸.innerHTML = `<span style="color:#4ade80">✓ 기사 ${모음.length}건, ${글.length.toLocaleString()}자를 가져왔어</span>`;
+    본문칸열기(글);
+    toast(`기사 본문 ${글.length.toLocaleString()}자를 가져왔어`);
   }else{
-    칸.innerHTML = `<span style="color:#fbbf24">✕ 못 읽었어 (${esc(r.why||'')}) — 아래에 본문을 붙여넣어줘</span>`;
+    칸.innerHTML = `<span style="color:#fbbf24">✕ 못 읽었어 (${esc(실패||'')}) — 아래에 본문을 붙여넣어줘</span>`;
     본문칸열기();
   }
 }
 
-function 본문칸열기(){
+function 본문칸열기(글){
   const 칸 = document.getElementById('본문칸');
-  if(document.getElementById('atext')) { document.getElementById('atext').focus(); return; }
+  const 이미 = document.getElementById('atext');
+  if(이미){
+    if(글!=null) 이미.value = 글;
+    const n = (이미.value||'').trim().length;
+    const 세기 = document.getElementById('본문세기');
+    if(세기) 세기.innerHTML = 본문세기글(n);
+    if(글==null) 이미.focus();
+    return;
+  }
+  const 값 = 글!=null ? 글 : (작.articleText||'');
   칸.innerHTML = `
     <div style="margin-bottom:12px">
-      <div style="font-size:12.5px;color:var(--tx2);margin-bottom:6px">
-        기사 본문을 그대로 붙여넣어 (기사 화면에서 글만 긁어오면 돼)</div>
-      <textarea class="ta" id="atext" style="min-height:120px"
-        placeholder="기사 본문을 여기에 붙여넣어."
-        oninput="저장({articleText:this.value})"></textarea>
+      <div style="display:flex;align-items:center;margin-bottom:6px">
+        <div style="font-size:12.5px;color:var(--tx2)">기사 본문 <b style="color:var(--cy2)">— 이 글이 대본의 근거가 된다</b></div>
+        <div style="margin-left:auto;font-size:12px" id="본문세기">${본문세기글((값||'').trim().length)}</div>
+      </div>
+      <textarea class="ta" id="atext" style="min-height:130px"
+        placeholder="기사 화면에서 본문 글을 긁어다 그대로 붙여넣어."
+        oninput="저장({articleText:this.value});본문세기갱신()">${esc(값)}</textarea>
     </div>`;
-  document.getElementById('atext').focus();
+  if(!값) document.getElementById('atext').focus();
+}
+
+function 본문세기글(n){
+  if(n >= 150) return `<span style="color:#4ade80">✓ ${n.toLocaleString()}자 — 대본 쓸 수 있어</span>`;
+  if(n > 0)    return `<span style="color:#fbbf24">${n.toLocaleString()}자 — 너무 짧아. 150자는 넘어야 해</span>`;
+  return `<span style="color:#fbbf24">비어 있음 — 이게 없으면 대본을 못 만들어</span>`;
+}
+function 본문세기갱신(){
+  const e = document.getElementById('atext'); if(!e) return;
+  const 세기 = document.getElementById('본문세기');
+  if(세기) 세기.innerHTML = 본문세기글((e.value||'').trim().length);
 }
 
 /* ── 대본 생성 — 클로드 코드를 직접 부른다 ── */
@@ -340,21 +371,27 @@ async function 대본생성(){
   const 판 = document.getElementById('생성판');
   const 단추 = document.getElementById('genBtn');
 
-  // 뭘 쓸지 안 주면 클로드가 되묻는다. 미리 막는다.
-  const 주소있나 = (작.url||'').trim().length > 0;
-  const 주제있나 = (작.topic||'').trim().length > 0;
-  const 본문있나 = (작.articleText||'').trim().length > 50;
-  if(!주소있나 && !주제있나 && !본문있나){
+  // 이건 뉴스 자동화다. 기사 본문이 없으면 지어낸 대본이 나온다. 반드시 막는다.
+  const 본문길이 = (작.articleText||'').trim().length;
+  if(본문길이 < 150){
+    const 주소 = (작.url||'').trim();
     판.innerHTML = `
       <div class="note" style="margin:0">
-        <b>무엇에 대해 쓸지가 비어 있어.</b><br>
-        이대로 누르면 클로드가 대본 대신 <b>"어떤 소재인가요?"</b> 하고 되물어와.<br><br>
-        아래 셋 중 <b>하나는 꼭</b> 채워줘.<br>
-        · <b>뉴스 기사 주소</b> (맨 윗칸)<br>
-        · <b>주제/소재</b> (둘째 칸) — 예: 인공지능 해킹<br>
-        · <b>기사 본문</b> 직접 붙여넣기
+        <b>기사 본문이 없어. 이대로는 못 만들어.</b><br><br>
+        이건 <b>뉴스</b> 자동화야. 기사가 근거인데 그게 없으면 클로드가
+        <b>자기 기억으로 지어내.</b> 날짜·숫자·사건이 틀린 대본이 나와서
+        뉴스 채널에는 올릴 수 없어.<br><br>
+        ${주소
+          ? `주소는 넣었는데 <b>본문을 아직 못 가져왔어.</b><br>
+             아래 <b>[🔍 기사 읽어오기]</b> 를 눌러봐.
+             그래도 안 되면 기사 화면에서 <b>글을 긁어다 붙여넣어줘.</b>`
+          : `맨 윗칸에 <b>뉴스 기사 주소</b>를 넣고 <b>[🔍 기사 읽어오기]</b> 를 눌러줘.<br>
+             주소가 안 먹으면 기사 본문을 <b>직접 붙여넣어도</b> 돼.`}
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="btn cy" onclick="기사확인()">🔍 기사 읽어오기</button>
+        <button class="btn" onclick="본문칸열기()">본문 직접 붙여넣기</button>
       </div>`;
-    (document.getElementById('topic')||{}).focus?.();
     return;
   }
 
@@ -412,7 +449,7 @@ async function 생성확인(){
           <b>대본 대신 클로드가 되물어왔어.</b> 준 정보가 모자라서야.<br><br>
           <b>이렇게 해 봐</b><br>
           · <b>주제/소재</b> 칸을 채워줘 (예: 인공지능 해킹) — 이게 제일 잘 들어<br>
-          · 기사 주소를 넣었다면 <b>[🔍 기사 읽히는지 확인]</b> 을 먼저 눌러봐.
+          · 기사 주소를 넣었다면 <b>[🔍 기사 읽어오기]</b> 을 먼저 눌러봐.
             못 읽으면 본문을 직접 붙여넣어야 해<br>
           · <b>말투</b> 칸도 비어 있으면 카테고리를 한 번 다시 골라줘<br><br>
           <details><summary style="cursor:pointer;color:var(--cy2)">클로드가 되물은 내용 보기</summary>
@@ -505,9 +542,14 @@ function 질문글(){
   return `너는 유튜브 롱폼 영상 대본 작가다. 아래 조건으로 대본을 써라.
 
 [가장 중요한 규칙]
-되묻지 마라. 질문하지 마라. 확인을 구하지 마라.
-정보가 모자라면 네가 알아서 합리적으로 정해서 채우고, 곧바로 대본 본문만 출력해라.
-머리말, 설명, 인사말, 마무리 인사를 쓰지 마라. 첫 글자부터 대본이어야 한다.
+1. 아래 [기사 본문]에 적힌 사실만 써라.
+   날짜, 숫자, 인물, 기관 이름, 사건 내용을 네 기억으로 지어내지 마라.
+   기사에 없는 통계나 사례를 만들어 붙이지 마라.
+   기사에 없는 내용이 필요하면 그 부분을 쓰지 말고 넘어가라.
+   비유와 설명은 네가 만들어도 되지만, 사실 주장은 반드시 기사에서 나와야 한다.
+2. 되묻지 마라. 질문하지 마라. 확인을 구하지 마라.
+   곧바로 대본 본문만 출력해라.
+3. 머리말, 설명, 인사말, 마무리 인사를 쓰지 마라. 첫 글자부터 대본이어야 한다.
 
 [카테고리]
 ${장르}
@@ -535,7 +577,8 @@ ${구조글(g.자)}
 6. 단어 뒤 괄호 금지 (클로드(Claude) 금지 → 클로드)
 7. 설명이나 머리말 없이 대본 본문만 출력할 것
 8. 참고 기사 주소가 있으면 그 내용을 먼저 읽고 쓸 것
-9. 어떤 경우에도 나에게 되묻지 말 것. 바로 대본을 쓸 것` +
+9. 어떤 경우에도 나에게 되묻지 말 것. 바로 대본을 쓸 것
+10. 기사에 없는 사실을 지어내지 말 것. 이건 뉴스다` +
     ((작.articleText||'').trim()
       ? `\n\n[기사 본문 — 아래 글을 바탕으로 써라. 따로 인터넷을 뒤질 필요 없다]\n${작.articleText.trim()}`
       : '');
