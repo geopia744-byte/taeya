@@ -8,100 +8,36 @@
 </head>
 <body>
 
-<!-- 제목줄 -->
 <div class="titlebar">
   <div class="logo">▶</div>
   <div class="appname">뉴스 AI 자동화</div>
   <div class="pill" id="pill"><span class="dot"></span><span id="pillTx"></span></div>
   <div class="tb-right">
+    <button title="작업 목록" onclick="작업목록()">☰</button>
     <button title="새로고침" onclick="location.reload()">⟳</button>
   </div>
 </div>
 
-<!-- 빵부스러기 -->
 <div class="crumb">
-  <a href="#" onclick="goHome();return false">모든 프로젝트</a>
+  <a href="#" onclick="작업목록();return false">작업 목록</a>
   <span class="sep" id="crSep" style="display:none">/</span>
   <span class="cur" id="crCur"></span>
+  <div style="margin-left:auto;display:flex;gap:7px">
+    <button class="btn sm" onclick="새작업()">+ 새 작업</button>
+  </div>
 </div>
 
 <div class="body">
-
-  <!-- ══ 왼쪽 기둥 ══ -->
   <div class="side">
-    <!-- 홈일 때 -->
-    <div id="sideHome">
-      <div class="lab">메뉴</div>
-      <button class="navitem" onclick="notYet('AI 자동 생성')"><span class="ic">✦</span>AI 자동 생성</button>
-      <button class="navitem" onclick="notYet('레퍼런스 발굴')"><span class="ic">🔍</span>레퍼런스 발굴</button>
-      <div class="lab" style="margin-top:16px">SYSTEM</div>
-      <button class="navitem" onclick="notYet('설정')"><span class="ic">⚙</span>설정</button>
-    </div>
-
-    <!-- 프로젝트일 때 -->
-    <div id="sideProj" style="display:none">
-      <div class="lab">제작 파이프라인</div>
-      <div class="pipe" id="pipe"><div class="rail"></div></div>
-    </div>
-
-    <div class="foot">뉴스 AI 자동화 · 1차</div>
+    <div class="lab">제작 순서</div>
+    <div class="pipe" id="pipe"><div class="rail"></div></div>
+    <div class="foot">뉴스 AI 자동화 · 2차</div>
   </div>
-
-  <!-- ══ 가운데 ══ -->
   <div class="main" id="main"></div>
 </div>
 
-<!-- ══ 창: 채널 추가/고치기 ══ -->
-<div class="mask" id="mChan">
-  <div class="modal">
-    <h2 id="mChanTitle">채널 추가</h2>
-
-    <div class="fl">
-      <label>카테고리 이름</label>
-      <input class="in" id="chName" placeholder="카테고리 이름 (예: 무서운 썰, 재테크 채널)">
-    </div>
-
-    <div class="fl">
-      <label>말투·스토리텔링 설명 <span style="color:var(--tx3)">(대본 생성에 반영됩니다)</span></label>
-      <textarea class="ta" id="chTone" style="min-height:150px" placeholder="말투·스토리텔링 규칙을 자유롭게 적어주세요.
-예)
-- 낮고 차분한 이야기꾼 말투로 서술한다.
-- 첫 세 문장 안에 반드시 긴장감을 준다.
-- 마무리는 여운을 남기는 한 문장으로 끝낸다."></textarea>
-    </div>
-
-    <div class="learnbox">
-      <div class="t">벤치마킹 영상으로 학습 (선택)</div>
-      <div class="d">조회수 좋은 영상 URL을 넣고 [학습]을 누르면 그 영상의 말투·스토리텔링·후킹
-        감정을 분석해 위 프로파일에 보강합니다. (기존 내용은 유지)</div>
-      <textarea class="ta" id="chRefs" style="min-height:62px" placeholder="조회수 좋은 벤치마킹 영상 URL (한 줄에 하나씩)"></textarea>
-      <button class="btn sm" style="margin-top:9px" onclick="notYet('URL로 학습')">URL로 학습</button>
-    </div>
-
-    <div class="acts">
-      <button class="btn" onclick="closeModal('mChan')">취소</button>
-      <button class="btn cy" id="chSave">저장</button>
-    </div>
-  </div>
-</div>
-
-<!-- ══ 창: 새 프로젝트 ══ -->
-<div class="mask" id="mProj">
-  <div class="modal sm">
-    <h2>✛ 새 프로젝트</h2>
-    <div style="font-size:12.5px;color:var(--tx2);margin-bottom:14px" id="pjWhere"></div>
-    <div class="fl">
-      <label>프로젝트 이름</label>
-      <input class="in" id="pjName" placeholder="새 프로젝트 이름 (예: 잠수함 수술 이야기)">
-    </div>
-    <div class="acts">
-      <button class="btn" onclick="closeModal('mProj')">취소</button>
-      <button class="btn cy" id="pjSave">만들기</button>
-    </div>
-  </div>
-</div>
-
 <div id="toast"></div>
+<script src="styles.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
