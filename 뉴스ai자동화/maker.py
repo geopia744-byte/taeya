@@ -44,25 +44,40 @@ def 시각(초):
     return '%d:%02d:%05.2f' % (시, 분, 남)
 
 
-def 자막글(글, 최대=25):
-    """한 줄이 너무 길면 쉼표나 띄어쓰기에서 반으로 가른다.
+def 자막글(글, 최대=22):
+    """한 줄이 길면 쉼표나 띄어쓰기에서 나눈다. 필요하면 여러 줄로.
 
     두세 낱말씩 토막 내지 않는다. 그러면 읽기가 더 어렵다.
+    한 줄은 반드시 최대 글자 안에 들어와야 한다.
+    1920 폭에 56px 글자면 22자쯤이 한계다. 넘으면 화면 밖으로 나간다.
     """
     글 = (글 or '').strip()
+    if not 글:
+        return []
     if len(글) <= 최대:
-        return [글] if 글 else []
-    쉼 = 글.rfind(',', 0, int(len(글) * 0.7))
-    if 쉼 > 6:
-        return [글[:쉼 + 1].strip(), 글[쉼 + 1:].strip()]
-    가운데 = len(글) // 2
-    빈칸 = 글.rfind(' ', 0, 가운데 + 8)
-    if 빈칸 > 6:
-        return [글[:빈칸].strip(), 글[빈칸:].strip()]
-    return [글[:가운데].strip(), 글[가운데:].strip()]
+        return [글]
+
+    조각, 남은 = [], 글
+    while len(남은) > 최대:
+        # 자를 자리를 뒤에서부터 찾는다: 쉼표 → 띄어쓰기 → 그냥 끊기
+        칸 = 남은.rfind(',', 0, 최대 + 1)
+        if 칸 > 최대 // 3:
+            조각.append(남은[:칸 + 1].strip())
+            남은 = 남은[칸 + 1:].strip()
+            continue
+        칸 = 남은.rfind(' ', 0, 최대 + 1)
+        if 칸 > 최대 // 3:
+            조각.append(남은[:칸].strip())
+            남은 = 남은[칸:].strip()
+            continue
+        조각.append(남은[:최대].strip())
+        남은 = 남은[최대:].strip()
+    if 남은:
+        조각.append(남은)
+    return [x for x in 조각 if x]
 
 
-def ass만들기(줄들, 저장할곳, 최대글자=25):
+def ass만들기(줄들, 저장할곳, 최대글자=22):
     """자막 파일을 쓴다.
 
     줄들: [{'시작':초, '끝':초, '글':'...'}, ...]
@@ -76,7 +91,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Sub,Pretendard SemiBold,77,&H00FFFFFF,&H00FFFFFF,&H73282828,&H00000000,0,0,0,0,100,100,-0.5,0,3,12,0,2,60,60,80,1
+Style: Sub,Pretendard SemiBold,56,&H00FFFFFF,&H00FFFFFF,&H73282828,&H00000000,0,0,0,0,100,100,-0.5,0,3,12,0,2,60,60,80,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
