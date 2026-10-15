@@ -1326,14 +1326,55 @@ function 화풍찾기(id){
 }
 
 /* 고른 화풍·캐릭터로 모든 컷 프롬프트를 다시 짠다 */
+/* 컷마다 화풍을 따로 줄 수 있다.
+   따로 안 주면 위에서 고른 전체 화풍을 따라간다.
+   회상 장면이나 강조 컷만 일부러 다르게 갈 때 쓴다. */
+function 컷화풍(번호){
+  return (작.cutStyles||{})[번호] || 작.style || '';
+}
+
+function 컷화풍다름(번호){
+  const 따로 = (작.cutStyles||{})[번호];
+  return !!(따로 && 따로 !== 작.style);
+}
+
+/* 컷 하나의 영문 프롬프트를 짠다.
+   장면 묘사(원문)는 그대로 두고 화풍 문장만 갈아끼운다.
+   그래서 화풍을 바꿔도 클로드를 다시 부를 필요가 없다. */
+function 영문짜기(원문, 번호){
+  const s = 화풍찾기(컷화풍(번호));
+  return [원문, 캐릭터문구(), s?s.영문:'', 공통규격]
+         .filter(Boolean).join(', ');
+}
+
 function 프롬프트다시짜기(){
-  const s = 화풍찾기(작.style);
-  const 인물 = 캐릭터문구();
   작.prompts = (작.prompts||[]).map(p=>{
     const 원 = p.원문 || p.영문.split(',')[0].trim();
-    return {번호:p.번호, 묘사:p.묘사, 원문:원,
-            영문:[원, 인물, s?s.영문:'', 공통규격].filter(Boolean).join(', ')};
+    return {번호:p.번호, 묘사:p.묘사, 원문:원, 영문:영문짜기(원, p.번호)};
   });
+}
+
+async function 컷화풍바꾸기(번호, id){
+  const 표 = Object.assign({}, 작.cutStyles||{});
+  if(!id) delete 표[번호]; else 표[번호] = id;
+  작.cutStyles = 표;
+  프롬프트다시짜기();
+  await 저장({cutStyles:표, prompts:작.prompts||[]});
+  await 저장지금();
+  화풍줄그리기(); 카드그리기();
+  const h = 화풍찾기(id);
+  toast(id ? `${번호}번 컷 → ${h.이름}` : `${번호}번 컷을 전체 화풍으로 되돌렸어`);
+}
+
+async function 컷화풍전부되돌리기(){
+  const n = Object.keys(작.cutStyles||{}).length;
+  if(!n) return;
+  if(!confirm(`컷 ${n}개에 따로 준 화풍을 전부 지울까?`)) return;
+  작.cutStyles = {};
+  프롬프트다시짜기();
+  await 저장({cutStyles:{}, prompts:작.prompts||[]});
+  await 저장지금(); 화풍줄그리기(); 카드그리기();
+  toast(`${n}개를 전체 화풍으로 되돌렸어`);
 }
 
 async function 화풍고르기(id){
@@ -1591,6 +1632,7 @@ function 프롬프트줄그리기(){
   }
   const 만든것 = (미리컷||[]).filter(c=>컷프롬프트(c.번호)).length;
   const 모두 = (미리컷||[]).length;
+  const 따로 = (미리컷||[]).filter(c=>컷화풍다름(c.번호)).length;
   줄.innerHTML = `
     <div style="background:var(--card2);border:1px solid var(--line2);
       border-radius:8px;padding:11px 13px">
@@ -1605,7 +1647,14 @@ function 프롬프트줄그리기(){
         영문 프롬프트 전부 복사</button>
       <span style="font-size:12px;color:${만든것===모두&&모두?'#4ade80':'var(--tx3)'}">
         ${모두 ? `${만든것} / ${모두}장면 만듦` : ''}</span>
+      ${따로?`<span style="margin-left:auto;display:flex;align-items:center;gap:7px">
+        <span style="font-size:11.5px;color:var(--cy2)">컷 ${따로}개는 화풍을 따로 줬어</span>
+        <button class="btn sm" onclick="컷화풍전부되돌리기()">전부 되돌리기</button>
+      </span>`:''}
     </div>
+    <div style="margin-top:8px;font-size:11.5px;color:var(--tx3)">
+      컷마다 화풍을 달리하고 싶으면 아래 장면 카드의 <b>화풍</b> 칸에서 고르면 돼.
+      클로드를 다시 안 불러도 바로 바뀐다.</div>
     <div id="프롬프트알림" style="margin-top:9px"></div>`;
 }
 
@@ -1671,7 +1720,7 @@ async function 프롬프트확인(){
   if(st.상태==='끝'){
     const s = 화풍찾기(작.style), 인물 = 캐릭터문구();
     const 것 = st.줄.map(x=>({번호:x.번호, 묘사:x.묘사, 원문:x.원문,
-      영문:[x.원문, 인물, s?s.영문:'', 공통규격].filter(Boolean).join(', ')}));
+      영문:영문짜기(x.원문, x.번호)}));
     await 저장({prompts:것, scenes:st.줄.map(x=>({번호:x.번호, 묘사:x.묘사}))});
     await 저장지금(); 기둥그리기();
     프롬프트줄그리기(); 카드그리기();
@@ -1705,7 +1754,7 @@ async function 프롬프트하나(번호){
     if(st.상태!=='끝' || !st.줄?.length){ toast(st.오류||'못 만들었어', true); return; }
     const x = st.줄[0], 인물 = 캐릭터문구();
     const 새것 = {번호:번호, 묘사:x.묘사, 원문:x.원문,
-      영문:[x.원문, 인물, s?s.영문:'', 공통규격].filter(Boolean).join(', ')};
+      영문:영문짜기(x.원문, x.번호)};
     const 모두 = (작.prompts||[]).filter(p=>p.번호!==번호).concat([새것])
                   .sort((a,b)=>a.번호-b.번호);
     await 저장({prompts:모두});
@@ -1715,12 +1764,20 @@ async function 프롬프트하나(번호){
 }
 
 async function 화풍누름(id){
-  await 저장({style:id});
+  작.style = id;
+  // 이미 만든 프롬프트도 새 화풍으로 다시 붙인다.
+  // 장면 묘사는 그대로 두므로 클로드를 다시 부를 필요가 없다.
+  // 화풍을 따로 준 컷은 제 화풍을 그대로 지킨다.
+  const 따로 = (미리컷||[]).filter(c=>컷화풍다름(c.번호)).length;
+  프롬프트다시짜기();
+  await 저장({style:id, prompts:작.prompts||[]});
   await 저장지금();
-  화풍줄그리기();
-  카드그리기();
+  기둥그리기(); 화풍줄그리기(); 카드그리기();
   const h = 화풍목록.find(x=>x.id===id);
-  toast(`화풍: ${h.이름}`);
+  const n = (작.prompts||[]).length;
+  toast(n ? `${h.이름} — 프롬프트 ${n - 따로}개를 다시 붙였어`
+          + (따로 ? ` (따로 준 ${따로}개는 그대로)` : '')
+          : `화풍: ${h.이름}`);
 }
 
 /* 컷 길이를 무엇으로 쟀는지 맨 위에 못 박는다.
@@ -1773,18 +1830,25 @@ function 카드그리기(){
   const 묘사표 = {};
   (작.scenes||[]).forEach(x=>묘사표[x.번호]=x.묘사);
 
+  const 전체화풍 = 화풍찾기(작.style);
+  const 전체이름 = 전체화풍 ? 전체화풍.이름 : '';
+
   const 보일것 = 다펼침 ? cs : cs.slice(0, 9);
   목록.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">` +
     보일것.map(c=>{
       const 묘 = 묘사표[c.번호];
       const 색 = 구간색[c.구간];
       const p = 컷프롬프트(c.번호);
-      return `<div style="background:var(--card2);border:1px solid ${p?'#1d4a68':'var(--line2)'};
+      const 다름 = 컷화풍다름(c.번호);
+      const 내화풍 = 화풍찾기(컷화풍(c.번호));
+      return `<div style="background:var(--card2);border:1px solid ${다름?'var(--cy)':(p?'#1d4a68':'var(--line2)')};
         border-radius:9px;padding:12px 14px;display:flex;flex-direction:column">
         <div style="display:flex;align-items:center;gap:7px;margin-bottom:9px">
           <span style="background:${색}22;color:${색};border:1px solid ${색}55;border-radius:5px;
             padding:1px 7px;font-size:12px;font-weight:700">${c.번호}</span>
           <span style="background:${색}22;color:${색};border-radius:5px;padding:1px 8px;font-size:11.5px">${c.구간}</span>
+          ${다름?`<span style="background:var(--cybg);color:var(--cy2);border:1px solid var(--cy);
+            border-radius:5px;padding:1px 7px;font-size:10.5px">${내화풍.이름}</span>`:''}
           <span style="margin-left:auto;font-size:11.5px;color:var(--tx3)">${c.길이초.toFixed(1)}초</span>
         </div>
 
@@ -1802,14 +1866,27 @@ function 카드그리기(){
             color:#9fc4dc;max-height:54px;overflow:hidden">${esc(p.영문)}</div>
         </div>`:''}
 
-        <div style="display:flex;gap:5px;margin-top:11px;padding-top:10px;
-          border-top:1px solid var(--line2);flex-wrap:wrap">
-          <button class="btn sm" onclick="컷대본복사(${c.번호})"
-            title="타입캐스트에 붙여넣어 이 컷 소리를 만들 때">대본 복사</button>
-          <button class="btn sm" onclick="컷프롬프트복사(${c.번호})" ${p?'':'disabled'}
-            title="그림 만드는 곳에 붙여넣기">프롬프트 복사</button>
-          <button class="btn sm" onclick="프롬프트하나(${c.번호})"
-            style="margin-left:auto" title="이 컷 프롬프트만 다시 만들기">다시</button>
+        <div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--line2)">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
+            <span style="font-size:10.5px;color:var(--tx3);flex:none">화풍</span>
+            <select onchange="컷화풍바꾸기(${c.번호}, this.value)"
+              style="flex:1;min-width:0;background:${다름?'var(--cybg)':'var(--card)'};
+              color:${다름?'var(--cy2)':'var(--tx2)'};
+              border:1px solid ${다름?'var(--cy)':'var(--line2)'};
+              border-radius:6px;padding:4px 6px;font-size:11.5px;font-family:inherit">
+              <option value="">전체와 같게${전체이름?' ('+전체이름+')':''}</option>
+              ${화풍목록.map(h=>`<option value="${h.id}"
+                ${(작.cutStyles||{})[c.번호]===h.id?'selected':''}>${h.이름}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            <button class="btn sm" onclick="컷대본복사(${c.번호})"
+              title="타입캐스트에 붙여넣어 이 컷 소리를 만들 때">대본 복사</button>
+            <button class="btn sm" onclick="컷프롬프트복사(${c.번호})" ${p?'':'disabled'}
+              title="그림 만드는 곳에 붙여넣기">프롬프트 복사</button>
+            <button class="btn sm" onclick="프롬프트하나(${c.번호})"
+              style="margin-left:auto" title="이 컷 장면 묘사를 다시 만들기">다시</button>
+          </div>
         </div>
       </div>`;
     }).join('') + `</div>`;
@@ -1868,7 +1945,7 @@ async function 묘사넣기(){
   const s = 화풍찾기(작.style), 인물 = 캐릭터문구();
   const 프 = out.filter(x=>x.원문).map(x=>({
     번호:x.번호, 묘사:x.묘사, 원문:x.원문,
-    영문:[x.원문, 인물, s?s.영문:'', 공통규격].filter(Boolean).join(', ')}));
+    영문:영문짜기(x.원문, x.번호)}));
 
   await 저장({scenes:out, prompts: 프.length?프:(작.prompts||[])});
   await 저장지금(); 기둥그리기(); 카드그리기();
