@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>우리동네 광고판</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2F5BFF">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="우리동네 광고판">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html,body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700;900&display=swap">
+<style>
+/* Layout: one phone-width column; home = big category tiles, category = stacked banners, tap = full viewer */
+:root{
+  --bg:#F2F4F7; --surface:#FFFFFF; --ink:#16181D; --muted:#5E6573; --line:#DFE3EA;
+  --brand:#2F5BFF; --brand-ink:#FFFFFF; --hot:#FF4D2E;
+  --c-food:#FF6B35; --c-stay:#1F8EF1; --c-beauty:#E2337A; --c-health:#12A37A; --c-fashion:#7A55E6; --c-life:#F2A100; --c-reel:#16181D;
+  --f:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0F1115;--surface:#1A1D24;--ink:#F2F4F7;--muted:#A3AAB8;--line:#2B303A;--brand:#5B7DFF;--c-reel:#3A3F4B;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0F1115;--surface:#1A1D24;--ink:#F2F4F7;--muted:#A3AAB8;--line:#2B303A;--brand:#5B7DFF;--c-reel:#3A3F4B;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f);font-size:18px;line-height:1.5;margin:0}
+.app{max-width:520px;margin:0 auto;min-height:100%;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 40px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);margin:0 calc(-1*max(16px,env(safe-area-inset-left,0px)));padding:14px max(16px,env(safe-area-inset-left,0px));display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}
+.back{font:inherit;font-size:22px;font-weight:900;border:0;background:var(--bg);color:var(--ink);width:52px;height:52px;border-radius:14px;cursor:pointer;flex:none}
+.back:focus-visible,.tile:focus-visible,.ban:focus-visible,.cta:focus-visible,.close:focus-visible{outline:3px solid var(--brand);outline-offset:3px}
+header h1{font-size:26px;font-weight:900;margin:0;flex:1;min-width:0}
+.demo{font-size:13px;font-weight:700;color:var(--muted);border:1.5px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.intro{padding:22px 2px 6px}
+.intro b{display:block;font-size:24px;font-weight:900}
+.intro span{color:var(--muted);font-size:17px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.tile{font:inherit;text-align:left;border:0;cursor:pointer;border-radius:20px;padding:18px 16px;min-height:120px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;background:var(--c)}
+.tile b{font-size:26px;font-weight:900;line-height:1.2}
+.tile span{font-size:15px;font-weight:700;opacity:.92}
+.tile.wide{grid-column:1/3;min-height:96px;flex-direction:row;align-items:center}
+.list{display:flex;flex-direction:column;gap:18px;margin-top:18px}
+.ban{display:block;width:100%;border:0;padding:0;background:var(--surface);border-radius:18px;overflow:hidden;cursor:pointer;text-align:left;font:inherit;color:var(--ink);box-shadow:0 1px 0 var(--line)}
+.ban img,.ban video{display:block;width:100%;height:auto;max-width:100%}
+.ban p{margin:0;padding:12px 16px 14px;font-size:19px;font-weight:700;display:flex;justify-content:space-between;gap:10px}
+.ban p small{color:var(--muted);font-size:15px;font-weight:500}
+.viewer{position:fixed;inset:0;z-index:20;background:rgba(10,12,16,.92);display:flex;flex-direction:column;padding:calc(12px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.viewer .stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.viewer img{max-width:100%;max-height:100%;border-radius:12px;object-fit:contain}
+.vbar{display:flex;gap:10px;max-width:520px;width:100%;margin:12px auto 0}
+.cta{font:inherit;flex:1;border:0;border-radius:16px;background:var(--hot);color:#fff;font-size:22px;font-weight:900;padding:18px;cursor:pointer}
+.close{font:inherit;border:0;border-radius:16px;background:#2A2E37;color:#fff;font-size:20px;font-weight:700;padding:18px 20px;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:calc(110px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:30;background:#16181D;color:#fff;border-radius:14px;padding:14px 18px;font-size:17px;font-weight:700;width:min(92vw,460px);text-align:center}
+.foot{margin-top:28px;color:var(--muted);font-size:15px;text-align:center}
+@media (prefers-reduced-motion:no-preference){.tile,.ban{transition:transform .15s}.tile:active,.ban:active{transform:scale(.98)}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <button class="back" id="back" aria-label="뒤로" hidden>←</button>
+    <h1 id="ttl">우리동네 광고판</h1>
+    <span class="demo">포트폴리오 데모</span>
+  </header>
+  <main id="view"></main>
+  <p class="foot">이 화면은 디자인 작업물을 보여주는 데모예요. 실제 광고가 아닙니다.</p>
+</div>
+
+<div class="viewer" id="viewer" hidden>
+  <div class="stage" id="stage"></div>
+  <div class="vbar"><button class="close" id="vclose">닫기</button><button class="cta" id="vcta">문의하기</button></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const CATS=[
+ {id:'food',name:'음식점',c:'--c-food',items:[['food_chicken','바삭한 치킨 메뉴 홍보','치킨'],['food_jjimdak','찜닭 메뉴 홍보','한식'],['food_kalguksu','칼국수 매장 홍보','한식']]},
+ {id:'stay',name:'숙소 · 여행',c:'--c-stay',items:[['stay_yeosu','여수 오션뷰 숙소 예약','숙박']]},
+ {id:'beauty',name:'뷰티',c:'--c-beauty',items:[['beauty_cream','트러플 크림 광고','스킨케어'],['beauty_tint','틴트 신상 광고','메이크업']]},
+ {id:'health',name:'건강',c:'--c-health',items:[['health_sleep','수면 건강식품 기획세트','건강식품'],['health_vessel','혈관 건강 습관 5가지','카드뉴스']]},
+ {id:'fashion',name:'패션',c:'--c-fashion',items:[['fashion_jacket','가을 신상 코듀로이 자켓','의류']]},
+ {id:'life',name:'생활 정보',c:'--c-life',items:[['life_money','연말 돈 챙기기 5가지','금융'],['life_egg','계란 냉장고 보관법','캐릭터 카드뉴스'],['life_rude','무례한 말버릇 5가지','생활']]},
+ {id:'reel',name:'릴스 영상',c:'--c-reel',wide:true,items:[['hayang','겨울 제철 음식 캐릭터 릴스','9초','vid'],['egg','계란 캐릭터 스토리 릴스','30초','vid']]}
+];
+const $=s=>document.querySelector(s);
+const view=$('#view'),ttl=$('#ttl'),back=$('#back');
+function home(){
+  ttl.textContent='우리동네 광고판'; back.hidden=true;
+  view.innerHTML=`<div class="intro"><b>어떤 가게를 찾으세요?</b><span>업종을 누르면 광고를 볼 수 있어요</span></div><div class="tiles">${
+    CATS.map(c=>`<button class="tile${c.wide?' wide':''}" data-cat="${c.id}" style="--c:var(${c.c})"><b>${c.name}</b><span>광고 ${c.items.length}개 보기 →</span></button>`).join('')}</div>`;
+  view.querySelectorAll('.tile').forEach(b=>b.onclick=()=>{location.hash=b.dataset.cat});
+}
+function cat(c){
+  ttl.textContent=c.name; back.hidden=false;
+  view.innerHTML=`<div class="list">${c.items.map(([f,t,s,k])=>k==='vid'
+    ?`<div class="ban"><video src="vid/${f}.mp4" poster="img/reel_${f}.jpg" controls playsinline preload="none"></video><p>${t}<small>${s}</small></p></div>`
+    :`<button class="ban" data-img="img/${f}.jpg" data-t="${t}"><img src="img/${f}.jpg" alt="${t}" loading="lazy"><p>${t}<small>${s}</small></p></button>`).join('')}</div>`;
+  view.querySelectorAll('button.ban').forEach(b=>b.onclick=()=>openV(b.dataset.img,b.dataset.t));
+  window.scrollTo(0,0);
+}
+function route(){const c=CATS.find(x=>x.id===location.hash.slice(1)); c?cat(c):home()}
+back.onclick=()=>{location.hash=''; if(!location.hash) home()};
+window.addEventListener('hashchange',route);
+const viewer=$('#viewer');
+function openV(src,t){$('#stage').innerHTML=`<img src="${src}" alt="${t}">`;viewer.hidden=false;$('#vclose').focus()}
+$('#vclose').onclick=()=>{viewer.hidden=true};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')viewer.hidden=true});
+let tt;$('#vcta').onclick=()=>{const t=$('#toast');t.textContent='데모 화면이에요. 실제 앱에서는 이 버튼이 가게 전화나 카톡으로 연결돼요.';t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)};
+route();
+</script>
+
+<script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}</script>
+</body>
+</html>
