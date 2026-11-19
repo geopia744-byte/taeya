@@ -78,6 +78,25 @@ header h1{font-size:26px;font-weight:900;margin:0;flex:1;min-width:0}
 <div class="toast" id="toast" hidden></div>
 
 <script>
+// ===== 광고 연결 주소 =====
+// 따옴표 '' 안에 주소를 넣으면 그 광고의 빨간 버튼이 그 주소로 이동해요.
+// 배달앱·네이버 링크: 'https://...'   전화: 'tel:01012345678'   카톡 채널: 'https://pf.kakao.com/...'
+// 비워두면 버튼을 눌렀을 때 안내 문구만 나와요.
+const LINKS={
+  food_chicken:   {url:'', label:'주문하기'},
+  food_jjimdak:   {url:'', label:'주문하기'},
+  food_kalguksu:  {url:'', label:'주문하기'},
+  stay_yeosu:     {url:'', label:'예약하기'},
+  beauty_cream:   {url:'', label:'구매하기'},
+  beauty_tint:    {url:'', label:'구매하기'},
+  health_sleep:   {url:'', label:'구매하기'},
+  health_vessel:  {url:'', label:'자세히 보기'},
+  fashion_jacket: {url:'', label:'구매하기'},
+  life_money:     {url:'', label:'자세히 보기'},
+  life_egg:       {url:'', label:'자세히 보기'},
+  life_rude:      {url:'', label:'자세히 보기'},
+};
+// ==========================
 const CATS=[
  {id:'food',name:'음식점',c:'--c-food',items:[['food_chicken','바삭한 치킨 메뉴 홍보','치킨'],['food_jjimdak','찜닭 메뉴 홍보','한식'],['food_kalguksu','칼국수 매장 홍보','한식']]},
  {id:'stay',name:'숙소 · 여행',c:'--c-stay',items:[['stay_yeosu','여수 오션뷰 숙소 예약','숙박']]},
@@ -99,18 +118,19 @@ function cat(c){
   ttl.textContent=c.name; back.hidden=false;
   view.innerHTML=`<div class="list">${c.items.map(([f,t,s,k])=>k==='vid'
     ?`<div class="ban"><video src="vid/${f}.mp4" poster="img/reel_${f}.jpg" controls playsinline preload="none"></video><p>${t}<small>${s}</small></p></div>`
-    :`<button class="ban" data-img="img/${f}.jpg" data-t="${t}"><img src="img/${f}.jpg" alt="${t}" loading="lazy"><p>${t}<small>${s}</small></p></button>`).join('')}</div>`;
-  view.querySelectorAll('button.ban').forEach(b=>b.onclick=()=>openV(b.dataset.img,b.dataset.t));
+    :`<button class="ban" data-img="img/${f}.jpg" data-t="${t}" data-k="${f}"><img src="img/${f}.jpg" alt="${t}" loading="lazy"><p>${t}<small>${s}</small></p></button>`).join('')}</div>`;
+  view.querySelectorAll('button.ban').forEach(b=>b.onclick=()=>openV(b.dataset.img,b.dataset.t,b.dataset.k));
   window.scrollTo(0,0);
 }
 function route(){const c=CATS.find(x=>x.id===location.hash.slice(1)); c?cat(c):home()}
 back.onclick=()=>{location.hash=''; if(!location.hash) home()};
 window.addEventListener('hashchange',route);
 const viewer=$('#viewer');
-function openV(src,t){$('#stage').innerHTML=`<img src="${src}" alt="${t}">`;viewer.hidden=false;$('#vclose').focus()}
+let curK='';
+function openV(src,t,k){curK=k;const L=LINKS[k]||{};$('#vcta').textContent=L.label||'문의하기';$('#stage').innerHTML=`<img src="${src}" alt="${t}">`;viewer.hidden=false;$('#vclose').focus()}
 $('#vclose').onclick=()=>{viewer.hidden=true};
 document.addEventListener('keydown',e=>{if(e.key==='Escape')viewer.hidden=true});
-let tt;$('#vcta').onclick=()=>{const t=$('#toast');t.textContent='데모 화면이에요. 실제 앱에서는 이 버튼이 가게 전화나 카톡으로 연결돼요.';t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)};
+let tt;$('#vcta').onclick=()=>{const L=LINKS[curK]||{};if(L.url){location.href=L.url;return}const t=$('#toast');t.textContent='아직 연결된 주소가 없어요. 가게 주소를 넣으면 이 버튼으로 바로 이동해요.';t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)};
 route();
 </script>
 
